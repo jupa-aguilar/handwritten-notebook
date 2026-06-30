@@ -1,0 +1,19 @@
+{
+  "name": "handwritten-notebook",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "idb": "^8.0.0",
+    "page-flip": "^2.0.7"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

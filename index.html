@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Notebook</title>
+  </head>
+  <body>
+    <header class="toolbar">
+      <button id="notebooks-btn" class="btn ghost" title="Notebooks">📚</button>
+      <span id="current-notebook" class="current-notebook"></span>
+
+      <label class="btn" for="file-input">＋ Add pages</label>
+      <input id="file-input" type="file" accept="image/*" multiple hidden />
+
+      <div class="search-wrap">
+        <input
+          id="search"
+          type="search"
+          placeholder="Search all pages…"
+          autocomplete="off"
+        />
+        <span id="search-count" class="search-count"></span>
+      </div>
+
+      <span id="ocr-status" class="ocr-status"></span>
+      <span id="usage" class="usage" title="Google Cloud Vision free tier: 1,000 pages per month (local estimate)"></span>
+
+      <button id="pages-btn" class="btn ghost" title="All pages">🗂 Pages</button>
+      <button id="panel-toggle" class="btn ghost" title="Show page text">📖 Text</button>
+      <button id="fullscreen-btn" class="btn ghost" title="Full screen (F)">⛶</button>
+      <button id="settings-btn" class="btn ghost" title="API key">⚙</button>
+    </header>
+
+    <main class="stage">
+      <button id="prev" class="nav nav-prev" aria-label="Previous page">‹</button>
+
+      <div class="book-area">
+        <div id="empty" class="empty">
+          <p>Your notebook is empty.</p>
+          <p>Click <strong>＋ Add pages</strong> to upload your scanned notes.</p>
+        </div>
+        <div id="book" class="book"></div>
+
+        <div id="pager" class="pager" hidden>
+          <button id="first" class="pager-btn" title="First page (Home)">⏮</button>
+          <span id="page-indicator" class="page-indicator">1 / 1</span>
+          <button id="last" class="pager-btn" title="Last page (End)">⏭</button>
+        </div>
+      </div>
+
+      <button id="next" class="nav nav-next" aria-label="Next page">›</button>
+
+      <aside id="panel" class="panel" hidden>
+        <div class="panel-head">
+          <strong>Page text</strong>
+          <button id="panel-close" class="btn ghost small">✕</button>
+        </div>
+        <div id="panel-body" class="panel-body"></div>
+        <div id="results" class="results" hidden></div>
+      </aside>
+    </main>
+
+    <!-- Notebooks manager -->
+    <div id="notebooks" class="modal" hidden>
+      <div class="modal-card">
+        <h2>Notebooks</h2>
+        <div class="new-notebook">
+          <input id="new-notebook-name" type="text" placeholder="New notebook name…" autocomplete="off" />
+          <button id="new-notebook-btn" class="btn">Create</button>
+        </div>
+        <ul id="notebook-list" class="notebook-list"></ul>
+        <div class="modal-actions">
+          <button id="notebooks-close" class="btn ghost">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pages overview -->
+    <div id="pages-overview" class="modal" hidden>
+      <div class="modal-card modal-wide">
+        <h2>All pages</h2>
+        <p class="hint">Drag a page to reorder it. Click a page to open it, or use 🗑️ to delete just that page.</p>
+        <div id="pages-grid" class="pages-grid"></div>
+        <div class="modal-actions">
+          <button id="pages-overview-close" class="btn ghost">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- API key modal -->
+    <div id="settings" class="modal" hidden>
+      <div class="modal-card">
+        <h2>Google Cloud Vision API key</h2>
+        <p class="hint">
+          Handwriting transcription uses Google Cloud Vision. Your key is stored
+          only in this browser (<code>localStorage</code>) and is sent directly to
+          Google — never to any other server. In
+          <a href="https://console.cloud.google.com/" target="_blank" rel="noopener"
+            >Google Cloud Console</a
+          >: enable the <strong>Cloud Vision API</strong>, then create an API key
+          under <em>APIs &amp; Services → Credentials</em>. The first 1,000
+          pages/month are free.
+        </p>
+        <input id="api-key" type="password" placeholder="AIza…" autocomplete="off" />
+        <div class="modal-actions">
+          <button id="settings-save" class="btn">Save</button>
+          <button id="settings-cancel" class="btn ghost">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
