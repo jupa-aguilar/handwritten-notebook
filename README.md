@@ -42,6 +42,11 @@ Then:
   click one to flip there.
 - **Read a page's text:** click **📖 Text** to open the transcription panel beside
   the page, with matches highlighted.
+- **Back up / move a notebook:** open **📚**, then **📤** on a notebook to download
+  it as a `.notebook.json` file (images + transcripts + word boxes). Use **⬆ Import…**
+  to restore it — handy before clearing browser data or to copy a notebook to
+  another machine. Since everything lives in this browser's IndexedDB, this file is
+  your only backup.
 
 ## Build for offline use
 
@@ -55,8 +60,10 @@ server.
 
 ## Notes
 
-- Search matches the **transcribed text**, not pixel regions, so within-page hits
-  are shown in the text panel rather than boxed on the scan itself.
+- Search matches the **transcribed text**. Matching words are listed in the text
+  panel and also **boxed directly on the page image**, using the word positions
+  Google Vision returns. (Pages transcribed before this feature have no saved word
+  positions — re-run **🔄 Re-transcribe** on the notebook to get on-image boxes.)
 - Reset everything by running `resetNotebook()` in the browser console.
 - The API key is exposed to anyone who can open this browser profile — fine for a
   personal machine; don't deploy this app publicly with a shared key.

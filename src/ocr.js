@@ -31,7 +31,39 @@ export async function transcribeImage({ base64, apiKey }) {
   if (result?.error) {
     throw new Error(result.error.message || 'Vision API error');
   }
-  return (result?.fullTextAnnotation?.text || '').trim();
+  const annotation = result?.fullTextAnnotation;
+  return {
+    text: (annotation?.text || '').trim(),
+    words: extractWords(annotation),
+  };
+}
+
+// Flatten Vision's page→block→paragraph→word tree into a flat list of word
+// boxes, in pixel coordinates of the image we sent (which is the same image we
+// store, so the boxes line up with page.width/page.height). Used to highlight
+// search hits directly on the page image.
+function extractWords(annotation) {
+  const words = [];
+  for (const page of annotation?.pages || []) {
+    for (const block of page.blocks || []) {
+      for (const para of block.paragraphs || []) {
+        for (const word of para.words || []) {
+          const t = (word.symbols || []).map((s) => s.text).join('');
+          const verts = word.boundingBox?.vertices;
+          if (!t || !verts || verts.length < 4) continue;
+          const xs = verts.map((v) => v.x || 0);
+          const ys = verts.map((v) => v.y || 0);
+          const x = Math.min(...xs);
+          const y = Math.min(...ys);
+          const w = Math.max(...xs) - x;
+          const h = Math.max(...ys) - y;
+          if (w <= 0 || h <= 0) continue;
+          words.push({ t, x, y, w, h });
+        }
+      }
+    }
+  }
+  return words;
 }
 
 /*

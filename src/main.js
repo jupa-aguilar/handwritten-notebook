@@ -208,11 +208,26 @@ async function renderBook() {
     savePage(currentNotebookId, currentPage);
     updatePanel();
     updatePager();
+    updateHighlights();
   });
+  // Hide the boxes while a page is mid-flip (they'd float over the 3D curl) and
+  // redraw them once it settles back to a flat "read" state.
+  pageFlip.on('changeState', (e) => {
+    if (e.data === 'read') updateHighlights();
+    else clearHighlights();
+  });
+  pageFlip.on('changeOrientation', () => updateHighlights());
   // Nudge StPageFlip to recompute its stretched size now that the fresh
-  // container is in the DOM and visible (e.g. after a modal closes).
-  requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
-  setTimeout(() => window.dispatchEvent(new Event('resize')), 150);
+  // container is in the DOM and visible (e.g. after a modal closes), then
+  // position the highlight boxes against the freshly measured geometry.
+  requestAnimationFrame(() => {
+    window.dispatchEvent(new Event('resize'));
+    updateHighlights();
+  });
+  setTimeout(() => {
+    window.dispatchEvent(new Event('resize'));
+    updateHighlights();
+  }, 150);
   currentPage = Math.max(0, Math.min(currentPage, pages.length - 1));
   // Jump (no animation) to the page this notebook was last left on.
   if (currentPage > 0) pageFlip.turnToPage(currentPage);
@@ -316,6 +331,7 @@ function refreshSearch() {
     results.hidden = true;
     results.innerHTML = '';
     updatePanel();
+    clearHighlights();
     return;
   }
 
@@ -360,6 +376,70 @@ function refreshSearch() {
 
   openPanel();
   updatePanel();
+  updateHighlights();
+}
+
+// ---------- highlight boxes over the page image ----------
+
+function clearHighlights() {
+  const layer = $('#highlights');
+  if (layer) layer.replaceChildren();
+}
+
+// Draw a box over every word on the visible page(s) that matches the search.
+// StPageFlip draws onto a <canvas>, so we position an absolute overlay using the
+// page geometry it exposes via getRender().getRect(). Called only with the page
+// at rest (boxes are cleared during the 3D flip, which would distort them).
+function updateHighlights() {
+  const layer = $('#highlights');
+  if (!layer) return;
+  layer.replaceChildren();
+
+  if (!pageFlip || pages.length === 0) return;
+  const query = $('#search').value.trim().toLowerCase();
+  const tokens = query.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return;
+
+  const canvas = $('#book').querySelector('canvas');
+  const rect = pageFlip.getRender().getRect(); // { left, top, height, pageWidth }
+  if (!canvas || !rect) return;
+
+  // Which page indices are on screen, and each one's x-offset inside the spread.
+  // Without a cover, landscape spreads are [0,1], [2,3], … (even index on left);
+  // portrait shows a single page in the right-hand slot.
+  const idx = pageFlip.getCurrentPageIndex();
+  const visible = [];
+  if (pageFlip.getOrientation() === 'portrait') {
+    visible.push({ i: idx, offset: rect.pageWidth });
+  } else {
+    const left = idx - (idx % 2);
+    visible.push({ i: left, offset: 0 });
+    if (left + 1 < pages.length) visible.push({ i: left + 1, offset: rect.pageWidth });
+  }
+
+  const canvasBox = canvas.getBoundingClientRect();
+  const layerBox = layer.getBoundingClientRect();
+  const frag = document.createDocumentFragment();
+
+  for (const { i, offset } of visible) {
+    const page = pages[i];
+    if (!page?.words?.length || !page.width || !page.height) continue;
+    const pageLeft = canvasBox.left - layerBox.left + rect.left + offset;
+    const pageTop = canvasBox.top - layerBox.top + rect.top;
+    const sx = rect.pageWidth / page.width;
+    const sy = rect.height / page.height;
+    for (const w of page.words) {
+      if (!tokens.some((t) => w.t.toLowerCase().includes(t))) continue;
+      const box = document.createElement('div');
+      box.className = 'hl-box';
+      box.style.left = `${pageLeft + w.x * sx}px`;
+      box.style.top = `${pageTop + w.y * sy}px`;
+      box.style.width = `${w.w * sx}px`;
+      box.style.height = `${w.h * sy}px`;
+      frag.appendChild(box);
+    }
+  }
+  layer.appendChild(frag);
 }
 
 // ---------- OCR queue ----------
@@ -382,11 +462,13 @@ async function runOcrQueue() {
       setOcrStatus(`Transcribing page ${pages.indexOf(page) + 1}…`);
       try {
         const base64 = await blobToBase64(page.blob);
-        page.text = await transcribeImage({
+        const { text, words } = await transcribeImage({
           base64,
           mediaType: page.mediaType,
           apiKey,
         });
+        page.text = text;
+        page.words = words;
         page.ocrStatus = 'done';
         page.error = '';
         bumpUsage();
@@ -395,6 +477,7 @@ async function runOcrQueue() {
         page.ocrStatus = 'error';
         page.error = err.message;
         page.text = '';
+        page.words = [];
       }
       await putPage(page);
       if (pages[currentPage] === page) updatePanel();
@@ -478,6 +561,7 @@ async function handleFiles(fileList) {
         width,
         height,
         text: '',
+        words: [],
         ocrStatus: TRANSCRIPTION_ENABLED ? 'pending' : 'skipped',
       };
       record.id = await addPage(record);
@@ -530,12 +614,20 @@ function toggleFullscreen() {
   }
 }
 
+// Showing/hiding the text panel changes the book's available width. StPageFlip
+// only refits on a window 'resize', so fire one; the ResizeObserver on the book
+// area then repositions the highlight boxes against the new geometry.
+function setPanelHidden(hidden) {
+  $('#panel').hidden = hidden;
+  if (!hidden) updatePanel();
+  window.dispatchEvent(new Event('resize'));
+}
+
 function openPanel() {
-  $('#panel').hidden = false;
+  setPanelHidden(false);
 }
 function togglePanel() {
-  $('#panel').hidden = !$('#panel').hidden;
-  if (!$('#panel').hidden) updatePanel();
+  setPanelHidden($('#panel').hidden === false);
 }
 
 // ---------- notebooks ----------
@@ -597,6 +689,7 @@ async function renderNotebookList() {
         <span class="nb-actions">
           <button class="btn ghost small nb-rename" data-id="${nb.id}" title="Rename">✏️</button>
           <button class="btn ghost small nb-retrans" data-id="${nb.id}" title="Re-transcribe">🔄</button>
+          <button class="btn ghost small nb-export" data-id="${nb.id}" title="Export / backup">📤</button>
           <button class="btn ghost small nb-delete" data-id="${nb.id}" title="Delete">🗑️</button>
         </span>
       </li>`
@@ -617,6 +710,9 @@ async function renderNotebookList() {
   );
   ul.querySelectorAll('.nb-retrans').forEach((b) =>
     b.addEventListener('click', () => retranscribeNotebook(Number(b.dataset.id)))
+  );
+  ul.querySelectorAll('.nb-export').forEach((b) =>
+    b.addEventListener('click', () => exportNotebook(Number(b.dataset.id)))
   );
   ul.querySelectorAll('.nb-delete').forEach((b) =>
     b.addEventListener('click', () => deleteNotebookFlow(Number(b.dataset.id)))
@@ -670,10 +766,12 @@ async function retranscribeNotebook(id) {
     !confirm('Re-transcribe every page in this notebook? This re-runs OCR on all of them.')
   )
     return;
+  $('#notebooks').hidden = true;
   if (id !== currentNotebookId) await switchNotebook(id, { closeModal: false });
   for (const p of pages) {
     p.ocrStatus = TRANSCRIPTION_ENABLED ? 'pending' : 'skipped';
     p.text = '';
+    p.words = [];
     p.error = '';
     await putPage(p);
   }
@@ -681,6 +779,122 @@ async function retranscribeNotebook(id) {
   refreshSearch();
   renderNotebookList();
   runOcrQueue();
+}
+
+// ---------- export / import (backup) ----------
+
+const EXPORT_FORMAT = 'my-notebook-export';
+const EXPORT_VERSION = 1;
+
+function base64ToBlob(base64, mediaType) {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mediaType || 'image/jpeg' });
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Bundle a whole notebook (images + transcripts + word boxes) into one JSON
+// file the user can keep as a backup or move to another device/browser.
+async function exportNotebook(id) {
+  const notebooks = await listNotebooks();
+  const nb = notebooks.find((n) => n.id === id);
+  if (!nb) return;
+  setOcrStatus(`Exporting “${nb.name}”…`);
+  try {
+    const nbPages = await getPages(id);
+    const exported = [];
+    for (const p of nbPages) {
+      exported.push({
+        order: p.order,
+        name: p.name,
+        mediaType: p.mediaType,
+        width: p.width,
+        height: p.height,
+        text: p.text || '',
+        words: p.words || [],
+        ocrStatus: p.ocrStatus,
+        error: p.error || '',
+        image: await blobToBase64(p.blob), // base64, no data: prefix
+      });
+    }
+    const data = {
+      format: EXPORT_FORMAT,
+      version: EXPORT_VERSION,
+      exportedAt: Date.now(),
+      notebook: { name: nb.name },
+      pages: exported,
+    };
+    const safe = (nb.name || 'notebook').replace(/[^\w.-]+/g, '_').slice(0, 60);
+    downloadBlob(
+      new Blob([JSON.stringify(data)], { type: 'application/json' }),
+      `${safe}.notebook.json`
+    );
+    setOcrStatus(`Exported ${exported.length} page(s)`);
+  } catch (err) {
+    console.error('Export failed', err);
+    setOcrStatus('Export failed');
+    alert('Could not export this notebook:\n\n' + err.message);
+  }
+}
+
+async function importNotebookFromFile(file) {
+  setOcrStatus(`Importing “${file.name}”…`);
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    setOcrStatus('Import failed');
+    alert('That file is not a valid notebook backup (could not parse JSON).');
+    return;
+  }
+  if (data?.format !== EXPORT_FORMAT || !Array.isArray(data.pages)) {
+    setOcrStatus('Import failed');
+    alert('That file is not a My Notebook backup.');
+    return;
+  }
+
+  try {
+    const name = (data.notebook?.name || 'Imported notebook').trim();
+    const newId = await addNotebook(name);
+    let order = 0;
+    for (const p of data.pages) {
+      if (!p.image) continue;
+      await addPage({
+        notebookId: newId,
+        order: typeof p.order === 'number' ? p.order : order,
+        name: p.name || `page-${order + 1}`,
+        blob: base64ToBlob(p.image, p.mediaType),
+        mediaType: p.mediaType || 'image/jpeg',
+        width: p.width,
+        height: p.height,
+        text: p.text || '',
+        words: p.words || [],
+        ocrStatus: p.ocrStatus || (p.text ? 'done' : 'skipped'),
+        error: p.error || '',
+      });
+      order++;
+    }
+    setOcrStatus(`Imported ${order} page(s)`);
+    await switchNotebook(newId, { closeModal: true });
+    if (TRANSCRIPTION_ENABLED && pages.some((p) => p.ocrStatus === 'pending')) {
+      runOcrQueue();
+    }
+  } catch (err) {
+    console.error('Import failed', err);
+    setOcrStatus('Import failed');
+    alert('Could not import that notebook:\n\n' + err.message);
+  }
 }
 
 // ---------- pages overview ----------
@@ -814,6 +1028,14 @@ function wire() {
     if (e.key === 'f' || e.key === 'F') toggleFullscreen();
   });
 
+  // Reposition highlight boxes whenever the book area changes size — window
+  // resize, fullscreen toggles, or the text panel opening/closing. The observer
+  // fires after layout settles, so StPageFlip (which refits on window 'resize')
+  // has already recomputed its geometry by the time we read it.
+  new ResizeObserver(() => requestAnimationFrame(updateHighlights)).observe(
+    $('.book-area')
+  );
+
   $('#fullscreen-btn').addEventListener('click', toggleFullscreen);
   document.addEventListener('fullscreenchange', () => {
     $('#fullscreen-btn').textContent = document.fullscreenElement ? '⤡' : '⛶';
@@ -827,7 +1049,7 @@ function wire() {
   $('#pages-overview-close').addEventListener('click', closePagesOverview);
 
   $('#panel-toggle').addEventListener('click', togglePanel);
-  $('#panel-close').addEventListener('click', () => ($('#panel').hidden = true));
+  $('#panel-close').addEventListener('click', () => setPanelHidden(true));
 
   $('#settings-btn').addEventListener('click', openSettings);
   $('#settings-save').addEventListener('click', saveSettings);
@@ -838,6 +1060,11 @@ function wire() {
   $('#new-notebook-btn').addEventListener('click', createNotebook);
   $('#new-notebook-name').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') createNotebook();
+  });
+  $('#import-notebook-btn').addEventListener('click', () => $('#import-input').click());
+  $('#import-input').addEventListener('change', (e) => {
+    if (e.target.files[0]) importNotebookFromFile(e.target.files[0]);
+    e.target.value = '';
   });
 
   // Drag-and-drop onto the book area.

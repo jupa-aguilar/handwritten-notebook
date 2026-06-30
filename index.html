@@ -41,6 +41,7 @@
           <p>Click <strong>＋ Add pages</strong> to upload your scanned notes.</p>
         </div>
         <div id="book" class="book"></div>
+        <div id="highlights" class="highlights" aria-hidden="true"></div>
 
         <div id="pager" class="pager" hidden>
           <button id="first" class="pager-btn" title="First page (Home)">⏮</button>
@@ -70,7 +71,9 @@
           <button id="new-notebook-btn" class="btn">Create</button>
         </div>
         <ul id="notebook-list" class="notebook-list"></ul>
+        <input id="import-input" type="file" accept="application/json,.json" hidden />
         <div class="modal-actions">
+          <button id="import-notebook-btn" class="btn ghost" title="Import a notebook backup file">⬆ Import…</button>
           <button id="notebooks-close" class="btn ghost">Close</button>
         </div>
       </div>
