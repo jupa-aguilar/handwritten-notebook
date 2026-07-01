@@ -21,7 +21,8 @@ import { transcribeImage } from './ocr.js';
 // Handwriting OCR via Google Cloud Vision. Flip to `false` to disable.
 const TRANSCRIPTION_ENABLED = true;
 
-const MAX_EDGE = 2000; // long-edge cap (px) for stored/transcribed images
+const MAX_EDGE = 3000; // long-edge cap (px) for stored/transcribed images
+                       // (higher = sharper zoom, more storage; new imports only)
 const JPEG_QUALITY = 0.85;
 const KEY_STORAGE = 'notebook.googleVisionKey';
 const CURRENT_KEY = 'notebook.currentId';
@@ -37,6 +38,17 @@ let dragSrcIndex = null;  // index of the page being dragged in the overview
 let pageFlip = null;
 let currentPage = 0;
 let ocrRunning = false;
+
+// Reading zoom viewer state.
+let viewerPage = 0;
+let viewerUrl = null;     // object URL of the image currently in the viewer
+let vScale = 1;           // current zoom (relative to native pixels)
+let vFit = 1;             // scale that fits the page in the stage (baseline)
+let vTx = 0;              // pan translate x/y (px, in stage coords)
+let vTy = 0;
+let vNatW = 0;            // page image natural size (px)
+let vNatH = 0;
+let vDrag = null;         // { x, y, tx, ty } while panning
 
 // ---------- helpers ----------
 
@@ -332,6 +344,7 @@ function refreshSearch() {
     results.innerHTML = '';
     updatePanel();
     clearHighlights();
+    renderViewerHighlights();
     return;
   }
 
@@ -377,6 +390,7 @@ function refreshSearch() {
   openPanel();
   updatePanel();
   updateHighlights();
+  renderViewerHighlights();
 }
 
 // ---------- highlight boxes over the page image ----------
@@ -1001,9 +1015,175 @@ async function movePage(from, to) {
   renderPagesGrid();
 }
 
+// ---------- reading zoom viewer ----------
+
+function openViewer(index = currentPage) {
+  if (pages.length === 0) return;
+  $('#viewer').hidden = false;
+  loadViewerPage(index);
+}
+
+function closeViewer() {
+  $('#viewer').hidden = true;
+  if (viewerUrl) {
+    URL.revokeObjectURL(viewerUrl);
+    viewerUrl = null;
+  }
+  // Bring the flipbook to whatever page we ended on in the viewer.
+  currentPage = viewerPage;
+  if (pageFlip) pageFlip.turnToPage(currentPage);
+  savePage(currentNotebookId, currentPage);
+  updatePanel();
+  updatePager();
+  updateHighlights();
+}
+
+function loadViewerPage(index) {
+  viewerPage = Math.max(0, Math.min(index, pages.length - 1));
+  const page = pages[viewerPage];
+  if (!page) return;
+
+  if (viewerUrl) URL.revokeObjectURL(viewerUrl);
+  viewerUrl = URL.createObjectURL(page.blob);
+
+  vNatW = page.width || 1000;
+  vNatH = page.height || 1400;
+  const content = $('#viewer-content');
+  content.style.width = `${vNatW}px`;
+  content.style.height = `${vNatH}px`;
+  $('#viewer-img').src = viewerUrl;
+
+  $('#viewer-indicator').textContent = `${viewerPage + 1} / ${pages.length}`;
+  $('#viewer-prev').disabled = viewerPage <= 0;
+  $('#viewer-next').disabled = viewerPage >= pages.length - 1;
+
+  fitViewer();
+  renderViewerHighlights();
+}
+
+// Scale so the whole page fits the stage, and center it.
+function fitViewer() {
+  const rect = $('#viewer-stage').getBoundingClientRect();
+  vFit = Math.min(rect.width / vNatW, rect.height / vNatH) || 1;
+  vScale = vFit;
+  vTx = (rect.width - vNatW * vScale) / 2;
+  vTy = (rect.height - vNatH * vScale) / 2;
+  applyViewerTransform();
+}
+
+function applyViewerTransform() {
+  $('#viewer-content').style.transform =
+    `translate(${vTx}px, ${vTy}px) scale(${vScale})`;
+  $('#viewer-zoom-level').textContent = `${Math.round(vScale * 100)}%`;
+}
+
+// Keep the page from drifting off-screen: center it on any axis where it's
+// smaller than the stage, otherwise clamp so an edge can't move inward.
+function clampViewerPan() {
+  const rect = $('#viewer-stage').getBoundingClientRect();
+  const w = vNatW * vScale;
+  const h = vNatH * vScale;
+  vTx = w <= rect.width ? (rect.width - w) / 2 : Math.min(0, Math.max(rect.width - w, vTx));
+  vTy = h <= rect.height ? (rect.height - h) / 2 : Math.min(0, Math.max(rect.height - h, vTy));
+}
+
+// Zoom toward a point (cx, cy) given in stage coordinates.
+function zoomViewer(nextScale, cx, cy) {
+  const min = vFit;
+  const max = Math.max(8, vFit);
+  const s = Math.max(min, Math.min(max, nextScale));
+  const imgX = (cx - vTx) / vScale;
+  const imgY = (cy - vTy) / vScale;
+  vScale = s;
+  vTx = cx - imgX * vScale;
+  vTy = cy - imgY * vScale;
+  clampViewerPan();
+  applyViewerTransform();
+}
+
+function zoomViewerBy(factor) {
+  const rect = $('#viewer-stage').getBoundingClientRect();
+  zoomViewer(vScale * factor, rect.width / 2, rect.height / 2);
+}
+
+// Boxes live inside the transformed content sized to the page's native pixels,
+// so word coordinates map 1:1 and scale/pan for free with the CSS transform.
+function renderViewerHighlights() {
+  const layer = $('#viewer-highlights');
+  if (!layer) return;
+  layer.replaceChildren();
+  if ($('#viewer').hidden) return;
+
+  const tokens = $('#search').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const page = pages[viewerPage];
+  if (tokens.length === 0 || !page?.words?.length) return;
+
+  const frag = document.createDocumentFragment();
+  for (const w of page.words) {
+    if (!tokens.some((t) => w.t.toLowerCase().includes(t))) continue;
+    const box = document.createElement('div');
+    box.className = 'vhl-box';
+    box.style.left = `${w.x}px`;
+    box.style.top = `${w.y}px`;
+    box.style.width = `${w.w}px`;
+    box.style.height = `${w.h}px`;
+    frag.appendChild(box);
+  }
+  layer.appendChild(frag);
+}
+
+function wireViewer() {
+  const stage = $('#viewer-stage');
+
+  $('#zoom-btn').addEventListener('click', () => openViewer());
+  $('#viewer-close').addEventListener('click', closeViewer);
+  $('#viewer-prev').addEventListener('click', () => loadViewerPage(viewerPage - 1));
+  $('#viewer-next').addEventListener('click', () => loadViewerPage(viewerPage + 1));
+  $('#viewer-zoom-in').addEventListener('click', () => zoomViewerBy(1.25));
+  $('#viewer-zoom-out').addEventListener('click', () => zoomViewerBy(1 / 1.25));
+  $('#viewer-reset').addEventListener('click', fitViewer);
+
+  // Double-click the book to jump straight into the zoom viewer.
+  $('.book-area').addEventListener('dblclick', () => openViewer(currentPage));
+
+  stage.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = stage.getBoundingClientRect();
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    zoomViewer(vScale * factor, e.clientX - rect.left, e.clientY - rect.top);
+  }, { passive: false });
+
+  stage.addEventListener('pointerdown', (e) => {
+    vDrag = { x: e.clientX, y: e.clientY, tx: vTx, ty: vTy };
+    stage.setPointerCapture(e.pointerId);
+    stage.classList.add('grabbing');
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (!vDrag) return;
+    vTx = vDrag.tx + (e.clientX - vDrag.x);
+    vTy = vDrag.ty + (e.clientY - vDrag.y);
+    clampViewerPan();
+    applyViewerTransform();
+  });
+  const endDrag = () => {
+    vDrag = null;
+    stage.classList.remove('grabbing');
+  };
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+
+  window.addEventListener('resize', () => {
+    if (!$('#viewer').hidden) {
+      clampViewerPan();
+      applyViewerTransform();
+    }
+  });
+}
+
 // ---------- wiring ----------
 
 function wire() {
+  wireViewer();
   $('#file-input').addEventListener('change', (e) => {
     handleFiles(e.target.files);
     e.target.value = '';
@@ -1021,11 +1201,24 @@ function wire() {
   $('#last').addEventListener('click', goLast);
   document.addEventListener('keydown', (e) => {
     if (e.target.matches('input, textarea')) return;
+
+    // When the zoom viewer is open it captures the keyboard.
+    if (!$('#viewer').hidden) {
+      if (e.key === 'Escape') closeViewer();
+      else if (e.key === 'ArrowLeft') loadViewerPage(viewerPage - 1);
+      else if (e.key === 'ArrowRight') loadViewerPage(viewerPage + 1);
+      else if (e.key === '+' || e.key === '=') zoomViewerBy(1.25);
+      else if (e.key === '-' || e.key === '_') zoomViewerBy(1 / 1.25);
+      else if (e.key === '0') fitViewer();
+      return;
+    }
+
     if (e.key === 'ArrowLeft') pageFlip && pageFlip.flipPrev();
     if (e.key === 'ArrowRight') pageFlip && pageFlip.flipNext();
     if (e.key === 'Home') goFirst();
     if (e.key === 'End') goLast();
     if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+    if (e.key === 'z' || e.key === 'Z') openViewer();
   });
 
   // Reposition highlight boxes whenever the book area changes size — window

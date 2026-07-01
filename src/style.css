@@ -531,3 +531,74 @@ mark {
     z-index: 20;
   }
 }
+
+/* ---------- reading zoom viewer ---------- */
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(20, 17, 14, 0.96);
+  display: flex;
+  flex-direction: column;
+}
+.viewer-stage {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+.viewer-stage.grabbing {
+  cursor: grabbing;
+}
+.viewer-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.viewer-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.viewer-highlights {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.viewer-highlights .vhl-box {
+  position: absolute;
+  background: rgba(255, 213, 0, 0.33);
+  border-radius: 1px;
+}
+.viewer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+}
+.viewer-toolbar .btn.ghost {
+  color: var(--ink);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.viewer-indicator,
+.viewer-zoom-level {
+  color: var(--ink);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+  text-align: center;
+}
+.viewer-sep {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 0 4px;
+}

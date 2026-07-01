@@ -42,6 +42,9 @@ Then:
   click one to flip there.
 - **Read a page's text:** click **📖 Text** to open the transcription panel beside
   the page, with matches highlighted.
+- **Zoom in to read:** click **🔍 Zoom** (or press **Z**, or double-click the page)
+  to open a full-screen viewer. Scroll/pinch or use **＋ − Fit** to zoom, drag to
+  pan, **← →** to change page, **Esc** to close. Search hits are boxed here too.
 - **Back up / move a notebook:** open **📚**, then **📤** on a notebook to download
   it as a `.notebook.json` file (images + transcripts + word boxes). Use **⬆ Import…**
   to restore it — handy before clearing browser data or to copy a notebook to
@@ -57,6 +60,24 @@ npm run preview  # serve the production build locally
 
 The `dist/` folder is a plain static site — open it from any static host or local
 server.
+
+## Mac app (Electron)
+
+```bash
+npm run app       # build + launch the Electron app directly
+npm run app:dist  # build a distributable: release/My Notebook-<version>-arm64.dmg
+npm run app:dev   # Electron against the vite dev server (run `npm run dev` first)
+```
+
+Open the DMG and drag **My Notebook** to Applications. Notes:
+
+- The Electron app has its **own IndexedDB** (`~/Library/Application Support/My
+  Notebook`), separate from any browser. Move notebooks with 📤 Export / ⬆ Import,
+  and re-enter the API key in ⚙.
+- The app is unsigned (no Apple Developer certificate): it runs fine locally, but
+  on another Mac you'd need right-click → Open to pass Gatekeeper.
+- The icon is generated from `build/icon.svg` (rasterized with `qlmanage`, packed
+  with `iconutil` into `build/icon.icns`, which electron-builder picks up).
 
 ## Notes
 

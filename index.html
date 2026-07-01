@@ -27,6 +27,7 @@
       <span id="usage" class="usage" title="Google Cloud Vision free tier: 1,000 pages per month (local estimate)"></span>
 
       <button id="pages-btn" class="btn ghost" title="All pages">🗂 Pages</button>
+      <button id="zoom-btn" class="btn ghost" title="Zoom in to read (Z)">🔍 Zoom</button>
       <button id="panel-toggle" class="btn ghost" title="Show page text">📖 Text</button>
       <button id="fullscreen-btn" class="btn ghost" title="Full screen (F)">⛶</button>
       <button id="settings-btn" class="btn ghost" title="API key">⚙</button>
@@ -61,6 +62,28 @@
         <div id="results" class="results" hidden></div>
       </aside>
     </main>
+
+    <!-- Reading zoom viewer -->
+    <div id="viewer" class="viewer" hidden>
+      <div id="viewer-stage" class="viewer-stage">
+        <div id="viewer-content" class="viewer-content">
+          <img id="viewer-img" class="viewer-img" alt="" draggable="false" />
+          <div id="viewer-highlights" class="viewer-highlights"></div>
+        </div>
+      </div>
+      <div class="viewer-toolbar">
+        <button id="viewer-prev" class="btn ghost small" title="Previous page (←)">‹</button>
+        <span id="viewer-indicator" class="viewer-indicator">1 / 1</span>
+        <button id="viewer-next" class="btn ghost small" title="Next page (→)">›</button>
+        <span class="viewer-sep"></span>
+        <button id="viewer-zoom-out" class="btn ghost small" title="Zoom out (−)">−</button>
+        <span id="viewer-zoom-level" class="viewer-zoom-level">100%</span>
+        <button id="viewer-zoom-in" class="btn ghost small" title="Zoom in (+)">＋</button>
+        <button id="viewer-reset" class="btn ghost small" title="Fit to screen (0)">Fit</button>
+        <span class="viewer-sep"></span>
+        <button id="viewer-close" class="btn ghost small" title="Close (Esc)">✕ Close</button>
+      </div>
+    </div>
 
     <!-- Notebooks manager -->
     <div id="notebooks" class="modal" hidden>

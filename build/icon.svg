@@ -1,0 +1,56 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f3831"/>
+      <stop offset="1" stop-color="#211d1a"/>
+    </linearGradient>
+    <linearGradient id="pageL" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#efe8d9"/>
+      <stop offset="0.82" stop-color="#f7f3ea"/>
+      <stop offset="1" stop-color="#d9cfba"/>
+    </linearGradient>
+    <linearGradient id="pageR" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#d9cfba"/>
+      <stop offset="0.18" stop-color="#f7f3ea"/>
+      <stop offset="1" stop-color="#efe8d9"/>
+    </linearGradient>
+    <linearGradient id="spine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8a7d6c" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#5d5142" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#8a7d6c" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- macOS squircle -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+
+  <!-- cover -->
+  <rect x="230" y="360" width="564" height="342" rx="30" fill="#c8743c"/>
+  <rect x="230" y="360" width="564" height="342" rx="30" fill="#000" opacity="0.12"/>
+
+  <!-- pages -->
+  <path d="M 512 402 C 440 372 340 372 274 392 L 274 652 C 340 632 440 632 512 662 Z"
+        fill="url(#pageL)"/>
+  <path d="M 512 402 C 584 372 684 372 750 392 L 750 652 C 684 632 584 632 512 662 Z"
+        fill="url(#pageR)"/>
+  <rect x="496" y="380" width="32" height="278" fill="url(#spine)"/>
+
+  <!-- search-highlight detail -->
+  <rect x="556" y="475" width="152" height="42" rx="12" fill="#ffd98a"/>
+
+  <!-- handwriting: left page -->
+  <g stroke="#6c6256" stroke-width="15" stroke-linecap="round" fill="none">
+    <path d="M 312 448 q 38 -14 76 -2 t 78 -2"/>
+    <path d="M 312 498 q 44 -12 84 0 t 66 -4"/>
+    <path d="M 312 548 q 36 -12 72 0 t 84 -4"/>
+    <path d="M 312 598 q 40 -10 66 -2"/>
+  </g>
+
+  <!-- handwriting: right page -->
+  <g stroke="#6c6256" stroke-width="15" stroke-linecap="round" fill="none">
+    <path d="M 556 446 q 42 -14 80 -2 t 76 0"/>
+    <path d="M 566 496 q 38 -10 68 0 t 64 -4"/>
+    <path d="M 556 546 q 44 -12 82 0 t 74 -4"/>
+    <path d="M 556 596 q 36 -10 88 -4"/>
+  </g>
+</svg>
