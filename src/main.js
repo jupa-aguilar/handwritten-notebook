@@ -267,11 +267,7 @@ function goLast() {
 async function removePage(id) {
   const index = pages.findIndex((p) => p.id === id);
   if (index === -1) return;
-  const page = pages[index];
-  if (
-    !confirm(`Delete page ${index + 1} (${page.name})? This cannot be undone.`)
-  )
-    return;
+  if (!confirm(`Delete page ${index + 1}? This cannot be undone.`)) return;
   await deletePage(id);
   pages = await getPages(currentNotebookId);
   // Keep the viewer roughly where it was: shift back if we removed a page
@@ -291,9 +287,7 @@ function updatePanel() {
     return;
   }
   const query = $('#search').value.trim();
-  let html = `<div class="panel-meta">Page ${currentPage + 1} of ${pages.length} · ${escapeHtml(
-    page.name
-  )}</div>`;
+  let html = `<div class="panel-meta">Page ${currentPage + 1} of ${pages.length}</div>`;
   if (page.ocrStatus === 'skipped') {
     html += `<div class="panel-note">Transcription is turned off, so page text and search aren't available yet.</div>`;
   } else if (page.ocrStatus === 'pending') {
@@ -943,8 +937,7 @@ function renderPagesGrid() {
             <img src="${u}" alt="Page ${i + 1}" loading="lazy" />
           </button>
           <figcaption class="page-card-meta">
-            <span class="page-card-num">${i + 1}</span>
-            <span class="page-card-name">${escapeHtml(p.name)}</span>
+            <span class="page-card-num">Page ${i + 1}</span>
             <button class="btn ghost small page-card-delete" data-id="${p.id}" title="Delete this page">🗑️</button>
           </figcaption>
         </figure>`;
@@ -1200,6 +1193,17 @@ function wire() {
   $('#first').addEventListener('click', goFirst);
   $('#last').addEventListener('click', goLast);
   document.addEventListener('keydown', (e) => {
+    // Cmd/Ctrl+F jumps to the notebook search (the native find bar is useless
+    // here). Works from anywhere; closes the zoom viewer if it's covering the
+    // toolbar.
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      if (!$('#viewer').hidden) closeViewer();
+      $('#search').focus();
+      $('#search').select();
+      return;
+    }
+
     if (e.target.matches('input, textarea')) return;
 
     // When the zoom viewer is open it captures the keyboard.

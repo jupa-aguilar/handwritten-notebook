@@ -486,14 +486,7 @@ mark {
 }
 .page-card-num {
   font-weight: 700;
-  flex: 0 0 auto;
-}
-.page-card-name {
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #8a7d6c;
 }
 .page-card-delete {
   flex: 0 0 auto;
