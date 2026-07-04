@@ -20,13 +20,19 @@ const APP_URL = 'https://jupa-aguilar.github.io/handwritten-notebook/';
 // Requires `http://127.0.0.1:17987` in the OAuth client's authorized redirect URIs.
 const OAUTH_PORT = 17987;
 
+// Only one sign-in attempt at a time: retrying cancels the previous one so
+// the port is free again (otherwise a stale attempt blocks retries).
+let cancelPendingOauth = null;
+
 ipcMain.handle('google-oauth', (_evt, clientId) => {
+  if (cancelPendingOauth) cancelPendingOauth();
   return new Promise((resolve, reject) => {
     const state = crypto.randomBytes(16).toString('hex');
     let done = false;
     const finish = (fn, arg) => {
       if (done) return;
       done = true;
+      cancelPendingOauth = null;
       try {
         server.close();
       } catch {
@@ -34,6 +40,8 @@ ipcMain.handle('google-oauth', (_evt, clientId) => {
       }
       fn(arg);
     };
+    cancelPendingOauth = () =>
+      finish(reject, new Error('Superseded by a newer sign-in attempt'));
 
     const server = http.createServer((req, res) => {
       const url = new URL(req.url, `http://127.0.0.1:${OAUTH_PORT}`);
@@ -74,7 +82,16 @@ ipcMain.handle('google-oauth', (_evt, clientId) => {
       });
       shell.openExternal(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
     });
-    setTimeout(() => finish(reject, new Error('Sign-in timed out')), 5 * 60_000);
+    setTimeout(
+      () =>
+        finish(
+          reject,
+          new Error(
+            'Sign-in timed out — finish the Google page in your browser (keep the app open), then click Sync again'
+          )
+        ),
+      10 * 60_000
+    );
   });
 });
 
