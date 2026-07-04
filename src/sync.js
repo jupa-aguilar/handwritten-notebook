@@ -199,16 +199,20 @@ async function deleteFile(token, files, name) {
 
 // ---------- sync algorithm ----------
 
-async function pushNotebook(token, files, meta, nbId) {
+async function pushNotebook(token, files, meta, nbId, onStatus = () => {}) {
   const nb = await getNotebook(nbId);
   const pages = await getPages(nbId);
   // Images are immutable: upload only the ones Drive doesn't have yet.
+  let done = 0;
   for (const p of pages) {
+    done++;
     const name = `pg-${p.uuid}`;
     if (!files.has(name)) {
+      onStatus(`Uploading “${nb.name}” — page ${done}/${pages.length}…`);
       await uploadFile(token, files, name, p.mediaType || 'image/jpeg', p.blob);
     }
   }
+  onStatus(`Uploading “${nb.name}” — saving index…`);
   const manifest = {
     uuid: nb.uuid,
     name: nb.name,
@@ -237,17 +241,21 @@ async function pushNotebook(token, files, meta, nbId) {
   meta.notebooks[nb.uuid] = { name: nb.name, updatedAt: nb.updatedAt };
 }
 
-async function pullNotebook(token, files, meta, uuid) {
+async function pullNotebook(token, files, meta, uuid, onStatus = () => {}) {
   const mf = files.get(`nb-${uuid}.json`);
   if (!mf) throw new Error(`manifest for ${uuid} missing on Drive`);
   const manifest = await downloadFile(token, mf.id, 'json');
+  const total = (manifest.pages || []).length;
+  let done = 0;
   const { id, merged } = await applyRemoteNotebook(manifest, async (pm) => {
     const f = files.get(`pg-${pm.uuid}`);
     if (!f) throw new Error(`image for page ${pm.uuid} missing on Drive`);
+    done++;
+    onStatus(`Downloading “${manifest.name}” — page ${done}/${total}…`);
     return downloadFile(token, f.id, 'blob');
   });
   // Locally-added pages survived the pull: push the merged result back now.
-  if (merged) await pushNotebook(token, files, meta, id);
+  if (merged) await pushNotebook(token, files, meta, id, onStatus);
 }
 
 async function deleteRemoteNotebook(token, files, uuid) {
@@ -319,7 +327,7 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
       if (local && local.updatedAt > entry.deletedAt) {
         onStatus(`Uploading “${local.name}”…`);
         delete entry.deletedAt; // local edits after the delete revive it
-        await pushNotebook(token, files, meta, local.id);
+        await pushNotebook(token, files, meta, local.id, onStatus);
         result.pushed.push(uuid);
       } else if (local) {
         await deleteNotebookByUuid(uuid);
@@ -329,15 +337,15 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
     }
     if (!local) {
       onStatus(`Downloading “${entry.name}”…`);
-      await pullNotebook(token, files, meta, uuid);
+      await pullNotebook(token, files, meta, uuid, onStatus);
       result.pulled.push(uuid);
     } else if (entry.updatedAt > local.updatedAt) {
       onStatus(`Downloading “${entry.name}”…`);
-      await pullNotebook(token, files, meta, uuid);
+      await pullNotebook(token, files, meta, uuid, onStatus);
       result.pulled.push(uuid);
     } else if (entry.updatedAt < local.updatedAt) {
       onStatus(`Uploading “${local.name}”…`);
-      await pushNotebook(token, files, meta, local.id);
+      await pushNotebook(token, files, meta, local.id, onStatus);
       result.pushed.push(uuid);
     }
   }
@@ -346,7 +354,7 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
   for (const nb of locals) {
     if (!meta.notebooks[nb.uuid]) {
       onStatus(`Uploading “${nb.name}”…`);
-      await pushNotebook(token, files, meta, nb.id);
+      await pushNotebook(token, files, meta, nb.id, onStatus);
       result.pushed.push(nb.uuid);
     }
   }
