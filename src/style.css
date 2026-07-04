@@ -584,6 +584,7 @@ mark {
   height: 100%;
   user-select: none;
   -webkit-user-drag: none;
+  -webkit-touch-callout: none; /* no long-press image menu on iOS */
 }
 .viewer-highlights {
   position: absolute;
@@ -622,4 +623,26 @@ mark {
   height: 20px;
   background: rgba(255, 255, 255, 0.2);
   margin: 0 4px;
+}
+
+/* ---------- phone mode (body.is-mobile, set from JS) ----------
+   The flipbook is skipped entirely: the zoom viewer, docked below the toolbar,
+   is the one reading view. Gestures: 1-finger swipe = turn page, 2 fingers =
+   pinch-zoom + pan. */
+body.is-mobile .viewer {
+  position: absolute; /* fills .stage, keeping the app toolbar usable above */
+  inset: 0;
+  z-index: 30;
+}
+body.is-mobile .nav,
+body.is-mobile #zoom-btn,
+body.is-mobile #fullscreen-btn,
+body.is-mobile #viewer-close {
+  display: none;
+}
+body.is-mobile .viewer-toolbar .viewer-sep:last-of-type {
+  display: none;
+}
+body.is-mobile .panel {
+  z-index: 40; /* text/search panel overlays the viewer */
 }

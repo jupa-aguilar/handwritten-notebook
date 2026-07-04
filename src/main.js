@@ -21,6 +21,11 @@ import { transcribeImage } from './ocr.js';
 // Handwriting OCR via Google Cloud Vision. Flip to `false` to disable.
 const TRANSCRIPTION_ENABLED = true;
 
+// Phones skip the flipbook entirely and read in the zoom viewer (lighter: no
+// decoding of every page up front, and touch gestures instead of page curls).
+// Tablets keep the flipbook — it works well with touch at that size.
+const IS_MOBILE = /iPhone|iPod|Android.*Mobile/i.test(navigator.userAgent);
+
 const MAX_EDGE = 3000; // long-edge cap (px) for stored/transcribed images
                        // (higher = sharper zoom, more storage; new imports only)
 const JPEG_QUALITY = 0.85;
@@ -183,9 +188,21 @@ async function renderBook() {
     empty.hidden = false;
     el.hidden = true;
     $('#pager').hidden = true;
+    if (IS_MOBILE) $('#viewer').hidden = true; // let the empty message show
     return;
   }
   empty.hidden = true;
+
+  if (IS_MOBILE) {
+    // Phone: no flipbook — the zoom viewer is the reading view. This also
+    // avoids decoding every page image up front.
+    el.hidden = true;
+    $('#pager').hidden = true;
+    currentPage = Math.max(0, Math.min(currentPage, pages.length - 1));
+    openViewer(currentPage);
+    return;
+  }
+
   el.hidden = false;
   $('#pager').hidden = false;
 
@@ -375,6 +392,7 @@ function refreshSearch() {
   results.querySelectorAll('.result').forEach((btn) => {
     btn.addEventListener('click', () => {
       const idx = Number(btn.dataset.page);
+      if (!$('#viewer').hidden) loadViewerPage(idx);
       if (pageFlip) pageFlip.flip(idx);
       currentPage = idx;
       updatePanel();
@@ -948,6 +966,7 @@ function renderPagesGrid() {
     b.addEventListener('click', () => {
       const idx = Number(b.dataset.index);
       closePagesOverview();
+      if (!$('#viewer').hidden) loadViewerPage(idx);
       if (pageFlip) pageFlip.flip(idx);
       currentPage = idx;
       updatePanel();
@@ -1017,6 +1036,7 @@ function openViewer(index = currentPage) {
 }
 
 function closeViewer() {
+  if (IS_MOBILE) return; // on phones the viewer IS the reading view
   $('#viewer').hidden = true;
   if (viewerUrl) {
     URL.revokeObjectURL(viewerUrl);
@@ -1049,6 +1069,11 @@ function loadViewerPage(index) {
   $('#viewer-indicator').textContent = `${viewerPage + 1} / ${pages.length}`;
   $('#viewer-prev').disabled = viewerPage <= 0;
   $('#viewer-next').disabled = viewerPage >= pages.length - 1;
+
+  // Keep the rest of the app (text panel, saved position) on this page too.
+  currentPage = viewerPage;
+  savePage(currentNotebookId, viewerPage);
+  updatePanel();
 
   fitViewer();
   renderViewerHighlights();
@@ -1146,27 +1171,104 @@ function wireViewer() {
     zoomViewer(vScale * factor, e.clientX - rect.left, e.clientY - rect.top);
   }, { passive: false });
 
+  // Touch gestures: 1-finger horizontal swipe turns the page; 2 fingers
+  // pinch-zoom and pan together (like iOS Maps). Mouse keeps drag-to-pan.
+  const pointers = new Map(); // active pointerId -> { x, y }
+  let pinch = null; // { dist, midX, midY, scale, tx, ty } at pinch start
+  let swipe = null; // { x, y, t } at single-touch start
+
   stage.addEventListener('pointerdown', (e) => {
-    vDrag = { x: e.clientX, y: e.clientY, tx: vTx, ty: vTy };
     stage.setPointerCapture(e.pointerId);
-    stage.classList.add('grabbing');
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const rect = stage.getBoundingClientRect();
+      pinch = {
+        dist: Math.hypot(a.x - b.x, a.y - b.y),
+        midX: (a.x + b.x) / 2 - rect.left,
+        midY: (a.y + b.y) / 2 - rect.top,
+        scale: vScale,
+        tx: vTx,
+        ty: vTy,
+      };
+      swipe = null; // a second finger cancels any pending page swipe
+      vDrag = null;
+    } else if (pointers.size === 1) {
+      if (e.pointerType === 'touch') {
+        swipe = { x: e.clientX, y: e.clientY, t: Date.now() };
+      } else {
+        vDrag = { x: e.clientX, y: e.clientY, tx: vTx, ty: vTy };
+        stage.classList.add('grabbing');
+      }
+    }
   });
+
   stage.addEventListener('pointermove', (e) => {
-    if (!vDrag) return;
-    vTx = vDrag.tx + (e.clientX - vDrag.x);
-    vTy = vDrag.ty + (e.clientY - vDrag.y);
-    clampViewerPan();
-    applyViewerTransform();
+    if (pointers.has(e.pointerId)) {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    if (pinch && pointers.size >= 2) {
+      const [a, b] = [...pointers.values()];
+      const rect = stage.getBoundingClientRect();
+      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      const midX = (a.x + b.x) / 2 - rect.left;
+      const midY = (a.y + b.y) / 2 - rect.top;
+      const s = Math.max(
+        vFit,
+        Math.min(Math.max(8, vFit), pinch.scale * (dist / pinch.dist))
+      );
+      // The image point under the initial midpoint follows the current
+      // midpoint — this yields pinch-zoom and two-finger pan in one motion.
+      const ix = (pinch.midX - pinch.tx) / pinch.scale;
+      const iy = (pinch.midY - pinch.ty) / pinch.scale;
+      vScale = s;
+      vTx = midX - ix * s;
+      vTy = midY - iy * s;
+      clampViewerPan();
+      applyViewerTransform();
+    } else if (vDrag) {
+      vTx = vDrag.tx + (e.clientX - vDrag.x);
+      vTy = vDrag.ty + (e.clientY - vDrag.y);
+      clampViewerPan();
+      applyViewerTransform();
+    }
   });
-  const endDrag = () => {
-    vDrag = null;
-    stage.classList.remove('grabbing');
+
+  const endPointer = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinch = null;
+    if (swipe && pointers.size === 0 && e.pointerType === 'touch') {
+      const dx = e.clientX - swipe.x;
+      const dy = e.clientY - swipe.y;
+      const dt = Date.now() - swipe.t;
+      if (dt < 600 && Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) {
+        loadViewerPage(viewerPage + (dx < 0 ? 1 : -1));
+      }
+      swipe = null;
+    }
+    if (pointers.size === 0) {
+      vDrag = null;
+      stage.classList.remove('grabbing');
+    }
   };
-  stage.addEventListener('pointerup', endDrag);
-  stage.addEventListener('pointercancel', endDrag);
+  stage.addEventListener('pointerup', endPointer);
+  stage.addEventListener('pointercancel', (e) => {
+    pointers.delete(e.pointerId);
+    pinch = null;
+    swipe = null;
+    if (pointers.size === 0) {
+      vDrag = null;
+      stage.classList.remove('grabbing');
+    }
+  });
 
   window.addEventListener('resize', () => {
-    if (!$('#viewer').hidden) {
+    if ($('#viewer').hidden) return;
+    // If the page was at fit scale (not zoomed in), re-fit to the new size —
+    // e.g. rotating the phone. Otherwise just keep the pan in bounds.
+    if (Math.abs(vScale - vFit) < 0.001) {
+      fitViewer();
+    } else {
       clampViewerPan();
       applyViewerTransform();
     }
@@ -1286,6 +1388,7 @@ function wire() {
 // ---------- init ----------
 
 async function init() {
+  document.body.classList.toggle('is-mobile', IS_MOBILE);
   wire();
   await ensureNotebook();
   await loadCurrentNotebook();
