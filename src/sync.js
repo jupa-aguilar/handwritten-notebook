@@ -78,6 +78,20 @@ async function authToken(interactive) {
   } catch {
     /* ignore */
   }
+
+  // Electron: Google blocks sign-in inside embedded browsers, so the shell
+  // exposes a system-browser loopback flow instead of in-page GIS. Never run
+  // it silently — it opens a browser tab, so only do it on explicit request.
+  if (window.nativeGoogleAuth) {
+    if (!interactive) throw new Error('Sign-in needed — click ☁ Sync');
+    const { token, expiresIn } = await window.nativeGoogleAuth(getSyncClientId());
+    localStorage.setItem(
+      TOKEN_KEY,
+      JSON.stringify({ token, exp: Date.now() + (expiresIn - 60) * 1000 })
+    );
+    return token;
+  }
+
   await loadGis();
   return new Promise((resolve, reject) => {
     const tc = window.google.accounts.oauth2.initTokenClient({
