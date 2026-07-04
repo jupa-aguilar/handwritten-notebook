@@ -1124,6 +1124,26 @@ function zoomViewerBy(factor) {
   zoomViewer(vScale * factor, rect.width / 2, rect.height / 2);
 }
 
+// After the stage changes size (rotation, immersive toggle, window resize):
+// re-fit if the page was at fit scale, otherwise just keep the pan in bounds.
+function refitViewer() {
+  if ($('#viewer').hidden) return;
+  if (Math.abs(vScale - vFit) < 0.001) {
+    fitViewer();
+  } else {
+    clampViewerPan();
+    applyViewerTransform();
+  }
+}
+
+// Distraction-free reading on phones: hide the app and viewer toolbars,
+// leaving only the page. (The real Fullscreen API is unavailable on iOS.)
+function toggleImmersive() {
+  const on = document.body.classList.toggle('immersive');
+  $('#immersive-btn').textContent = on ? '⤡' : '⛶';
+  requestAnimationFrame(refitViewer);
+}
+
 // Boxes live inside the transformed content sized to the page's native pixels,
 // so word coordinates map 1:1 and scale/pan for free with the CSS transform.
 function renderViewerHighlights() {
@@ -1155,6 +1175,7 @@ function wireViewer() {
 
   $('#zoom-btn').addEventListener('click', () => openViewer());
   $('#viewer-close').addEventListener('click', closeViewer);
+  $('#immersive-btn').addEventListener('click', toggleImmersive);
   $('#viewer-prev').addEventListener('click', () => loadViewerPage(viewerPage - 1));
   $('#viewer-next').addEventListener('click', () => loadViewerPage(viewerPage + 1));
   $('#viewer-zoom-in').addEventListener('click', () => zoomViewerBy(1.25));
@@ -1262,17 +1283,7 @@ function wireViewer() {
     }
   });
 
-  window.addEventListener('resize', () => {
-    if ($('#viewer').hidden) return;
-    // If the page was at fit scale (not zoomed in), re-fit to the new size —
-    // e.g. rotating the phone. Otherwise just keep the pan in bounds.
-    if (Math.abs(vScale - vFit) < 0.001) {
-      fitViewer();
-    } else {
-      clampViewerPan();
-      applyViewerTransform();
-    }
-  });
+  window.addEventListener('resize', refitViewer);
 }
 
 // ---------- wiring ----------

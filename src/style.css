@@ -646,3 +646,30 @@ body.is-mobile .viewer-toolbar .viewer-sep:last-of-type {
 body.is-mobile .panel {
   z-index: 40; /* text/search panel overlays the viewer */
 }
+
+/* Immersive reading: floating ⛶ toggle hides both toolbars (iOS has no real
+   Fullscreen API, so this is plain CSS). */
+.immersive-btn {
+  display: none;
+}
+body.is-mobile .immersive-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  right: calc(12px + env(safe-area-inset-right, 0px));
+  z-index: 10;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--ink);
+  font-size: 1.15rem;
+  backdrop-filter: blur(4px);
+}
+body.is-mobile.immersive .toolbar,
+body.is-mobile.immersive .viewer-toolbar {
+  display: none;
+}
