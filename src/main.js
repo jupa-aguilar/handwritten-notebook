@@ -15,8 +15,16 @@ import {
   reorderPages,
   nextOrder,
   clearAll,
+  touchNotebook,
 } from './db.js';
 import { transcribeImage } from './ocr.js';
+import {
+  syncNow,
+  isSyncConfigured,
+  getSyncClientId,
+  setSyncClientId,
+  recordTombstone,
+} from './sync.js';
 
 // Handwriting OCR via Google Cloud Vision. Flip to `false` to disable.
 const TRANSCRIPTION_ENABLED = true;
@@ -286,6 +294,7 @@ async function removePage(id) {
   if (index === -1) return;
   if (!confirm(`Delete page ${index + 1}? This cannot be undone.`)) return;
   await deletePage(id);
+  await touchNotebook(currentNotebookId);
   pages = await getPages(currentNotebookId);
   // Keep the viewer roughly where it was: shift back if we removed a page
   // at or before the one being shown, then clamp into range.
@@ -506,6 +515,7 @@ async function runOcrQueue() {
         page.words = [];
       }
       await putPage(page);
+      await touchNotebook(page.notebookId);
       if (pages[currentPage] === page) updatePanel();
       refreshSearch();
     }
@@ -513,6 +523,8 @@ async function runOcrQueue() {
     ocrRunning = false;
     const pending = pages.filter((p) => p.ocrStatus === 'pending').length;
     setOcrStatus(pending ? `${pending} page(s) waiting` : '');
+    // Push the fresh transcriptions to other devices.
+    if (!pending && isSyncConfigured()) doSync(false);
   }
 }
 
@@ -579,6 +591,7 @@ async function handleFiles(fileList) {
     try {
       const { blob, mediaType, width, height } = await processImage(file);
       const record = {
+        uuid: crypto.randomUUID(),
         notebookId: currentNotebookId,
         order: order++,
         name: file.name,
@@ -589,6 +602,7 @@ async function handleFiles(fileList) {
         text: '',
         words: [],
         ocrStatus: TRANSCRIPTION_ENABLED ? 'pending' : 'skipped',
+        createdAt: Date.now(),
       };
       record.id = await addPage(record);
       added++;
@@ -606,14 +620,64 @@ async function handleFiles(fileList) {
     alert('No pages could be added:\n\n' + errors.join('\n'));
     return;
   }
+  await touchNotebook(currentNotebookId);
   setOcrStatus(`Added ${added} page(s)`);
   runOcrQueue();
+}
+
+// ---------- sync (Google Drive) ----------
+
+let syncRunning = false;
+
+async function doSync(interactive) {
+  if (!isSyncConfigured()) {
+    openSettings();
+    $('#sync-client-id').focus();
+    return;
+  }
+  if (syncRunning) return;
+  syncRunning = true;
+  const btn = $('#sync-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Sync';
+  try {
+    const res = await syncNow({ interactive, onStatus: setOcrStatus });
+    if (res.pulled.length || res.deletedLocal.length) {
+      // Remote changes landed locally: refresh the whole view.
+      let notebooks = await listNotebooks();
+      if (notebooks.length === 0) {
+        currentNotebookId = await addNotebook('My Notebook');
+        notebooks = await listNotebooks();
+      } else if (!notebooks.some((n) => n.id === currentNotebookId)) {
+        currentNotebookId = notebooks[0].id;
+      }
+      localStorage.setItem(CURRENT_KEY, String(currentNotebookId));
+      updateCurrentName(notebooks);
+      await loadCurrentNotebook();
+      if (!$('#notebooks').hidden) renderNotebookList();
+    }
+    setOcrStatus('');
+    btn.textContent = '✓ Sync';
+    setTimeout(() => {
+      if (btn.textContent === '✓ Sync') btn.textContent = '☁ Sync';
+    }, 4000);
+  } catch (err) {
+    console.error('Sync failed', err);
+    btn.textContent = '☁ Sync';
+    // A failed silent attempt (e.g. sign-in needed) shouldn't nag — the user
+    // can click Sync to authorize interactively.
+    setOcrStatus(interactive ? `Sync failed: ${err.message}` : '');
+  } finally {
+    syncRunning = false;
+    btn.disabled = false;
+  }
 }
 
 // ---------- settings modal ----------
 
 function openSettings() {
   $('#api-key').value = getApiKey();
+  $('#sync-client-id').value = getSyncClientId();
   $('#settings').hidden = false;
   $('#api-key').focus();
 }
@@ -626,8 +690,11 @@ function saveSettings() {
   const key = $('#api-key').value.trim();
   if (key) localStorage.setItem(KEY_STORAGE, key);
   else localStorage.removeItem(KEY_STORAGE);
+  const hadSync = isSyncConfigured();
+  setSyncClientId($('#sync-client-id').value.trim());
   closeSettings();
   runOcrQueue(); // resume any pending transcriptions now that a key exists
+  if (!hadSync && isSyncConfigured()) doSync(true); // first-time sign-in
 }
 
 // ---------- panel ----------
@@ -772,6 +839,8 @@ async function renameNotebookPrompt(id) {
 async function deleteNotebookFlow(id) {
   if (!confirm('Delete this notebook and all its pages? This cannot be undone.'))
     return;
+  const notebooks = await listNotebooks();
+  recordTombstone(notebooks.find((n) => n.id === id)?.uuid); // propagate via sync
   await deleteNotebook(id);
   let remaining = await listNotebooks();
   if (remaining.length === 0) {
@@ -801,6 +870,7 @@ async function retranscribeNotebook(id) {
     p.error = '';
     await putPage(p);
   }
+  await touchNotebook(id);
   updatePanel();
   refreshSearch();
   renderNotebookList();
@@ -897,6 +967,7 @@ async function importNotebookFromFile(file) {
     for (const p of data.pages) {
       if (!p.image) continue;
       await addPage({
+        uuid: crypto.randomUUID(),
         notebookId: newId,
         order: typeof p.order === 'number' ? p.order : order,
         name: p.name || `page-${order + 1}`,
@@ -908,6 +979,7 @@ async function importNotebookFromFile(file) {
         words: p.words || [],
         ocrStatus: p.ocrStatus || (p.text ? 'done' : 'skipped'),
         error: p.error || '',
+        createdAt: Date.now(),
       });
       order++;
     }
@@ -1018,6 +1090,7 @@ async function movePage(from, to) {
   const [moved] = pages.splice(from, 1);
   pages.splice(to, 0, moved);
   await reorderPages(pages.map((p) => p.id));
+  await touchNotebook(currentNotebookId);
   pages = await getPages(currentNotebookId);
   const newIdx = pages.findIndex((p) => p.id === openId);
   if (newIdx !== -1) currentPage = newIdx;
@@ -1364,6 +1437,7 @@ function wire() {
   $('#settings-btn').addEventListener('click', openSettings);
   $('#settings-save').addEventListener('click', saveSettings);
   $('#settings-cancel').addEventListener('click', closeSettings);
+  $('#sync-btn').addEventListener('click', () => doSync(true));
 
   $('#notebooks-btn').addEventListener('click', openNotebooks);
   $('#notebooks-close').addEventListener('click', () => ($('#notebooks').hidden = true));
@@ -1412,6 +1486,10 @@ async function init() {
     // Resume transcription for any pages left pending from a previous session.
     if (pages.some((p) => p.ocrStatus === 'pending')) runOcrQueue();
   }
+
+  // Pull/push changes on startup (silent: if sign-in is needed, the ☁ Sync
+  // button does it interactively).
+  if (isSyncConfigured() && navigator.onLine) doSync(false);
 }
 
 // Expose a reset for convenience in the console (wipes ALL notebooks).

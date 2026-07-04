@@ -501,13 +501,19 @@ mark {
   border-color: #e53935;
 }
 
-#api-key {
+#api-key,
+#sync-client-id {
   width: 100%;
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid rgba(0, 0, 0, 0.2);
   font-size: 0.95rem;
   margin: 12px 0;
+}
+.settings-subtitle {
+  margin: 18px 0 4px;
+  font-family: Georgia, serif;
+  font-size: 1.02rem;
 }
 .modal-actions {
   display: flex;

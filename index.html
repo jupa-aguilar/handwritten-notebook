@@ -33,6 +33,8 @@
       <span id="ocr-status" class="ocr-status"></span>
       <span id="usage" class="usage" title="Google Cloud Vision free tier: 1,000 pages per month (local estimate)"></span>
 
+      <button id="sync-btn" class="btn ghost" title="Sync notebooks across devices via your Google Drive">☁ Sync</button>
+
       <button id="pages-btn" class="btn ghost" title="All pages">🗂 Pages</button>
       <button id="zoom-btn" class="btn ghost" title="Zoom in to read (Z)">🔍 Zoom</button>
       <button id="panel-toggle" class="btn ghost" title="Show page text">📖 Text</button>
@@ -138,6 +140,18 @@
           pages/month are free.
         </p>
         <input id="api-key" type="password" placeholder="AIza…" autocomplete="off" />
+
+        <h3 class="settings-subtitle">Sync across devices (optional)</h3>
+        <p class="hint">
+          Keeps notebooks in sync through a hidden app folder in
+          <strong>your own Google Drive</strong>. In the same
+          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Cloud Console</a>:
+          create an <strong>OAuth client ID</strong> of type <em>Web application</em>
+          and add this site's address under <em>Authorized JavaScript origins</em>.
+          Paste the client ID here, save, and sign in when prompted. Then use the
+          same ID on every device.
+        </p>
+        <input id="sync-client-id" type="text" placeholder="1234…apps.googleusercontent.com" autocomplete="off" />
         <div class="modal-actions">
           <button id="settings-save" class="btn">Save</button>
           <button id="settings-cancel" class="btn ghost">Cancel</button>

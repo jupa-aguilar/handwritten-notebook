@@ -50,6 +50,16 @@ Then:
   to restore it — handy before clearing browser data or to copy a notebook to
   another machine. Since everything lives in this browser's IndexedDB, this file is
   your only backup.
+- **Sync across devices (optional):** the **☁ Sync** button keeps notebooks in
+  sync through a hidden app folder in **your own Google Drive**. One-time setup in
+  the [Cloud Console](https://console.cloud.google.com/apis/credentials) (same
+  project as the Vision key): *Create credentials → OAuth client ID → Web
+  application*, add the site's URL under **Authorized JavaScript origins** (plus
+  `http://localhost:5173` for dev), then paste the client ID into ⚙ on every
+  device and sign in. Sync runs on startup, after transcription finishes, and on
+  demand. Reconciliation is last-write-wins per notebook (fine for one person);
+  page images upload only once. The Mac app loads the hosted site so it shares
+  the same origin — sync works there too.
 
 ## Build for offline use
 
