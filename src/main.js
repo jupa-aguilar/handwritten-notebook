@@ -295,6 +295,7 @@ async function removePage(id) {
   if (!confirm(`Delete page ${index + 1}? This cannot be undone.`)) return;
   await deletePage(id);
   await touchNotebook(currentNotebookId);
+  scheduleSync();
   pages = await getPages(currentNotebookId);
   // Keep the viewer roughly where it was: shift back if we removed a page
   // at or before the one being shown, then clamp into range.
@@ -622,12 +623,22 @@ async function handleFiles(fileList) {
   }
   await touchNotebook(currentNotebookId);
   setOcrStatus(`Added ${added} page(s)`);
+  scheduleSync();
   runOcrQueue();
 }
 
 // ---------- sync (Google Drive) ----------
 
 let syncRunning = false;
+let syncTimer = null;
+
+// Push local edits ~30s after the last change, batching bursts of edits into
+// one upload. Silent: if sign-in expired, doSync leaves the ⚠ Sync cue.
+function scheduleSync() {
+  if (!isSyncConfigured()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => doSync(false), 30_000);
+}
 
 async function doSync(interactive) {
   if (!isSyncConfigured()) {
@@ -663,10 +674,15 @@ async function doSync(interactive) {
     }, 4000);
   } catch (err) {
     console.error('Sync failed', err);
-    btn.textContent = '☁ Sync';
-    // A failed silent attempt (e.g. sign-in needed) shouldn't nag — the user
-    // can click Sync to authorize interactively.
-    setOcrStatus(interactive ? `Sync failed: ${err.message}` : '');
+    if (interactive) {
+      btn.textContent = '☁ Sync';
+      setOcrStatus(`Sync failed: ${err.message}`);
+    } else {
+      // A silent attempt failed (usually: sign-in expired). Don't open any
+      // UI, but leave a visible cue that local changes haven't been pushed.
+      btn.textContent = '⚠ Sync';
+      setOcrStatus('Not synced yet — click ⚠ Sync');
+    }
   } finally {
     syncRunning = false;
     btn.disabled = false;
@@ -824,6 +840,7 @@ async function createNotebook() {
   input.value = '';
   await switchNotebook(id, { closeModal: false });
   renderNotebookList();
+  scheduleSync();
 }
 
 async function renameNotebookPrompt(id) {
@@ -834,6 +851,7 @@ async function renameNotebookPrompt(id) {
   await renameNotebook(id, name.trim());
   updateCurrentName(await listNotebooks());
   renderNotebookList();
+  scheduleSync();
 }
 
 async function deleteNotebookFlow(id) {
@@ -853,6 +871,7 @@ async function deleteNotebookFlow(id) {
   updateCurrentName(remaining);
   await loadCurrentNotebook();
   renderNotebookList();
+  scheduleSync();
 }
 
 // Re-run OCR for every page in a notebook.
@@ -985,6 +1004,7 @@ async function importNotebookFromFile(file) {
     }
     setOcrStatus(`Imported ${order} page(s)`);
     await switchNotebook(newId, { closeModal: true });
+    scheduleSync();
     if (TRANSCRIPTION_ENABLED && pages.some((p) => p.ocrStatus === 'pending')) {
       runOcrQueue();
     }
@@ -1091,6 +1111,7 @@ async function movePage(from, to) {
   pages.splice(to, 0, moved);
   await reorderPages(pages.map((p) => p.id));
   await touchNotebook(currentNotebookId);
+  scheduleSync();
   pages = await getPages(currentNotebookId);
   const newIdx = pages.findIndex((p) => p.id === openId);
   if (newIdx !== -1) currentPage = newIdx;
