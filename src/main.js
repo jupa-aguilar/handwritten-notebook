@@ -23,6 +23,8 @@ import {
   isSyncConfigured,
   getSyncClientId,
   setSyncClientId,
+  getSyncClientSecret,
+  setSyncClientSecret,
   recordTombstone,
 } from './sync.js';
 
@@ -694,6 +696,7 @@ async function doSync(interactive) {
 function openSettings() {
   $('#api-key').value = getApiKey();
   $('#sync-client-id').value = getSyncClientId();
+  $('#sync-client-secret').value = getSyncClientSecret();
   $('#settings').hidden = false;
   $('#api-key').focus();
 }
@@ -707,10 +710,15 @@ function saveSettings() {
   if (key) localStorage.setItem(KEY_STORAGE, key);
   else localStorage.removeItem(KEY_STORAGE);
   const hadSync = isSyncConfigured();
+  const secretChanged = $('#sync-client-secret').value.trim() !== getSyncClientSecret();
   setSyncClientId($('#sync-client-id').value.trim());
+  setSyncClientSecret($('#sync-client-secret').value.trim());
   closeSettings();
   runOcrQueue(); // resume any pending transcriptions now that a key exists
-  if (!hadSync && isSyncConfigured()) doSync(true); // first-time sign-in
+  // First-time setup or a new secret: sign in now. A new secret needs one
+  // interactive sign-in to mint the refresh token that keeps the Mac app
+  // signed in from then on.
+  if ((!hadSync || secretChanged) && isSyncConfigured()) doSync(true);
 }
 
 // ---------- panel ----------

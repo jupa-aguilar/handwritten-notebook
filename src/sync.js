@@ -9,8 +9,10 @@
 // for deletions. Locally-added pages survive a pull and get pushed right after
 // (see applyRemoteNotebook in db.js).
 //
-// Auth is Google Identity Services (token client). The user supplies their own
-// OAuth Client ID — same bring-your-own-credentials model as the Vision key.
+// Auth is Google Identity Services (token client) in the browser; the Electron
+// shell swaps in a system-browser loopback flow (electron/main.cjs) that keeps
+// a refresh token when a client secret is configured. The user supplies their
+// own OAuth Client ID — same bring-your-own-credentials model as the Vision key.
 
 import {
   listNotebooks,
@@ -22,6 +24,7 @@ import {
 } from './db.js';
 
 const CLIENT_KEY = 'notebook.syncClientId';
+const SECRET_KEY = 'notebook.syncClientSecret';
 const TOKEN_KEY = 'notebook.syncToken';
 const TOMBSTONES_KEY = 'notebook.syncTombstones';
 const SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
@@ -35,6 +38,20 @@ export function getSyncClientId() {
 export function setSyncClientId(id) {
   if (id) localStorage.setItem(CLIENT_KEY, id);
   else localStorage.removeItem(CLIENT_KEY);
+}
+
+// Only needed by the Electron shell, where the token exchange that mints the
+// long-lived refresh token requires it. Browsers use GIS and can leave it out.
+export function getSyncClientSecret() {
+  return localStorage.getItem(SECRET_KEY) || '';
+}
+
+export function setSyncClientSecret(secret) {
+  // A credential change invalidates the cached token: drop it so the next
+  // sync re-authenticates and can mint a refresh token with the new secret.
+  if ((secret || '') !== getSyncClientSecret()) localStorage.removeItem(TOKEN_KEY);
+  if (secret) localStorage.setItem(SECRET_KEY, secret);
+  else localStorage.removeItem(SECRET_KEY);
 }
 
 export function isSyncConfigured() {
@@ -80,16 +97,38 @@ async function authToken(interactive) {
   }
 
   // Electron: Google blocks sign-in inside embedded browsers, so the shell
-  // exposes a system-browser loopback flow instead of in-page GIS. Never run
-  // it silently — it opens a browser tab, so only do it on explicit request.
-  if (window.nativeGoogleAuth) {
-    if (!interactive) throw new Error('Sign-in needed — click ☁ Sync');
-    const { token, expiresIn } = await window.nativeGoogleAuth(getSyncClientId());
+  // exposes a system-browser loopback flow instead of in-page GIS. The V2
+  // shell renews silently through its stored refresh token (needs the client
+  // secret); when that's not possible, sign-in opens a browser tab, so it
+  // only runs on explicit request.
+  if (window.nativeGoogleAuthV2 || window.nativeGoogleAuth) {
+    let res;
+    try {
+      if (window.nativeGoogleAuthV2) {
+        res = await window.nativeGoogleAuthV2(
+          getSyncClientId(),
+          getSyncClientSecret(),
+          interactive
+        );
+      } else {
+        if (!interactive) throw new Error('Sign-in needed — click ☁ Sync');
+        res = await window.nativeGoogleAuth(getSyncClientId());
+      }
+    } catch (err) {
+      // ipcRenderer.invoke wraps rejections in "Error invoking remote
+      // method '…': Error: <message>" — surface just the message.
+      throw new Error(
+        String(err?.message || err).replace(
+          /^Error invoking remote method '[^']*': (?:Error: )?/,
+          ''
+        )
+      );
+    }
     localStorage.setItem(
       TOKEN_KEY,
-      JSON.stringify({ token, exp: Date.now() + (expiresIn - 60) * 1000 })
+      JSON.stringify({ token: res.token, exp: Date.now() + (res.expiresIn - 60) * 1000 })
     );
-    return token;
+    return res.token;
   }
 
   await loadGis();

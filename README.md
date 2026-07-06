@@ -59,7 +59,14 @@ Then:
   device and sign in. Sync runs on startup, after transcription finishes, and on
   demand. Reconciliation is last-write-wins per notebook (fine for one person);
   page images upload only once. The Mac app loads the hosted site so it shares
-  the same origin — sync works there too.
+  the same origin — sync works there too, but signs in through the system
+  browser (Google blocks sign-in inside embedded browsers). To keep it signed
+  in permanently, add `http://127.0.0.1:17987` under **Authorized redirect
+  URIs** and paste the client **secret** into ⚙ as well: the app then stores a
+  refresh token (encrypted via the system keychain) and renews access
+  silently — without the secret, sign-in expires after ~1 hour. Keep the OAuth
+  consent screen's publishing status on **Production**; in *Testing*, Google
+  expires refresh tokens after 7 days.
 
 ## Build for offline use
 

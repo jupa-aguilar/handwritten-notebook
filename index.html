@@ -149,9 +149,13 @@
           create an <strong>OAuth client ID</strong> of type <em>Web application</em>
           and add this site's address under <em>Authorized JavaScript origins</em>.
           Paste the client ID here, save, and sign in when prompted. Then use the
-          same ID on every device.
+          same ID on every device. The Mac app also needs the client
+          <strong>secret</strong> (plus <code>http://127.0.0.1:17987</code> under
+          <em>Authorized redirect URIs</em>) so it can stay signed in;
+          browsers can leave it empty.
         </p>
         <input id="sync-client-id" type="text" placeholder="1234…apps.googleusercontent.com" autocomplete="off" />
+        <input id="sync-client-secret" type="password" placeholder="GOCSPX-… (client secret — Mac app only)" autocomplete="off" />
         <div class="modal-actions">
           <button id="settings-save" class="btn">Save</button>
           <button id="settings-cancel" class="btn ghost">Cancel</button>
