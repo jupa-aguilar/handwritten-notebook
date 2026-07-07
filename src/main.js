@@ -846,8 +846,7 @@ async function createNotebook() {
   const name = input.value.trim() || 'Untitled notebook';
   const id = await addNotebook(name);
   input.value = '';
-  await switchNotebook(id, { closeModal: false });
-  renderNotebookList();
+  await switchNotebook(id); // closes the modal, same as opening an existing one
   scheduleSync();
 }
 
@@ -1407,6 +1406,25 @@ function wire() {
   $('#next').addEventListener('click', () => pageFlip && pageFlip.flipNext());
   $('#first').addEventListener('click', goFirst);
   $('#last').addEventListener('click', goLast);
+  // Every modal also closes on Escape or a click on the backdrop, behaving
+  // like its Close/Cancel button — i.e. #settings discards, never saves.
+  const modals = [
+    { el: $('#notebooks'), close: () => ($('#notebooks').hidden = true) },
+    { el: $('#pages-overview'), close: closePagesOverview },
+    { el: $('#settings'), close: closeSettings },
+  ];
+  for (const { el, close } of modals) {
+    // Track where the press started: a drag that merely *ends* on the
+    // backdrop (e.g. selecting text in an input) must not close the modal.
+    let pressedBackdrop = false;
+    el.addEventListener('pointerdown', (e) => {
+      pressedBackdrop = e.target === el;
+    });
+    el.addEventListener('click', (e) => {
+      if (pressedBackdrop && e.target === el) close();
+    });
+  }
+
   document.addEventListener('keydown', (e) => {
     // Cmd/Ctrl+F jumps to the notebook search (the native find bar is useless
     // here). Works from anywhere; closes the zoom viewer if it's covering the
@@ -1417,6 +1435,16 @@ function wire() {
       $('#search').focus();
       $('#search').select();
       return;
+    }
+
+    // Escape closes any open modal — checked before the input guard so it
+    // also works while typing in a modal's field.
+    if (e.key === 'Escape') {
+      const open = modals.find(({ el }) => !el.hidden);
+      if (open) {
+        open.close();
+        return;
+      }
     }
 
     if (e.target.matches('input, textarea')) return;
