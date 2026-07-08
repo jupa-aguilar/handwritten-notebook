@@ -417,6 +417,14 @@ mark {
 .nb-item.active .nb-open {
   font-weight: 700;
 }
+.nb-edit {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  font-size: 0.95rem;
+}
 .nb-count {
   color: #8a7d6c;
   font-size: 0.8rem;

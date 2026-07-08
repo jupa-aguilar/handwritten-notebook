@@ -823,7 +823,7 @@ async function renderNotebookList() {
     b.addEventListener('click', () => switchNotebook(Number(b.dataset.id)))
   );
   ul.querySelectorAll('.nb-rename').forEach((b) =>
-    b.addEventListener('click', () => renameNotebookPrompt(Number(b.dataset.id)))
+    b.addEventListener('click', () => renameNotebookInline(Number(b.dataset.id)))
   );
   ul.querySelectorAll('.nb-retrans').forEach((b) =>
     b.addEventListener('click', () => retranscribeNotebook(Number(b.dataset.id)))
@@ -850,15 +850,46 @@ async function createNotebook() {
   scheduleSync();
 }
 
-async function renameNotebookPrompt(id) {
+// Swap the notebook's row for an inline text input. window.prompt() is not
+// available in Electron, so the rename has to happen inside the modal itself.
+async function renameNotebookInline(id) {
+  const li = $(`#notebook-list .nb-rename[data-id="${id}"]`)?.closest('.nb-item');
+  const openBtn = li?.querySelector('.nb-open');
+  if (!openBtn || li.querySelector('.nb-edit')) return;
+
   const notebooks = await listNotebooks();
   const nb = notebooks.find((n) => n.id === id);
-  const name = prompt('Notebook name:', nb ? nb.name : '');
-  if (name == null || !name.trim()) return;
-  await renameNotebook(id, name.trim());
-  updateCurrentName(await listNotebooks());
-  renderNotebookList();
-  scheduleSync();
+  if (!nb) return;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'nb-edit';
+  input.value = nb.name;
+  openBtn.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const finish = async (commit) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim();
+    if (commit && name && name !== nb.name) {
+      await renameNotebook(id, name);
+      updateCurrentName(await listNotebooks());
+      scheduleSync();
+    }
+    renderNotebookList();
+  };
+
+  input.addEventListener('keydown', (e) => {
+    // Keep Escape from bubbling to the global handler that closes the modal;
+    // here it just cancels the rename.
+    e.stopPropagation();
+    if (e.key === 'Enter') finish(true);
+    else if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
 }
 
 async function deleteNotebookFlow(id) {
