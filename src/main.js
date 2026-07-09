@@ -51,6 +51,7 @@ let objectUrls = [];     // live object URLs to revoke on re-render
 let gridUrls = [];       // thumbnail object URLs for the pages overview
 let selectedPageIds = new Set(); // page ids ticked in the pages overview
 let dragSrcIndex = null;  // index of the page being dragged in the overview
+let dragBlockIds = null;  // ids moving together when a selected card is dragged
 let pageFlip = null;
 let currentPage = 0;
 let ocrRunning = false;
@@ -1138,11 +1139,22 @@ function renderPagesGrid() {
   grid.querySelectorAll('.page-card').forEach((card) => {
     card.addEventListener('dragstart', (e) => {
       dragSrcIndex = Number(card.dataset.index);
+      // Grabbing a selected card drags the whole selection as one block.
+      dragBlockIds =
+        selectedPageIds.size > 1 && selectedPageIds.has(pages[dragSrcIndex].id)
+          ? new Set(selectedPageIds)
+          : null;
       e.dataTransfer.effectAllowed = 'move';
-      card.classList.add('dragging');
+      grid.querySelectorAll('.page-card').forEach((c) => {
+        const inDrag = dragBlockIds
+          ? dragBlockIds.has(pages[Number(c.dataset.index)].id)
+          : c === card;
+        if (inDrag) c.classList.add('dragging');
+      });
     });
     card.addEventListener('dragend', () => {
       dragSrcIndex = null;
+      dragBlockIds = null;
       grid.querySelectorAll('.page-card').forEach((c) =>
         c.classList.remove('dragging', 'drag-over')
       );
@@ -1150,14 +1162,23 @@ function renderPagesGrid() {
     card.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      if (Number(card.dataset.index) !== dragSrcIndex) card.classList.add('drag-over');
+      const idx = Number(card.dataset.index);
+      const inDrag = dragBlockIds
+        ? dragBlockIds.has(pages[idx].id)
+        : idx === dragSrcIndex;
+      if (!inDrag) card.classList.add('drag-over');
     });
     card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
     card.addEventListener('drop', (e) => {
       e.preventDefault();
       card.classList.remove('drag-over');
+      if (dragSrcIndex == null) return;
       const target = Number(card.dataset.index);
-      if (dragSrcIndex != null && dragSrcIndex !== target) {
+      if (dragBlockIds) {
+        if (!dragBlockIds.has(pages[target].id)) {
+          moveSelectedPages(dragBlockIds, dragSrcIndex, target);
+        }
+      } else if (dragSrcIndex !== target) {
         movePage(dragSrcIndex, target);
       }
     });
@@ -1213,12 +1234,11 @@ async function deleteSelectedPages() {
   else renderPagesGrid();
 }
 
-// Move the page at index `from` to index `to`, then persist the new order.
-async function movePage(from, to) {
-  // Remember the open page so the viewer can follow it after reordering.
+// Persist `newOrder` as the notebook's page order and refresh every view.
+// Remembers the open page (by id) so the reading view follows it.
+async function applyPageOrder(newOrder) {
   const openId = pages[currentPage] ? pages[currentPage].id : null;
-  const [moved] = pages.splice(from, 1);
-  pages.splice(to, 0, moved);
+  pages = newOrder;
   await reorderPages(pages.map((p) => p.id));
   await touchNotebook(currentNotebookId);
   scheduleSync();
@@ -1229,6 +1249,26 @@ async function movePage(from, to) {
   renderBook();
   refreshSearch();
   renderPagesGrid();
+}
+
+// Move the page at index `from` to index `to`.
+async function movePage(from, to) {
+  const next = [...pages];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  await applyPageOrder(next);
+}
+
+// Move the pages in `ids` as one block (keeping their relative order) to the
+// card at index `target`. Like movePage, the block lands before the target
+// when dragging up and after it when dragging down.
+async function moveSelectedPages(ids, from, target) {
+  const targetId = pages[target].id;
+  const moving = pages.filter((p) => ids.has(p.id));
+  const rest = pages.filter((p) => !ids.has(p.id));
+  const at = rest.findIndex((p) => p.id === targetId) + (from < target ? 1 : 0);
+  rest.splice(at, 0, ...moving);
+  await applyPageOrder(rest);
 }
 
 // ---------- reading zoom viewer ----------
