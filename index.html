@@ -117,9 +117,11 @@
     <div id="pages-overview" class="modal" hidden>
       <div class="modal-card modal-wide">
         <h2>All pages</h2>
-        <p class="hint">Drag a page to reorder it. Click a page to open it, or use 🗑️ to delete just that page.</p>
+        <p class="hint">Drag a page to reorder it. Click a page to open it, or tick the checkboxes to select several pages and delete them together.</p>
         <div id="pages-grid" class="pages-grid"></div>
-        <div class="modal-actions">
+        <div class="modal-actions pages-actions">
+          <label class="select-all"><input type="checkbox" id="pages-select-all" /> Select all</label>
+          <button id="pages-delete-selected" class="btn danger" hidden>🗑 Delete selected</button>
           <button id="pages-overview-close" class="btn ghost">Close</button>
         </div>
       </div>

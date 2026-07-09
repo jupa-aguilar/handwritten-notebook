@@ -49,6 +49,7 @@ let pages = [];          // page records for the current notebook, ordered
 let currentNotebookId = null;
 let objectUrls = [];     // live object URLs to revoke on re-render
 let gridUrls = [];       // thumbnail object URLs for the pages overview
+let selectedPageIds = new Set(); // page ids ticked in the pages overview
 let dragSrcIndex = null;  // index of the page being dragged in the overview
 let pageFlip = null;
 let currentPage = 0;
@@ -1056,6 +1057,7 @@ async function importNotebookFromFile(file) {
 // ---------- pages overview ----------
 
 function openPagesOverview() {
+  selectedPageIds.clear();
   $('#pages-overview').hidden = false;
   renderPagesGrid();
 }
@@ -1070,9 +1072,16 @@ function renderPagesGrid() {
   gridUrls.forEach((u) => URL.revokeObjectURL(u));
   gridUrls = [];
 
+  // Drop selections that point at pages that no longer exist.
+  const alive = new Set(pages.map((p) => p.id));
+  for (const id of [...selectedPageIds]) {
+    if (!alive.has(id)) selectedPageIds.delete(id);
+  }
+
   const grid = $('#pages-grid');
   if (pages.length === 0) {
     grid.innerHTML = '<div class="panel-note">This notebook has no pages.</div>';
+    updatePagesSelectionUI();
     return;
   }
 
@@ -1080,7 +1089,11 @@ function renderPagesGrid() {
     .map((p, i) => {
       const u = URL.createObjectURL(p.blob);
       gridUrls.push(u);
-      return `<figure class="page-card" draggable="true" data-index="${i}">
+      const selected = selectedPageIds.has(p.id);
+      return `<figure class="page-card${selected ? ' selected' : ''}" draggable="true" data-index="${i}">
+          <label class="page-select" title="Select page ${i + 1}">
+            <input type="checkbox" data-id="${p.id}"${selected ? ' checked' : ''} />
+          </label>
           <button class="page-thumb" data-index="${i}" title="Open page ${i + 1}">
             <img src="${u}" alt="Page ${i + 1}" loading="lazy" />
           </button>
@@ -1091,6 +1104,16 @@ function renderPagesGrid() {
         </figure>`;
     })
     .join('');
+
+  grid.querySelectorAll('.page-select input').forEach((box) =>
+    box.addEventListener('change', () => {
+      const id = Number(box.dataset.id);
+      if (box.checked) selectedPageIds.add(id);
+      else selectedPageIds.delete(id);
+      box.closest('.page-card').classList.toggle('selected', box.checked);
+      updatePagesSelectionUI();
+    })
+  );
 
   grid.querySelectorAll('.page-thumb').forEach((b) =>
     b.addEventListener('click', () => {
@@ -1139,6 +1162,55 @@ function renderPagesGrid() {
       }
     });
   });
+
+  updatePagesSelectionUI();
+}
+
+// Keep the bulk-delete button and the "Select all" box in step with the
+// current selection.
+function updatePagesSelectionUI() {
+  const n = selectedPageIds.size;
+  const del = $('#pages-delete-selected');
+  del.hidden = n === 0;
+  del.textContent = `🗑 Delete selected (${n})`;
+  const all = $('#pages-select-all');
+  all.disabled = pages.length === 0;
+  all.checked = n > 0 && n === pages.length;
+  all.indeterminate = n > 0 && n < pages.length;
+}
+
+function setAllPagesSelected(selected) {
+  selectedPageIds = selected ? new Set(pages.map((p) => p.id)) : new Set();
+  $('#pages-grid')
+    .querySelectorAll('.page-select input')
+    .forEach((box) => {
+      box.checked = selected;
+      box.closest('.page-card').classList.toggle('selected', selected);
+    });
+  updatePagesSelectionUI();
+}
+
+// Delete every selected page in one go, behind a single confirmation.
+async function deleteSelectedPages() {
+  const ids = new Set(selectedPageIds);
+  if (ids.size === 0) return;
+  const label = `${ids.size} selected page${ids.size === 1 ? '' : 's'}`;
+  if (!confirm(`Delete ${label}? This cannot be undone.`)) return;
+  // Aim the reading view at the slot the open page will occupy once the
+  // selected ones are gone (or the nearest surviving page before it).
+  const targetIndex =
+    pages.slice(0, currentPage + 1).filter((p) => !ids.has(p.id)).length - 1;
+  for (const id of ids) await deletePage(id);
+  selectedPageIds.clear();
+  await touchNotebook(currentNotebookId);
+  scheduleSync();
+  pages = await getPages(currentNotebookId);
+  currentPage = Math.max(0, Math.min(targetIndex, pages.length - 1));
+  renderBook();
+  refreshSearch();
+  setOcrStatus(`Deleted ${ids.size} page${ids.size === 1 ? '' : 's'}`);
+  if (pages.length === 0) closePagesOverview();
+  else renderPagesGrid();
 }
 
 // Move the page at index `from` to index `to`, then persist the new order.
@@ -1518,6 +1590,10 @@ function wire() {
 
   $('#pages-btn').addEventListener('click', openPagesOverview);
   $('#pages-overview-close').addEventListener('click', closePagesOverview);
+  $('#pages-select-all').addEventListener('change', (e) =>
+    setAllPagesSelected(e.target.checked)
+  );
+  $('#pages-delete-selected').addEventListener('click', deleteSelectedPages);
 
   $('#panel-toggle').addEventListener('click', togglePanel);
   $('#panel-close').addEventListener('click', () => setPanelHidden(true));
