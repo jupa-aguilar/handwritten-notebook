@@ -1136,6 +1136,13 @@ function renderPagesGrid() {
     })
   );
 
+  // The half of the card the cursor is on decides whether the drop lands
+  // before (left half) or after (right half) that card.
+  const dropAfter = (card, e) => {
+    const r = card.getBoundingClientRect();
+    return e.clientX > r.left + r.width / 2;
+  };
+
   grid.querySelectorAll('.page-card').forEach((card) => {
     card.addEventListener('dragstart', (e) => {
       dragSrcIndex = Number(card.dataset.index);
@@ -1151,12 +1158,22 @@ function renderPagesGrid() {
           : c === card;
         if (inDrag) c.classList.add('dragging');
       });
+      // Dragging a block: pin a "N pages" badge to the cursor instead of the
+      // single card's ghost image.
+      if (dragBlockIds) {
+        const ghost = document.createElement('div');
+        ghost.className = 'drag-ghost';
+        ghost.textContent = `${dragBlockIds.size} pages`;
+        document.body.appendChild(ghost);
+        e.dataTransfer.setDragImage(ghost, 24, 18);
+        setTimeout(() => ghost.remove());
+      }
     });
     card.addEventListener('dragend', () => {
       dragSrcIndex = null;
       dragBlockIds = null;
       grid.querySelectorAll('.page-card').forEach((c) =>
-        c.classList.remove('dragging', 'drag-over')
+        c.classList.remove('dragging', 'drop-before', 'drop-after')
       );
     });
     card.addEventListener('dragover', (e) => {
@@ -1166,21 +1183,20 @@ function renderPagesGrid() {
       const inDrag = dragBlockIds
         ? dragBlockIds.has(pages[idx].id)
         : idx === dragSrcIndex;
-      if (!inDrag) card.classList.add('drag-over');
+      if (inDrag) return;
+      const after = dropAfter(card, e);
+      card.classList.toggle('drop-after', after);
+      card.classList.toggle('drop-before', !after);
     });
-    card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+    card.addEventListener('dragleave', () =>
+      card.classList.remove('drop-before', 'drop-after')
+    );
     card.addEventListener('drop', (e) => {
       e.preventDefault();
-      card.classList.remove('drag-over');
+      card.classList.remove('drop-before', 'drop-after');
       if (dragSrcIndex == null) return;
-      const target = Number(card.dataset.index);
-      if (dragBlockIds) {
-        if (!dragBlockIds.has(pages[target].id)) {
-          moveSelectedPages(dragBlockIds, dragSrcIndex, target);
-        }
-      } else if (dragSrcIndex !== target) {
-        movePage(dragSrcIndex, target);
-      }
+      const ids = dragBlockIds || new Set([pages[dragSrcIndex].id]);
+      movePagesTo(ids, pages[Number(card.dataset.index)].id, dropAfter(card, e));
     });
   });
 
@@ -1251,23 +1267,15 @@ async function applyPageOrder(newOrder) {
   renderPagesGrid();
 }
 
-// Move the page at index `from` to index `to`.
-async function movePage(from, to) {
-  const next = [...pages];
-  const [moved] = next.splice(from, 1);
-  next.splice(to, 0, moved);
-  await applyPageOrder(next);
-}
-
-// Move the pages in `ids` as one block (keeping their relative order) to the
-// card at index `target`. Like movePage, the block lands before the target
-// when dragging up and after it when dragging down.
-async function moveSelectedPages(ids, from, target) {
-  const targetId = pages[target].id;
+// Move the pages in `ids` as one block (keeping their relative order) so they
+// sit just before or just after the page with `targetId`.
+async function movePagesTo(ids, targetId, after) {
+  if (ids.has(targetId)) return;
   const moving = pages.filter((p) => ids.has(p.id));
   const rest = pages.filter((p) => !ids.has(p.id));
-  const at = rest.findIndex((p) => p.id === targetId) + (from < target ? 1 : 0);
+  const at = rest.findIndex((p) => p.id === targetId) + (after ? 1 : 0);
   rest.splice(at, 0, ...moving);
+  if (rest.every((p, i) => p === pages[i])) return; // dropped where it already sat
   await applyPageOrder(rest);
 }
 
