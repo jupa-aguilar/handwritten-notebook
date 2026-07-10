@@ -13,3 +13,8 @@ contextBridge.exposeInMainWorld('nativeGoogleAuth', (clientId) =>
 contextBridge.exposeInMainWorld('nativeGoogleAuthV2', (clientId, clientSecret, interactive) =>
   ipcRenderer.invoke('google-oauth-v2', clientId, clientSecret, interactive)
 );
+
+// macOS three-finger swipe → page turns in the web app.
+contextBridge.exposeInMainWorld('onMacSwipe', (cb) =>
+  ipcRenderer.on('mac-swipe', (_evt, direction) => cb(direction))
+);

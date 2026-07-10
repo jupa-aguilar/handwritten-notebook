@@ -268,6 +268,10 @@ function createWindow() {
   // loadFile calls don't emit this event.
   win.webContents.on('will-navigate', (e) => e.preventDefault());
 
+  // macOS three-finger swipe (needs the "swipe between pages" trackpad
+  // setting); the renderer maps it to page turns.
+  win.on('swipe', (_e, direction) => win.webContents.send('mac-swipe', direction));
+
   const devUrl = process.env.ELECTRON_START_URL;
   if (devUrl) {
     win.loadURL(devUrl);

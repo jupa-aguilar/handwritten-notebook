@@ -1437,11 +1437,85 @@ function wireViewer() {
   // Double-click the book to jump straight into the zoom viewer.
   $('.book-area').addEventListener('dblclick', () => openViewer(currentPage));
 
+  // Trackpad: a pinch arrives as a ctrl+wheel event in Chromium, so plain
+  // two-finger scrolling is free to pan the zoomed page (with macOS momentum
+  // for free). At fit scale there's nothing to pan, so a horizontal swipe
+  // flips pages instead, Preview-style.
+  let vPinchPast = 0; // pinch-in accumulated while already at fit → close
+  let wheelNavDx = 0; // horizontal scroll accumulated while at fit → flip
+  let wheelNavT = 0;
+  let wheelNavLock = null; // swallows macOS momentum after a flip
   stage.addEventListener('wheel', (e) => {
     e.preventDefault();
     const rect = stage.getBoundingClientRect();
-    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-    zoomViewer(vScale * factor, e.clientX - rect.left, e.clientY - rect.top);
+
+    if (e.ctrlKey || e.metaKey) {
+      // Pinch (ctrl) or cmd+wheel zoom toward the cursor. Pinches stream
+      // small pixel deltas; clamping keeps a mouse notch (±120) from jumping
+      // the scale in one step.
+      const d = Math.max(-50, Math.min(50, e.deltaY));
+      zoomViewer(vScale * Math.exp(-d * 0.01), e.clientX - rect.left, e.clientY - rect.top);
+      // Keep pinching in past fit and the viewer closes (Photos-style).
+      if (e.ctrlKey && e.deltaY > 0 && vScale <= vFit + 0.001) {
+        vPinchPast += e.deltaY;
+        if (vPinchPast > 80) {
+          vPinchPast = 0;
+          closeViewer();
+        }
+      } else {
+        vPinchPast = 0;
+      }
+      return;
+    }
+
+    if (vScale > vFit + 0.001) {
+      vTx -= e.deltaX;
+      vTy -= e.deltaY;
+      clampViewerPan();
+      applyViewerTransform();
+      return;
+    }
+
+    // At fit: horizontal two-finger swipe turns the page. After a flip,
+    // ignore the momentum tail until events pause for a beat.
+    if (wheelNavLock) {
+      clearTimeout(wheelNavLock);
+      wheelNavLock = setTimeout(() => { wheelNavLock = null; }, 250);
+      return;
+    }
+    const now = Date.now();
+    if (now - wheelNavT > 300) wheelNavDx = 0;
+    wheelNavT = now;
+    wheelNavDx += e.deltaX;
+    if (Math.abs(wheelNavDx) > 120 && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      loadViewerPage(viewerPage + (wheelNavDx > 0 ? 1 : -1));
+      wheelNavDx = 0;
+      wheelNavLock = setTimeout(() => { wheelNavLock = null; }, 250);
+    }
+  }, { passive: false });
+
+  // Double-click toggles between fit and a readable zoom at that spot
+  // (smart-zoom feel).
+  stage.addEventListener('dblclick', (e) => {
+    const rect = stage.getBoundingClientRect();
+    if (vScale > vFit + 0.001) fitViewer();
+    else zoomViewer(vFit * 2.5, e.clientX - rect.left, e.clientY - rect.top);
+  });
+
+  // Pinch-out on the flipbook zooms straight into the viewer.
+  let bookPinch = 0;
+  let bookPinchT = 0;
+  $('.book-area').addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault(); // keep Chromium from zooming the whole page
+    const now = Date.now();
+    if (e.deltaY > 0 || now - bookPinchT > 300) bookPinch = 0;
+    bookPinchT = now;
+    bookPinch += -e.deltaY;
+    if (bookPinch > 30 && $('#viewer').hidden) {
+      bookPinch = 0;
+      openViewer(currentPage);
+    }
   }, { passive: false });
 
   // Touch gestures: 1-finger horizontal swipe turns the page; 2 fingers
@@ -1532,6 +1606,18 @@ function wireViewer() {
     if (pointers.size === 0) {
       vDrag = null;
       stage.classList.remove('grabbing');
+    }
+  });
+
+  // macOS three-finger swipe (Electron only; needs the "swipe between pages"
+  // trackpad setting) turns pages in the viewer or the flipbook.
+  window.onMacSwipe?.((dir) => {
+    if (dir !== 'left' && dir !== 'right') return;
+    if (!$('#viewer').hidden) {
+      loadViewerPage(viewerPage + (dir === 'left' ? 1 : -1));
+    } else if (pageFlip) {
+      if (dir === 'left') pageFlip.flipNext();
+      else pageFlip.flipPrev();
     }
   });
 
