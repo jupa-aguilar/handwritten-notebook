@@ -13,6 +13,13 @@ const crypto = require('crypto');
 
 const APP_URL = 'https://jupa-aguilar.github.io/handwritten-notebook/';
 
+// Dev runs (ELECTRON_START_URL) get their own profile: two Chromium instances
+// can't share one — if the installed app is open, the second instance loses
+// the storage locks and IndexedDB silently fails, so nothing can be saved.
+if (process.env.ELECTRON_START_URL) {
+  app.setPath('userData', `${app.getPath('userData')}-dev`);
+}
+
 // Google refuses to sign in inside embedded browsers ("this browser or app
 // may not be secure"), so OAuth runs in the system browser instead: we open
 // the auth URL externally and catch the redirect on a local loopback server.
