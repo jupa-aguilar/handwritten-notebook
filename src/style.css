@@ -131,6 +131,120 @@ body {
   font-weight: 600;
 }
 
+/* ---------- bookmarks ---------- */
+
+/* Split button: [🔖 toggle][▾ list], joined like a browser's star + menu. */
+.bm-wrap {
+  display: flex;
+}
+.bm-wrap .btn {
+  border-radius: 8px 0 0 8px;
+}
+.bm-wrap .btn + .btn {
+  border-radius: 0 8px 8px 0;
+  border-left: none;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+#bookmark-toggle:not(.active),
+#viewer-bookmark:not(.active) {
+  filter: grayscale(1);
+}
+#bookmark-toggle.active,
+#viewer-bookmark.active {
+  border-color: var(--accent);
+  background: rgba(200, 116, 60, 0.18);
+  filter: none;
+}
+
+/* Ribbon hanging from the top edge of a bookmarked page (flipbook + viewer;
+   size and position are set inline from the measured page geometry). */
+.hl-ribbon {
+  position: absolute;
+  background: var(--accent);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+  opacity: 0.92;
+}
+
+.bookmarks-pop {
+  position: fixed;
+  z-index: 70;
+  width: min(340px, 92vw);
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--panel);
+  color: var(--panel-ink);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  padding: 10px;
+}
+.bm-head {
+  font-size: 0.75rem;
+  color: #8a7d6c;
+  padding: 2px 6px 8px;
+}
+.bm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bm-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.bm-jump {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--panel-ink);
+}
+.bm-jump:hover {
+  background: rgba(200, 116, 60, 0.12);
+}
+.bm-page {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: var(--accent);
+}
+.bm-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bm-label.faded {
+  color: #8a7d6c;
+  font-style: italic;
+}
+.bm-item .btn.ghost {
+  color: var(--panel-ink);
+  border-color: rgba(0, 0, 0, 0.2);
+  flex: 0 0 auto;
+}
+.bm-edit {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  font-size: 0.9rem;
+}
+.bm-empty {
+  color: #8a7d6c;
+  font-style: italic;
+  font-size: 0.85rem;
+  padding: 4px 6px 8px;
+}
+
 /* ---------- stage ---------- */
 
 .stage {
@@ -541,6 +655,33 @@ mark {
 .page-card-num {
   font-weight: 700;
   flex: 1;
+}
+/* Bookmark marks on the overview cards. */
+.page-card .card-ribbon {
+  position: absolute;
+  top: -3px;
+  right: 10px;
+  width: 18px;
+  height: 32px;
+  z-index: 1;
+  background: var(--accent);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+  display: none;
+  pointer-events: none;
+}
+.page-card.bookmarked .card-ribbon {
+  display: block;
+}
+.page-card-bookmark {
+  flex: 0 0 auto;
+  color: var(--panel-ink);
+  border-color: rgba(0, 0, 0, 0.2);
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+.page-card-bookmark.on {
+  filter: none;
+  opacity: 1;
 }
 .page-card-delete {
   flex: 0 0 auto;

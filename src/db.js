@@ -3,7 +3,7 @@
 // Stores:
 //   notebooks: { id, name, createdAt, updatedAt }
 //   pages:     { id, notebookId, order, name, blob, mediaType, width, height,
-//                text, ocrStatus, error }
+//                text, ocrStatus, error, bookmarked, bookmarkLabel }
 //     ocrStatus: 'pending' | 'done' | 'error' | 'skipped'
 import { openDB } from 'idb';
 
@@ -212,6 +212,8 @@ export async function applyRemoteNotebook(manifest, resolveBlob) {
         words: pm.words || [],
         ocrStatus: pm.ocrStatus,
         error: pm.error || '',
+        bookmarked: !!pm.bookmarked,
+        bookmarkLabel: pm.bookmarkLabel || '',
       });
       await db.put('pages', local);
     } else {
@@ -229,6 +231,8 @@ export async function applyRemoteNotebook(manifest, resolveBlob) {
         words: pm.words || [],
         ocrStatus: pm.ocrStatus,
         error: pm.error || '',
+        bookmarked: !!pm.bookmarked,
+        bookmarkLabel: pm.bookmarkLabel || '',
         createdAt: Date.now(),
       });
     }

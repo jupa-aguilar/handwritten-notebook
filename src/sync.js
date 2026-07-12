@@ -268,6 +268,8 @@ async function pushNotebook(token, files, meta, nbId, onStatus = () => {}) {
       words: p.words || [],
       ocrStatus: p.ocrStatus,
       error: p.error || '',
+      bookmarked: !!p.bookmarked,
+      bookmarkLabel: p.bookmarkLabel || '',
     })),
   };
   await uploadFile(

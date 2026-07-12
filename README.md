@@ -42,6 +42,13 @@ Then:
   click one to flip there.
 - **Read a page's text:** click **📖 Text** to open the transcription panel beside
   the page, with matches highlighted.
+- **Bookmark pages:** click **🔖** (or press **B**) to hang a ribbon on the page
+  you're reading — it shows on the book, in the zoom viewer, and on the page's
+  card in **🗂 Pages** (each card also has its own 🔖). The **▾** next to the
+  toolbar 🔖 lists all bookmarks: click one to jump there, ✏️ to give it a short
+  label (unlabeled ones show the page's opening words), ✕ to remove it.
+  Bookmarks are part of the notebook, so they travel with 📤 Export / ⬆ Import
+  and ☁ Sync.
 - **Zoom in to read:** click **🔍 Zoom** (or press **Z**, or double-click the page)
   to open a full-screen viewer. Scroll/pinch or use **＋ − Fit** to zoom, drag to
   pan, **← →** to change page, **Esc** to close. Search hits are boxed here too.

@@ -311,6 +311,7 @@ async function removePage(id) {
 }
 
 function updatePanel() {
+  updateBookmarkButtons(); // every page change funnels through here
   const body = $('#panel-body');
   const page = pages[currentPage];
   if (!page) {
@@ -368,7 +369,7 @@ function refreshSearch() {
     results.hidden = true;
     results.innerHTML = '';
     updatePanel();
-    clearHighlights();
+    updateHighlights(); // redraw without word boxes; bookmark ribbons stay
     renderViewerHighlights();
     return;
   }
@@ -426,10 +427,11 @@ function clearHighlights() {
   if (layer) layer.replaceChildren();
 }
 
-// Draw a box over every word on the visible page(s) that matches the search.
+// Draw the overlays for the visible page(s): a ribbon on bookmarked pages and
+// a box over every word that matches the search.
 // StPageFlip draws onto a <canvas>, so we position an absolute overlay using the
 // page geometry it exposes via getRender().getRect(). Called only with the page
-// at rest (boxes are cleared during the 3D flip, which would distort them).
+// at rest (overlays are cleared during the 3D flip, which would distort them).
 function updateHighlights() {
   const layer = $('#highlights');
   if (!layer) return;
@@ -438,7 +440,6 @@ function updateHighlights() {
   if (!pageFlip || pages.length === 0) return;
   const query = $('#search').value.trim().toLowerCase();
   const tokens = query.split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return;
 
   const canvas = $('#book').querySelector('canvas');
   const rect = pageFlip.getRender().getRect(); // { left, top, height, pageWidth }
@@ -463,9 +464,21 @@ function updateHighlights() {
 
   for (const { i, offset } of visible) {
     const page = pages[i];
-    if (!page?.words?.length || !page.width || !page.height) continue;
+    if (!page) continue;
     const pageLeft = canvasBox.left - layerBox.left + rect.left + offset;
     const pageTop = canvasBox.top - layerBox.top + rect.top;
+    if (page.bookmarked) {
+      const rw = Math.max(18, Math.min(30, rect.pageWidth * 0.05));
+      const rib = document.createElement('div');
+      rib.className = 'hl-ribbon';
+      rib.style.left = `${pageLeft + rect.pageWidth * 0.86}px`;
+      rib.style.top = `${pageTop}px`;
+      rib.style.width = `${rw}px`;
+      rib.style.height = `${rw * 1.8}px`;
+      frag.appendChild(rib);
+    }
+    if (tokens.length === 0 || !page.words?.length || !page.width || !page.height)
+      continue;
     const sx = rect.pageWidth / page.width;
     const sy = rect.height / page.height;
     for (const w of page.words) {
@@ -607,6 +620,8 @@ async function handleFiles(fileList) {
         text: '',
         words: [],
         ocrStatus: TRANSCRIPTION_ENABLED ? 'pending' : 'skipped',
+        bookmarked: false,
+        bookmarkLabel: '',
         createdAt: Date.now(),
       };
       record.id = await addPage(record);
@@ -747,6 +762,146 @@ function openPanel() {
 }
 function togglePanel() {
   setPanelHidden($('#panel').hidden === false);
+}
+
+// ---------- bookmarks ----------
+
+// Toggle the ribbon on a page (defaults to the one being read). The flag lives
+// on the page record, so export/import and Drive sync carry it along.
+async function toggleBookmark(page = pages[currentPage]) {
+  if (!page) return;
+  page.bookmarked = !page.bookmarked;
+  if (!page.bookmarked) page.bookmarkLabel = '';
+  await putPage(page);
+  await touchNotebook(currentNotebookId);
+  scheduleSync();
+  updateBookmarkButtons();
+  updateHighlights();
+  renderViewerHighlights();
+  if (!$('#bookmarks-pop').hidden) renderBookmarksList();
+  if (!$('#pages-overview').hidden) renderPagesGrid();
+  const n = pages.indexOf(page) + 1;
+  setOcrStatus(page.bookmarked ? `Bookmarked page ${n}` : `Removed bookmark from page ${n}`);
+}
+
+function updateBookmarkButtons() {
+  const set = (btn, on) => {
+    if (!btn) return;
+    btn.classList.toggle('active', on);
+    btn.title = on ? 'Remove bookmark (B)' : 'Bookmark this page (B)';
+  };
+  set($('#bookmark-toggle'), !!pages[currentPage]?.bookmarked);
+  set($('#viewer-bookmark'), !!pages[viewerPage]?.bookmarked);
+}
+
+function openBookmarks() {
+  renderBookmarksList();
+  const pop = $('#bookmarks-pop');
+  pop.hidden = false;
+  // Anchor under the ▾ button, right-aligned, clamped into the viewport.
+  const r = $('#bookmarks-btn').getBoundingClientRect();
+  pop.style.top = `${r.bottom + 6}px`;
+  const w = pop.offsetWidth;
+  pop.style.left = `${Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))}px`;
+}
+
+function closeBookmarks() {
+  $('#bookmarks-pop').hidden = true;
+}
+
+function toggleBookmarksPop() {
+  if ($('#bookmarks-pop').hidden) openBookmarks();
+  else closeBookmarks();
+}
+
+function renderBookmarksList() {
+  const ul = $('#bm-list');
+  const marked = pages.map((p, i) => ({ p, i })).filter(({ p }) => p.bookmarked);
+  if (marked.length === 0) {
+    ul.innerHTML =
+      '<li class="bm-empty">No bookmarks yet — press 🔖 (or B) while reading a page.</li>';
+    return;
+  }
+  ul.innerHTML = marked
+    .map(({ p, i }) => {
+      // Unlabeled entries fall back to the transcript's opening words (or the
+      // scan's filename) so they can still be told apart.
+      const fallback =
+        (p.text || '').trim().replace(/\s+/g, ' ').slice(0, 46) || p.name || '';
+      const label = p.bookmarkLabel || fallback;
+      return `<li class="bm-item" data-id="${p.id}">
+        <button class="bm-jump" data-index="${i}" title="Go to page ${i + 1}">
+          <span class="bm-page">p.${i + 1}</span>
+          <span class="bm-label${p.bookmarkLabel ? '' : ' faded'}">${escapeHtml(label)}</span>
+        </button>
+        <button class="btn ghost small bm-edit-btn" data-id="${p.id}" title="Edit label">✏️</button>
+        <button class="btn ghost small bm-remove" data-id="${p.id}" title="Remove bookmark">✕</button>
+      </li>`;
+    })
+    .join('');
+
+  ul.querySelectorAll('.bm-jump').forEach((b) =>
+    b.addEventListener('click', () => {
+      const idx = Number(b.dataset.index);
+      closeBookmarks();
+      if (!$('#viewer').hidden) loadViewerPage(idx);
+      if (pageFlip) pageFlip.flip(idx);
+      currentPage = idx;
+      updatePanel();
+      updatePager();
+    })
+  );
+  ul.querySelectorAll('.bm-edit-btn').forEach((b) =>
+    b.addEventListener('click', () => editBookmarkLabel(Number(b.dataset.id)))
+  );
+  ul.querySelectorAll('.bm-remove').forEach((b) =>
+    b.addEventListener('click', () => {
+      const page = pages.find((p) => p.id === Number(b.dataset.id));
+      if (page) toggleBookmark(page);
+    })
+  );
+}
+
+// Swap the bookmark's row for an inline text input — same pattern as the
+// notebook rename (window.prompt is not available in Electron).
+function editBookmarkLabel(id) {
+  const item = $(`#bm-list .bm-item[data-id="${id}"]`);
+  const jump = item?.querySelector('.bm-jump');
+  if (!jump || item.querySelector('.bm-edit')) return;
+  const page = pages.find((p) => p.id === id);
+  if (!page) return;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'bm-edit';
+  input.placeholder = 'Label…';
+  input.value = page.bookmarkLabel || '';
+  jump.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const finish = async (commit) => {
+    if (done) return;
+    done = true;
+    const label = input.value.trim();
+    if (commit && label !== (page.bookmarkLabel || '')) {
+      page.bookmarkLabel = label;
+      await putPage(page);
+      await touchNotebook(currentNotebookId);
+      scheduleSync();
+    }
+    renderBookmarksList();
+  };
+
+  input.addEventListener('keydown', (e) => {
+    // Keep Escape from bubbling to the global handler that closes the popover;
+    // here it just cancels the edit.
+    e.stopPropagation();
+    if (e.key === 'Enter') finish(true);
+    else if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
 }
 
 // ---------- notebooks ----------
@@ -980,6 +1135,8 @@ async function exportNotebook(id) {
         words: p.words || [],
         ocrStatus: p.ocrStatus,
         error: p.error || '',
+        bookmarked: !!p.bookmarked,
+        bookmarkLabel: p.bookmarkLabel || '',
         image: await blobToBase64(p.blob), // base64, no data: prefix
       });
     }
@@ -1038,6 +1195,8 @@ async function importNotebookFromFile(file) {
         words: p.words || [],
         ocrStatus: p.ocrStatus || (p.text ? 'done' : 'skipped'),
         error: p.error || '',
+        bookmarked: !!p.bookmarked,
+        bookmarkLabel: p.bookmarkLabel || '',
         createdAt: Date.now(),
       });
       order++;
@@ -1091,15 +1250,17 @@ function renderPagesGrid() {
       const u = URL.createObjectURL(p.blob);
       gridUrls.push(u);
       const selected = selectedPageIds.has(p.id);
-      return `<figure class="page-card${selected ? ' selected' : ''}" draggable="true" data-index="${i}">
+      return `<figure class="page-card${selected ? ' selected' : ''}${p.bookmarked ? ' bookmarked' : ''}" draggable="true" data-index="${i}">
           <label class="page-select" title="Select page ${i + 1}">
             <input type="checkbox" data-id="${p.id}"${selected ? ' checked' : ''} />
           </label>
+          <span class="card-ribbon" aria-hidden="true"></span>
           <button class="page-thumb" data-index="${i}" title="Open page ${i + 1}">
             <img src="${u}" alt="Page ${i + 1}" loading="lazy" />
           </button>
           <figcaption class="page-card-meta">
             <span class="page-card-num">Page ${i + 1}</span>
+            <button class="btn ghost small page-card-bookmark${p.bookmarked ? ' on' : ''}" data-id="${p.id}" title="${p.bookmarked ? 'Remove bookmark' : 'Bookmark this page'}">🔖</button>
             <button class="btn ghost small page-card-delete" data-id="${p.id}" title="Delete this page">🗑️</button>
           </figcaption>
         </figure>`;
@@ -1125,6 +1286,13 @@ function renderPagesGrid() {
       currentPage = idx;
       updatePanel();
       updatePager();
+    })
+  );
+
+  grid.querySelectorAll('.page-card-bookmark').forEach((b) =>
+    b.addEventListener('click', () => {
+      const page = pages.find((p) => p.id === Number(b.dataset.id));
+      if (page) toggleBookmark(page); // re-renders the grid while it's open
     })
   );
 
@@ -1396,28 +1564,41 @@ function toggleImmersive() {
   requestAnimationFrame(refitViewer);
 }
 
-// Boxes live inside the transformed content sized to the page's native pixels,
-// so word coordinates map 1:1 and scale/pan for free with the CSS transform.
+// Overlays live inside the transformed content sized to the page's native
+// pixels, so coordinates map 1:1 and scale/pan for free with the CSS transform.
 function renderViewerHighlights() {
   const layer = $('#viewer-highlights');
   if (!layer) return;
   layer.replaceChildren();
   if ($('#viewer').hidden) return;
 
-  const tokens = $('#search').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const page = pages[viewerPage];
-  if (tokens.length === 0 || !page?.words?.length) return;
-
+  if (!page) return;
   const frag = document.createDocumentFragment();
-  for (const w of page.words) {
-    if (!tokens.some((t) => w.t.toLowerCase().includes(t))) continue;
-    const box = document.createElement('div');
-    box.className = 'vhl-box';
-    box.style.left = `${w.x}px`;
-    box.style.top = `${w.y}px`;
-    box.style.width = `${w.w}px`;
-    box.style.height = `${w.h}px`;
-    frag.appendChild(box);
+
+  if (page.bookmarked) {
+    const rw = Math.round(vNatW * 0.045);
+    const rib = document.createElement('div');
+    rib.className = 'hl-ribbon';
+    rib.style.left = `${Math.round(vNatW * 0.86)}px`;
+    rib.style.top = '0px';
+    rib.style.width = `${rw}px`;
+    rib.style.height = `${Math.round(rw * 1.8)}px`;
+    frag.appendChild(rib);
+  }
+
+  const tokens = $('#search').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length && page.words?.length) {
+    for (const w of page.words) {
+      if (!tokens.some((t) => w.t.toLowerCase().includes(t))) continue;
+      const box = document.createElement('div');
+      box.className = 'vhl-box';
+      box.style.left = `${w.x}px`;
+      box.style.top = `${w.y}px`;
+      box.style.width = `${w.w}px`;
+      box.style.height = `${w.h}px`;
+      frag.appendChild(box);
+    }
   }
   layer.appendChild(frag);
 }
@@ -1433,6 +1614,7 @@ function wireViewer() {
   $('#viewer-zoom-in').addEventListener('click', () => zoomViewerBy(1.25));
   $('#viewer-zoom-out').addEventListener('click', () => zoomViewerBy(1 / 1.25));
   $('#viewer-reset').addEventListener('click', fitViewer);
+  $('#viewer-bookmark').addEventListener('click', () => toggleBookmark());
 
   // Double-click the book to jump straight into the zoom viewer.
   $('.book-area').addEventListener('dblclick', () => openViewer(currentPage));
@@ -1643,6 +1825,17 @@ function wire() {
   $('#next').addEventListener('click', () => pageFlip && pageFlip.flipNext());
   $('#first').addEventListener('click', goFirst);
   $('#last').addEventListener('click', goLast);
+
+  $('#bookmark-toggle').addEventListener('click', () => toggleBookmark());
+  $('#bookmarks-btn').addEventListener('click', toggleBookmarksPop);
+  // Any press outside the popover (or its toolbar buttons, which manage it
+  // themselves) closes it, like a menu.
+  document.addEventListener('pointerdown', (e) => {
+    const pop = $('#bookmarks-pop');
+    if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('.bm-wrap')) {
+      closeBookmarks();
+    }
+  });
   // Every modal also closes on Escape or a click on the backdrop, behaving
   // like its Close/Cancel button — i.e. #settings discards, never saves.
   const modals = [
@@ -1675,8 +1868,13 @@ function wire() {
     }
 
     // Escape closes any open modal — checked before the input guard so it
-    // also works while typing in a modal's field.
+    // also works while typing in a modal's field. The bookmarks popover
+    // behaves the same, and closes first.
     if (e.key === 'Escape') {
+      if (!$('#bookmarks-pop').hidden) {
+        closeBookmarks();
+        return;
+      }
       const open = modals.find(({ el }) => !el.hidden);
       if (open) {
         open.close();
@@ -1694,6 +1892,7 @@ function wire() {
       else if (e.key === '+' || e.key === '=') zoomViewerBy(1.25);
       else if (e.key === '-' || e.key === '_') zoomViewerBy(1 / 1.25);
       else if (e.key === '0') fitViewer();
+      else if (e.key === 'b' || e.key === 'B') toggleBookmark();
       return;
     }
 
@@ -1703,6 +1902,7 @@ function wire() {
     if (e.key === 'End') goLast();
     if (e.key === 'f' || e.key === 'F') toggleFullscreen();
     if (e.key === 'z' || e.key === 'Z') openViewer();
+    if (e.key === 'b' || e.key === 'B') toggleBookmark();
   });
 
   // Reposition highlight boxes whenever the book area changes size — window

@@ -35,6 +35,10 @@
 
       <button id="sync-btn" class="btn ghost" title="Sync notebooks across devices via your Google Drive">☁ Sync</button>
 
+      <div class="bm-wrap">
+        <button id="bookmark-toggle" class="btn ghost" title="Bookmark this page (B)">🔖</button>
+        <button id="bookmarks-btn" class="btn ghost" title="Show bookmarks">▾</button>
+      </div>
       <button id="pages-btn" class="btn ghost" title="All pages">🗂 Pages</button>
       <button id="zoom-btn" class="btn ghost" title="Zoom in to read (Z)">🔍 Zoom</button>
       <button id="panel-toggle" class="btn ghost" title="Show page text">📖 Text</button>
@@ -86,6 +90,8 @@
           <span id="viewer-indicator" class="viewer-indicator">1 / 1</span>
           <button id="viewer-next" class="btn ghost small" title="Next page (→)">›</button>
           <span class="viewer-sep"></span>
+          <button id="viewer-bookmark" class="btn ghost small" title="Bookmark this page (B)">🔖</button>
+          <span class="viewer-sep"></span>
           <button id="viewer-zoom-out" class="btn ghost small" title="Zoom out (−)">−</button>
           <span id="viewer-zoom-level" class="viewer-zoom-level">100%</span>
           <button id="viewer-zoom-in" class="btn ghost small" title="Zoom in (+)">＋</button>
@@ -95,6 +101,12 @@
         </div>
       </div>
     </main>
+
+    <!-- Bookmarks quick list (anchored under the ▾ toolbar button) -->
+    <div id="bookmarks-pop" class="bookmarks-pop" hidden>
+      <div class="bm-head">Bookmarks</div>
+      <ul id="bm-list" class="bm-list"></ul>
+    </div>
 
     <!-- Notebooks manager -->
     <div id="notebooks" class="modal" hidden>
