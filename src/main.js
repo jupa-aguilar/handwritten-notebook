@@ -1700,8 +1700,10 @@ function wireViewer() {
     }
   }, { passive: false });
 
-  // Touch gestures: 1-finger horizontal swipe turns the page; 2 fingers
-  // pinch-zoom and pan together (like iOS Maps). Mouse keeps drag-to-pan.
+  // Touch gestures: at fit scale a 1-finger horizontal swipe turns the page;
+  // zoomed in, 1 finger pans instead (like iOS Photos — easier than two-finger
+  // panning on a phone), and pulling well past a side edge flips the page.
+  // 2 fingers always pinch-zoom and pan together. Mouse keeps drag-to-pan.
   const pointers = new Map(); // active pointerId -> { x, y }
   let pinch = null; // { dist, midX, midY, scale, tx, ty } at pinch start
   let swipe = null; // { x, y, t } at single-touch start
@@ -1723,11 +1725,11 @@ function wireViewer() {
       swipe = null; // a second finger cancels any pending page swipe
       vDrag = null;
     } else if (pointers.size === 1) {
-      if (e.pointerType === 'touch') {
+      if (e.pointerType === 'touch' && vScale <= vFit + 0.001) {
         swipe = { x: e.clientX, y: e.clientY, t: Date.now() };
       } else {
         vDrag = { x: e.clientX, y: e.clientY, tx: vTx, ty: vTy };
-        stage.classList.add('grabbing');
+        if (e.pointerType !== 'touch') stage.classList.add('grabbing');
       }
     }
   });
@@ -1756,16 +1758,41 @@ function wireViewer() {
       clampViewerPan();
       applyViewerTransform();
     } else if (vDrag) {
-      vTx = vDrag.tx + (e.clientX - vDrag.x);
+      const rawTx = vDrag.tx + (e.clientX - vDrag.x);
+      vTx = rawTx;
       vTy = vDrag.ty + (e.clientY - vDrag.y);
       clampViewerPan();
       applyViewerTransform();
+      // Photos-style: pulling well past a side edge while zoomed flips the
+      // page. rawTx - vTx is how far the finger went beyond the clamp; the
+      // vertical-delta guard keeps sideways drift during a vertical scroll
+      // from flipping.
+      if (e.pointerType === 'touch') {
+        const over = rawTx - vTx;
+        const next = viewerPage + (over < 0 ? 1 : -1);
+        if (
+          Math.abs(over) > 70 &&
+          Math.abs(over) > Math.abs(e.clientY - vDrag.y) / 2 &&
+          next >= 0 && next < pages.length
+        ) {
+          vDrag = null;
+          loadViewerPage(next); // lands at fit, like a photo viewer
+        }
+      }
     }
   });
 
   const endPointer = (e) => {
     pointers.delete(e.pointerId);
-    if (pointers.size < 2) pinch = null;
+    if (pointers.size < 2 && pinch) {
+      pinch = null;
+      // Lifting one finger of a pinch while zoomed hands the pan to the
+      // remaining finger, so the motion never stalls.
+      if (pointers.size === 1 && e.pointerType === 'touch' && vScale > vFit + 0.001) {
+        const [p] = pointers.values();
+        vDrag = { x: p.x, y: p.y, tx: vTx, ty: vTy };
+      }
+    }
     if (swipe && pointers.size === 0 && e.pointerType === 'touch') {
       const dx = e.clientX - swipe.x;
       const dy = e.clientY - swipe.y;
