@@ -1009,6 +1009,8 @@ body.is-mobile .viewer {
 }
 body.is-mobile .nav,
 body.is-mobile #zoom-btn,
+body.is-mobile #chat-btn,
+body.is-mobile #chat,
 body.is-mobile #fullscreen-btn,
 body.is-mobile #viewer-close {
   display: none;
