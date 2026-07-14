@@ -5,7 +5,6 @@
 // running. Conversations are kept in memory per notebook and reset on reload.
 
 const URL_KEY = 'notebook.lmstudio.url';
-const MODEL_KEY = 'notebook.lmstudio.model';
 const DEFAULT_URL = 'http://localhost:1234';
 
 // Page transcriptions travel as plain text in the system prompt. Local models
@@ -44,29 +43,51 @@ function history() {
 
 // ---------- LM Studio client ----------
 
-// Also serves as the "is the server up?" probe.
-async function fetchModels() {
+// Pick the model to talk to — whichever one is loaded in LM Studio, so there
+// is nothing to choose in the app. Called before every request; also serves
+// as the "is the server up?" probe. LM Studio's own REST API says what is in
+// memory; servers without it fall back to the first chat model /v1 lists.
+async function resolveModel() {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 4000);
+  const noModel =
+    'the server is running but no model is loaded — load one in LM Studio';
   try {
+    try {
+      const resp = await fetch(`${getChatServerUrl()}/api/v0/models`, {
+        signal: ctrl.signal,
+      });
+      if (resp.ok) {
+        const loaded = ((await resp.json()).data || []).find(
+          (m) => m.state === 'loaded' && m.type !== 'embeddings'
+        );
+        if (!loaded) throw new Error(noModel);
+        return loaded.id;
+      }
+    } catch (err) {
+      if (err.message === noModel || err.name === 'AbortError') throw err;
+      // Older server without /api/v0 — fall through to the OpenAI endpoint.
+    }
     const resp = await fetch(`${getChatServerUrl()}/v1/models`, {
       signal: ctrl.signal,
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    // Embedding models can't chat; keep them out of the picker.
-    return (data.data || []).map((m) => m.id).filter((id) => !/embed/i.test(id));
+    const ids = ((await resp.json()).data || [])
+      .map((m) => m.id)
+      .filter((id) => !/embed/i.test(id)); // embedding models can't chat
+    if (ids.length === 0) throw new Error(noModel);
+    return ids[0];
   } finally {
     clearTimeout(t);
   }
 }
 
-async function streamCompletion(messages, signal, onDelta) {
+async function streamCompletion(model, messages, signal, onDelta) {
   const resp = await fetch(`${getChatServerUrl()}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: $('#chat-model').value,
+      model,
       messages,
       stream: true,
       temperature: 0.7,
@@ -196,34 +217,18 @@ function setSendStopping(on) {
   btn.title = on ? 'Stop' : 'Send';
 }
 
-// Probe the server, fill the model picker, and flip between the composer and
-// the "server not running" notice.
+// Probe the server and flip between the composer and the "server not
+// running" notice. The model itself is resolved fresh on every send.
 async function connect() {
   const offline = $('#chat-offline');
   const note = $('#chat-offline-note');
-  const select = $('#chat-model');
   serverOk = false;
-  select.hidden = true;
   setComposerEnabled(false);
   offline.hidden = false;
   $('#chat-retry').hidden = true;
   note.textContent = 'Looking for the LM Studio server…';
   try {
-    const models = await fetchModels();
-    if (models.length === 0) {
-      throw new Error('the server is running but no chat model is loaded');
-    }
-    select.replaceChildren(
-      ...models.map((id) => {
-        const opt = document.createElement('option');
-        opt.value = id;
-        opt.textContent = id;
-        return opt;
-      })
-    );
-    const saved = localStorage.getItem(MODEL_KEY);
-    select.value = models.includes(saved) ? saved : models[0];
-    select.hidden = false;
+    await resolveModel();
     serverOk = true;
     offline.hidden = true;
     setComposerEnabled(true);
@@ -272,7 +277,10 @@ async function send() {
   streamCtrl = new AbortController();
   setSendStopping(true);
   try {
-    await streamCompletion(sent, streamCtrl.signal, ({ content, reasoning }) => {
+    // Re-resolve so switching models in LM Studio mid-conversation is picked
+    // up by the very next message.
+    const model = await resolveModel();
+    await streamCompletion(model, sent, streamCtrl.signal, ({ content, reasoning }) => {
       if (content) {
         reply.content += content;
         div.classList.remove('pending');
@@ -345,10 +353,6 @@ export function initChat(opts) {
     histories.set(getContext().id, []);
     render();
   });
-  $('#chat-model').addEventListener('change', (e) =>
-    localStorage.setItem(MODEL_KEY, e.target.value)
-  );
-
   $('#chat-form').addEventListener('submit', (e) => {
     e.preventDefault();
     if (streamCtrl) streamCtrl.abort();

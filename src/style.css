@@ -777,17 +777,6 @@ mark {
 .chat-head strong {
   margin-right: auto;
 }
-.chat-model {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 150px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  background: #fff;
-  color: var(--panel-ink);
-  font-size: 0.78rem;
-}
 .chat-context {
   font-size: 0.72rem;
   color: #8a7d6c;
