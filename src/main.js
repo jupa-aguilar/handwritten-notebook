@@ -19,6 +19,12 @@ import {
 } from './db.js';
 import { transcribeImage } from './ocr.js';
 import {
+  initChat,
+  chatNotebookChanged,
+  getStoredChatServerUrl,
+  setChatServerUrl,
+} from './chat.js';
+import {
   syncNow,
   isSyncConfigured,
   getSyncClientId,
@@ -714,6 +720,7 @@ function openSettings() {
   $('#api-key').value = getApiKey();
   $('#sync-client-id').value = getSyncClientId();
   $('#sync-client-secret').value = getSyncClientSecret();
+  $('#lmstudio-url').value = getStoredChatServerUrl();
   $('#settings').hidden = false;
   $('#api-key').focus();
 }
@@ -730,6 +737,7 @@ function saveSettings() {
   const secretChanged = $('#sync-client-secret').value.trim() !== getSyncClientSecret();
   setSyncClientId($('#sync-client-id').value.trim());
   setSyncClientSecret($('#sync-client-secret').value.trim());
+  setChatServerUrl($('#lmstudio-url').value.trim());
   closeSettings();
   runOcrQueue(); // resume any pending transcriptions now that a key exists
   // First-time setup or a new secret: sign in now. A new secret needs one
@@ -919,6 +927,7 @@ async function loadCurrentNotebook() {
   $('#search').value = '';
   renderBook();
   refreshSearch();
+  chatNotebookChanged();
 }
 
 // Pick the current notebook on startup, creating a default one if none exist.
@@ -1958,6 +1967,14 @@ function wire() {
 
   $('#panel-toggle').addEventListener('click', togglePanel);
   $('#panel-close').addEventListener('click', () => setPanelHidden(true));
+
+  initChat({
+    getContext: () => ({
+      id: currentNotebookId,
+      name: $('#current-notebook').textContent,
+      pages,
+    }),
+  });
 
   $('#settings-btn').addEventListener('click', openSettings);
   $('#settings-save').addEventListener('click', saveSettings);

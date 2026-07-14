@@ -42,6 +42,7 @@
       <button id="pages-btn" class="btn ghost" title="All pages">🗂 Pages</button>
       <button id="zoom-btn" class="btn ghost" title="Zoom in to read (Z)">🔍 Zoom</button>
       <button id="panel-toggle" class="btn ghost" title="Show page text">📖 Text</button>
+      <button id="chat-btn" class="btn ghost" title="Chat about this notebook with a local AI (LM Studio)">💬 Chat</button>
       <button id="fullscreen-btn" class="btn ghost" title="Full screen (F)">⛶</button>
       <button id="settings-btn" class="btn ghost" title="API key">⚙</button>
     </header>
@@ -73,6 +74,31 @@
         </div>
         <div id="panel-body" class="panel-body"></div>
         <div id="results" class="results" hidden></div>
+      </aside>
+
+      <!-- Chat about the notebook, answered by a local model via LM Studio. -->
+      <aside id="chat" class="panel chat-panel" hidden>
+        <div class="panel-head chat-head">
+          <strong>💬 Chat</strong>
+          <select id="chat-model" class="chat-model" title="Model served by LM Studio" hidden></select>
+          <button id="chat-clear" class="btn ghost small" title="Clear this conversation">🧹</button>
+          <button id="chat-close" class="btn ghost small" title="Close">✕</button>
+        </div>
+        <div id="chat-context" class="chat-context"></div>
+        <div id="chat-messages" class="chat-messages"></div>
+        <div id="chat-offline" class="chat-offline" hidden>
+          <p id="chat-offline-note"></p>
+          <p class="chat-offline-hint">
+            In LM Studio: open the <strong>Developer</strong> tab, load a model,
+            start the server and enable <strong>CORS</strong> in its settings.
+            The server address can be changed in ⚙ Settings.
+          </p>
+          <button id="chat-retry" class="btn small">Try again</button>
+        </div>
+        <form id="chat-form" class="chat-form">
+          <textarea id="chat-input" rows="1" placeholder="Ask about this notebook…" autocomplete="off"></textarea>
+          <button id="chat-send" class="btn" type="submit" title="Send">➤</button>
+        </form>
       </aside>
 
       <!-- Reading zoom viewer. Fullscreen overlay on desktop; on phones it sits
@@ -170,6 +196,17 @@
         </p>
         <input id="sync-client-id" type="text" placeholder="1234…apps.googleusercontent.com" autocomplete="off" />
         <input id="sync-client-secret" type="password" placeholder="GOCSPX-… (client secret — Mac app only)" autocomplete="off" />
+
+        <h3 class="settings-subtitle">Local chat (LM Studio, optional)</h3>
+        <p class="hint">
+          💬 Chat answers questions about the open notebook with a model running
+          entirely on this machine via
+          <a href="https://lmstudio.ai" target="_blank" rel="noopener">LM Studio</a>:
+          in its <strong>Developer</strong> tab, load a model, start the server and
+          enable <strong>CORS</strong>. Leave the address empty for the default
+          <code>http://localhost:1234</code>.
+        </p>
+        <input id="lmstudio-url" type="text" placeholder="http://localhost:1234" autocomplete="off" />
         <div class="modal-actions">
           <button id="settings-save" class="btn">Save</button>
           <button id="settings-cancel" class="btn ghost">Cancel</button>

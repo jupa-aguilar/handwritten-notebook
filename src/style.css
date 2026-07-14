@@ -741,7 +741,8 @@ mark {
 
 #api-key,
 #sync-client-id,
-#sync-client-secret {
+#sync-client-secret,
+#lmstudio-url {
   width: 100%;
   padding: 10px 12px;
   border-radius: 8px;
@@ -762,6 +763,128 @@ mark {
 .modal-actions .btn.ghost {
   color: var(--panel-ink);
   border-color: rgba(0, 0, 0, 0.25);
+}
+
+/* ---------- chat panel (local model via LM Studio) ---------- */
+
+.chat-panel {
+  width: 360px;
+}
+.chat-head {
+  gap: 8px;
+  justify-content: flex-start;
+}
+.chat-head strong {
+  margin-right: auto;
+}
+.chat-model {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 150px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: #fff;
+  color: var(--panel-ink);
+  font-size: 0.78rem;
+}
+.chat-context {
+  font-size: 0.72rem;
+  color: #8a7d6c;
+  padding: 8px 14px 0;
+}
+.chat-messages {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.chat-msg {
+  max-width: 90%;
+  padding: 8px 11px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-msg.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.chat-msg.assistant {
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: var(--panel-ink);
+  border-bottom-left-radius: 4px;
+}
+.chat-msg.error {
+  border-color: rgba(177, 59, 39, 0.5);
+  color: #b13b27;
+}
+/* Blinking caret at the end of the reply while tokens stream in. */
+.chat-msg.streaming::after {
+  content: '▍';
+  animation: chat-blink 1s steps(2) infinite;
+}
+@keyframes chat-blink {
+  50% {
+    opacity: 0;
+  }
+}
+.chat-empty {
+  color: #8a7d6c;
+  font-style: italic;
+  font-size: 0.85rem;
+}
+.chat-offline {
+  padding: 0 14px 12px;
+  font-size: 0.85rem;
+  color: #6c6256;
+  line-height: 1.5;
+}
+#chat-offline-note {
+  font-weight: 600;
+  word-break: break-word;
+}
+.chat-offline-hint {
+  font-size: 0.8rem;
+}
+.chat-form {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+}
+#chat-input {
+  flex: 1;
+  resize: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  max-height: 120px;
+  background: #fff;
+  color: var(--panel-ink);
+}
+#chat-input:disabled {
+  background: rgba(0, 0, 0, 0.05);
+}
+#chat-send {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+}
+#chat-send:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 @media (max-width: 720px) {
