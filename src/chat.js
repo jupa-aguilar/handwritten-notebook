@@ -138,7 +138,7 @@ function buildSystemPrompt(name, pages) {
   return [
     `You are the reading assistant built into a digital notebook app. The user has open their notebook titled "${name}".`,
     'Below are OCR transcriptions of its handwritten pages, so occasional transcription mistakes are possible.',
-    'Answer from the notebook content and point to pages like (p. 3). If something is not in the notebook, say so instead of guessing.',
+    'Use the notebook as context, not as a limit: when the answer is on its pages, point to them like (p. 3), and feel free to combine that with your general knowledge to explain, expand, or answer beyond it. Just never claim the notebook says something it does not.',
     'Reply in the same language the user writes in.',
     '',
     notes.join(' '),
