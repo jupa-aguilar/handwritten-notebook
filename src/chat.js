@@ -171,10 +171,98 @@ function buildSystemPrompt(name, pages) {
 
 // ---------- rendering ----------
 
+// Local models answer in Markdown; render a small safe subset (headings,
+// bold/italic, inline code, fenced code, lists). Everything is HTML-escaped
+// first, so only the tags emitted here ever reach innerHTML.
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+  );
+}
+
+function mdInline(s) {
+  return s
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+}
+
+function renderMarkdown(md) {
+  const lines = escapeHtml(md).split('\n');
+  const out = [];
+  let para = []; // pending paragraph lines
+  let list = null; // 'ul' | 'ol' while inside a list
+  let code = null; // pending code-block lines while inside a ``` fence
+
+  const flushPara = () => {
+    if (para.length) out.push(`<p>${para.map(mdInline).join('<br>')}</p>`);
+    para = [];
+  };
+  const closeList = () => {
+    if (list) out.push(`</${list}>`);
+    list = null;
+  };
+
+  for (const line of lines) {
+    if (code) {
+      if (/^```/.test(line)) {
+        out.push(`<pre><code>${code.join('\n')}</code></pre>`);
+        code = null;
+      } else {
+        code.push(line);
+      }
+      continue;
+    }
+    if (/^```/.test(line)) {
+      flushPara();
+      closeList();
+      code = [];
+      continue;
+    }
+    const h = line.match(/^#{1,4}\s+(.*)/);
+    if (h) {
+      flushPara();
+      closeList();
+      out.push(`<div class="md-h">${mdInline(h[1])}</div>`);
+      continue;
+    }
+    const ul = line.match(/^\s*[-*•]\s+(.*)/);
+    const ol = line.match(/^\s*\d+[.)]\s+(.*)/);
+    if (ul || ol) {
+      flushPara();
+      const want = ul ? 'ul' : 'ol';
+      if (list !== want) {
+        closeList();
+        out.push(`<${want}>`);
+        list = want;
+      }
+      out.push(`<li>${mdInline((ul || ol)[1])}</li>`);
+      continue;
+    }
+    if (!line.trim()) {
+      flushPara();
+      closeList();
+      continue;
+    }
+    closeList();
+    para.push(line);
+  }
+  if (code) out.push(`<pre><code>${code.join('\n')}</code></pre>`); // fence still open mid-stream
+  flushPara();
+  closeList();
+  return out.join('');
+}
+
 function bubble(m) {
   const div = document.createElement('div');
   div.className = `chat-msg ${m.role}${m.error ? ' error' : ''}`;
-  div.textContent = m.content;
+  if (m.role === 'assistant' && !m.error) {
+    div.classList.add('md');
+    div.innerHTML = renderMarkdown(m.content);
+  } else {
+    div.textContent = m.content;
+  }
   return div;
 }
 
@@ -284,7 +372,7 @@ async function send() {
       if (content) {
         reply.content += content;
         div.classList.remove('pending');
-        div.textContent = reply.content;
+        div.innerHTML = renderMarkdown(reply.content);
       } else if (reasoning && !reply.content) {
         div.textContent = 'Thinking…';
       }
@@ -301,7 +389,7 @@ async function send() {
         ? `${reply.content}\n\n[Interrupted: ${err.message}]`
         : `Request failed: ${err.message}`;
       div.classList.add('error');
-      div.classList.remove('pending');
+      div.classList.remove('pending', 'md');
       div.textContent = reply.content;
     }
   } finally {
