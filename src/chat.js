@@ -9,8 +9,9 @@ const MODEL_KEY = 'notebook.lmstudio.model';
 const DEFAULT_URL = 'http://localhost:1234';
 
 // Page transcriptions travel as plain text in the system prompt. Local models
-// have small context windows, so cap what we send and say what was left out.
-const CONTEXT_CHAR_BUDGET = 28000;
+// have small context windows and modest hardware pays for every token at the
+// start of each conversation, so cap what we send and say what was left out.
+const CONTEXT_CHAR_BUDGET = 14000;
 const HISTORY_SENT = 12; // most recent messages included per request
 
 export function getChatServerUrl() {
@@ -94,11 +95,15 @@ async function streamCompletion(messages, signal, onDelta) {
       if (payload === '[DONE]') return;
       let delta;
       try {
-        delta = JSON.parse(payload).choices?.[0]?.delta?.content;
+        delta = JSON.parse(payload).choices?.[0]?.delta;
       } catch {
         continue; // keep-alive or partial line
       }
-      if (delta) onDelta(delta);
+      // Reasoning models stream their hidden thinking as reasoning_content;
+      // surface it so the UI can show progress instead of looking stuck.
+      if (delta?.content || delta?.reasoning_content) {
+        onDelta({ content: delta.content, reasoning: delta.reasoning_content });
+      }
     }
   }
 }
@@ -255,16 +260,25 @@ async function send() {
   msgs.push(reply);
   const box = $('#chat-messages');
   const div = bubble(reply);
-  div.classList.add('streaming');
+  div.classList.add('streaming', 'pending');
+  // On modest hardware the model can spend minutes reading the context and
+  // then thinking (reasoning models) before the first visible word, so name
+  // the phase instead of showing an empty bubble that looks frozen.
+  div.textContent = 'Reading the notebook…';
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
 
   streamCtrl = new AbortController();
   setSendStopping(true);
   try {
-    await streamCompletion(sent, streamCtrl.signal, (delta) => {
-      reply.content += delta;
-      div.textContent = reply.content;
+    await streamCompletion(sent, streamCtrl.signal, ({ content, reasoning }) => {
+      if (content) {
+        reply.content += content;
+        div.classList.remove('pending');
+        div.textContent = reply.content;
+      } else if (reasoning && !reply.content) {
+        div.textContent = 'Thinking…';
+      }
       // Follow the reply unless the user scrolled up to read something.
       if (box.scrollHeight - box.scrollTop - box.clientHeight < 80) {
         box.scrollTop = box.scrollHeight;
@@ -278,10 +292,11 @@ async function send() {
         ? `${reply.content}\n\n[Interrupted: ${err.message}]`
         : `Request failed: ${err.message}`;
       div.classList.add('error');
+      div.classList.remove('pending');
       div.textContent = reply.content;
     }
   } finally {
-    div.classList.remove('streaming');
+    div.classList.remove('streaming', 'pending');
     // Stopped before the first token: drop the empty bubble.
     if (!reply.content) {
       msgs.pop();

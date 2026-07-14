@@ -827,6 +827,11 @@ mark {
   border-color: rgba(177, 59, 39, 0.5);
   color: #b13b27;
 }
+/* Phase note ("Reading the notebook…", "Thinking…") before visible text. */
+.chat-msg.pending {
+  color: #8a7d6c;
+  font-style: italic;
+}
 /* Blinking caret at the end of the reply while tokens stream in. */
 .chat-msg.streaming::after {
   content: '▍';
