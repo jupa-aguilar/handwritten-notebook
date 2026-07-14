@@ -761,7 +761,10 @@ function toggleFullscreen() {
 // area then repositions the highlight boxes against the new geometry.
 function setPanelHidden(hidden) {
   $('#panel').hidden = hidden;
-  if (!hidden) updatePanel();
+  if (!hidden) {
+    $('#chat').hidden = true; // one side panel at a time — two would squeeze the book
+    updatePanel();
+  }
   window.dispatchEvent(new Event('resize'));
 }
 

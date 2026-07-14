@@ -312,6 +312,7 @@ async function send() {
 
 function setChatHidden(hidden) {
   $('#chat').hidden = hidden;
+  if (!hidden) $('#panel').hidden = true; // one side panel at a time
   // The book shares the row with this panel; StPageFlip refits on 'resize'.
   window.dispatchEvent(new Event('resize'));
   if (!hidden) {
