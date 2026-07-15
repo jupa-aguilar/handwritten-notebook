@@ -777,13 +777,42 @@ function togglePanel() {
 
 // ---------- bookmarks ----------
 
-// Toggle the ribbon on a page (defaults to the one being read). The flag lives
-// on the page record, so export/import and Drive sync carry it along.
-async function toggleBookmark(page = pages[currentPage]) {
-  if (!page) return;
-  page.bookmarked = !page.bookmarked;
-  if (!page.bookmarked) page.bookmarkLabel = '';
-  await putPage(page);
+// The page(s) on screen: both halves of a landscape spread in the flipbook,
+// otherwise just the current page (portrait, phones, zoom viewer).
+function visiblePages() {
+  if (
+    pageFlip &&
+    $('#viewer').hidden &&
+    pages.length > 0 &&
+    pageFlip.getOrientation() !== 'portrait'
+  ) {
+    const idx = pageFlip.getCurrentPageIndex();
+    const left = idx - (idx % 2);
+    return [pages[left], pages[left + 1]].filter(Boolean);
+  }
+  return pages[currentPage] ? [pages[currentPage]] : [];
+}
+
+// Toggle the ribbon. Called with a specific page from the bookmarks list and
+// the pages overview; with no argument it acts on what's being read — and in
+// a two-page spread the button stands for the whole opening, so it unmarks
+// whichever visible page is marked before it ever marks a new one. The flag
+// lives on the page record, so export/import and Drive sync carry it along.
+async function toggleBookmark(page) {
+  let targets;
+  if (page) {
+    targets = [page];
+  } else {
+    const visible = visiblePages();
+    if (visible.length === 0) return;
+    const marked = visible.filter((p) => p.bookmarked);
+    targets = marked.length ? marked : [pages[currentPage] || visible[0]];
+  }
+  for (const p of targets) {
+    p.bookmarked = !p.bookmarked;
+    if (!p.bookmarked) p.bookmarkLabel = '';
+    await putPage(p);
+  }
   await touchNotebook(currentNotebookId);
   scheduleSync();
   updateBookmarkButtons();
@@ -791,8 +820,12 @@ async function toggleBookmark(page = pages[currentPage]) {
   renderViewerHighlights();
   if (!$('#bookmarks-pop').hidden) renderBookmarksList();
   if (!$('#pages-overview').hidden) renderPagesGrid();
-  const n = pages.indexOf(page) + 1;
-  setOcrStatus(page.bookmarked ? `Bookmarked page ${n}` : `Removed bookmark from page ${n}`);
+  const nums = targets.map((p) => pages.indexOf(p) + 1).join(' and ');
+  setOcrStatus(
+    targets[0].bookmarked
+      ? `Bookmarked page ${nums}`
+      : `Removed bookmark from page ${nums}`
+  );
 }
 
 function updateBookmarkButtons() {
@@ -801,7 +834,9 @@ function updateBookmarkButtons() {
     btn.classList.toggle('active', on);
     btn.title = on ? 'Remove bookmark (B)' : 'Bookmark this page (B)';
   };
-  set($('#bookmark-toggle'), !!pages[currentPage]?.bookmarked);
+  // The toolbar button reflects the whole visible spread, not just the
+  // current index — a ribbon on either page counts.
+  set($('#bookmark-toggle'), visiblePages().some((p) => p.bookmarked));
   set($('#viewer-bookmark'), !!pages[viewerPage]?.bookmarked);
 }
 
