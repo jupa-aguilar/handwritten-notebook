@@ -42,7 +42,11 @@ const dbPromise = openDB('handwritten-notebook', 2, {
 export async function listNotebooks() {
   const db = await dbPromise;
   const all = await db.getAll('notebooks');
-  return all.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  // Manual order when set; notebooks that never got one (pre-reorder records,
+  // or pulled from an older device) fall back to creation time, which sorts
+  // them after the ordered ones (small ints vs epoch ms) — i.e. at the end.
+  const key = (n) => (typeof n.order === 'number' ? n.order : n.createdAt || 0);
+  return all.sort((a, b) => key(a) - key(b));
 }
 
 export async function addNotebook(name) {
@@ -67,6 +71,24 @@ export async function renameNotebook(id, name) {
   nb.name = name;
   nb.updatedAt = Date.now();
   return db.put('notebooks', nb);
+}
+
+// Persist a new notebook order. `orderedIds` lists notebook ids in their
+// desired order; each notebook's `order` field is set to its position in that
+// list. Moved notebooks get a fresh updatedAt so sync propagates the change.
+export async function reorderNotebooks(orderedIds) {
+  const db = await dbPromise;
+  const tx = db.transaction('notebooks', 'readwrite');
+  const store = tx.objectStore('notebooks');
+  for (let i = 0; i < orderedIds.length; i++) {
+    const nb = await store.get(orderedIds[i]);
+    if (nb && nb.order !== i) {
+      nb.order = i;
+      nb.updatedAt = Date.now();
+      await store.put(nb);
+    }
+  }
+  await tx.done;
 }
 
 export async function deleteNotebook(id) {
@@ -188,12 +210,14 @@ export async function applyRemoteNotebook(manifest, resolveBlob) {
     const id = await db.add('notebooks', {
       uuid: manifest.uuid,
       name: manifest.name,
+      ...(typeof manifest.order === 'number' ? { order: manifest.order } : {}),
       createdAt: manifest.createdAt || Date.now(),
       updatedAt: manifest.updatedAt,
     });
     nb = await db.get('notebooks', id);
   } else {
     nb.name = manifest.name;
+    if (typeof manifest.order === 'number') nb.order = manifest.order;
     nb.updatedAt = manifest.updatedAt;
     await db.put('notebooks', nb);
   }

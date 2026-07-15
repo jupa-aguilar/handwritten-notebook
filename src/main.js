@@ -13,6 +13,7 @@ import {
   putPage,
   deletePage,
   reorderPages,
+  reorderNotebooks,
   nextOrder,
   clearAll,
   touchNotebook,
@@ -997,12 +998,30 @@ async function switchNotebook(id, { closeModal = true } = {}) {
   }
 }
 
+// Move a notebook so it sits just before or just after the one with
+// `targetId`, then persist and refresh (mirrors movePagesTo for pages).
+async function moveNotebookTo(srcId, targetId, after) {
+  if (srcId === targetId) return;
+  const notebooks = await listNotebooks();
+  const moving = notebooks.find((n) => n.id === srcId);
+  if (!moving) return;
+  const rest = notebooks.filter((n) => n.id !== srcId);
+  const at = rest.findIndex((n) => n.id === targetId) + (after ? 1 : 0);
+  rest.splice(at, 0, moving);
+  if (rest.every((n, i) => n.id === notebooks[i].id)) return; // same slot
+  await reorderNotebooks(rest.map((n) => n.id));
+  scheduleSync();
+  renderNotebookList();
+}
+
+let nbDragId = null; // id of the notebook being dragged in the manager
+
 async function renderNotebookList() {
   const notebooks = await listNotebooks();
   const ul = $('#notebook-list');
   ul.innerHTML = notebooks
     .map(
-      (nb) => `<li class="nb-item ${nb.id === currentNotebookId ? 'active' : ''}">
+      (nb) => `<li class="nb-item ${nb.id === currentNotebookId ? 'active' : ''}" draggable="true" data-id="${nb.id}">
         <button class="nb-open" data-id="${nb.id}">
           ${escapeHtml(nb.name)}
           <span class="nb-count" id="nb-count-${nb.id}"></span>
@@ -1038,6 +1057,44 @@ async function renderNotebookList() {
   ul.querySelectorAll('.nb-delete').forEach((b) =>
     b.addEventListener('click', () => deleteNotebookFlow(Number(b.dataset.id)))
   );
+
+  // Drag a row to reorder. The half of the row the cursor is on decides
+  // whether the drop lands above (top half) or below (bottom half) it —
+  // same pattern as the pages overview, with a horizontal insertion bar.
+  const dropAfter = (item, e) => {
+    const r = item.getBoundingClientRect();
+    return e.clientY > r.top + r.height / 2;
+  };
+  ul.querySelectorAll('.nb-item').forEach((item) => {
+    item.addEventListener('dragstart', (e) => {
+      nbDragId = Number(item.dataset.id);
+      e.dataTransfer.effectAllowed = 'move';
+      item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => {
+      nbDragId = null;
+      ul.querySelectorAll('.nb-item').forEach((i) =>
+        i.classList.remove('dragging', 'drop-before', 'drop-after')
+      );
+    });
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (nbDragId === null || Number(item.dataset.id) === nbDragId) return;
+      const after = dropAfter(item, e);
+      item.classList.toggle('drop-after', after);
+      item.classList.toggle('drop-before', !after);
+    });
+    item.addEventListener('dragleave', () =>
+      item.classList.remove('drop-before', 'drop-after')
+    );
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      item.classList.remove('drop-before', 'drop-after');
+      if (nbDragId === null) return;
+      moveNotebookTo(nbDragId, Number(item.dataset.id), dropAfter(item, e));
+    });
+  });
 }
 
 function openNotebooks() {
@@ -1070,6 +1127,7 @@ async function renameNotebookInline(id) {
   input.className = 'nb-edit';
   input.value = nb.name;
   openBtn.replaceWith(input);
+  li.draggable = false; // selecting text must not start a drag; re-render restores it
   input.focus();
   input.select();
 

@@ -255,6 +255,7 @@ async function pushNotebook(token, files, meta, nbId, onStatus = () => {}) {
   const manifest = {
     uuid: nb.uuid,
     name: nb.name,
+    ...(typeof nb.order === 'number' ? { order: nb.order } : {}),
     createdAt: nb.createdAt,
     updatedAt: nb.updatedAt,
     pages: pages.map((p) => ({

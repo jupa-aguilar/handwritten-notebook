@@ -505,14 +505,42 @@ mark {
   overflow: auto;
 }
 .nb-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px 6px;
   border-radius: 8px;
+  cursor: grab;
 }
 .nb-item.active {
   background: rgba(200, 116, 60, 0.14);
+}
+.nb-item.dragging {
+  opacity: 0.4;
+}
+/* Insertion bar marking the gap where the dragged notebook will land. */
+.nb-item::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+}
+.nb-item.drop-before::before,
+.nb-item.drop-after::before {
+  opacity: 1;
+  animation: drop-pulse 0.7s ease-in-out infinite alternate;
+}
+.nb-item.drop-before::before {
+  top: -2px;
+}
+.nb-item.drop-after::before {
+  bottom: -2px;
 }
 .nb-open {
   flex: 1;
