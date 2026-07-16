@@ -115,11 +115,39 @@ function escapeHtml(s) {
   );
 }
 
+// Lowercase and strip diacritics so search is accent-insensitive: "cancion"
+// finds "canción" and vice versa. NFD splits each letter from its combining
+// marks and dropping the marks leaves one char per source letter, so indexes
+// into the folded string still line up with the original text.
+function foldText(s) {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// Accented variants each base letter should also match when highlighting.
+const ACCENT_VARIANTS = {
+  a: 'aáàâäãå',
+  c: 'cç',
+  e: 'eéèêë',
+  i: 'iíìîï',
+  n: 'nñ',
+  o: 'oóòôöõ',
+  u: 'uúùûü',
+  y: 'yýÿ',
+};
+
 function highlight(text, query) {
   const safe = escapeHtml(text);
   if (!query) return safe;
-  const re = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-  return safe.replace(re, '<mark>$1</mark>');
+  // Turn the folded query into a regex where each base letter also matches
+  // its accented forms, so the original (accented) text is what gets marked.
+  const pattern = [...foldText(query)]
+    .map((ch) =>
+      ACCENT_VARIANTS[ch]
+        ? `[${ACCENT_VARIANTS[ch]}]`
+        : ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    )
+    .join('');
+  return safe.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>');
 }
 
 // Downscale + re-encode to JPEG via canvas. Returns { blob, mediaType, width, height }.
@@ -381,10 +409,10 @@ function refreshSearch() {
     return;
   }
 
-  const q = query.toLowerCase();
+  const q = foldText(query);
   const matches = pages
     .map((p, i) => ({ page: p, index: i }))
-    .filter(({ page }) => (page.text || '').toLowerCase().includes(q));
+    .filter(({ page }) => foldText(page.text || '').includes(q));
 
   count.textContent = `${matches.length} page${matches.length === 1 ? '' : 's'}`;
 
@@ -398,11 +426,11 @@ function refreshSearch() {
         matches
           .map(({ page, index }) => {
             const text = page.text || '';
-            const at = text.toLowerCase().indexOf(q);
+            const at = foldText(text).indexOf(q);
             const start = Math.max(0, at - 30);
             const snippet =
               (start > 0 ? '…' : '') +
-              text.slice(start, at + query.length + 40).replace(/\s+/g, ' ') +
+              text.slice(start, at + q.length + 40).replace(/\s+/g, ' ') +
               '…';
             return `<button class="result" data-page="${index}">
                 <span class="result-page">p.${index + 1}</span>
@@ -445,7 +473,7 @@ function updateHighlights() {
   layer.replaceChildren();
 
   if (!pageFlip || pages.length === 0) return;
-  const query = $('#search').value.trim().toLowerCase();
+  const query = foldText($('#search').value.trim());
   const tokens = query.split(/\s+/).filter(Boolean);
 
   const canvas = $('#book').querySelector('canvas');
@@ -489,7 +517,7 @@ function updateHighlights() {
     const sx = rect.pageWidth / page.width;
     const sy = rect.height / page.height;
     for (const w of page.words) {
-      if (!tokens.some((t) => w.t.toLowerCase().includes(t))) continue;
+      if (!tokens.some((t) => foldText(w.t).includes(t))) continue;
       const box = document.createElement('div');
       box.className = 'hl-box';
       box.style.left = `${pageLeft + w.x * sx}px`;
@@ -1693,10 +1721,10 @@ function renderViewerHighlights() {
     frag.appendChild(rib);
   }
 
-  const tokens = $('#search').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const tokens = foldText($('#search').value.trim()).split(/\s+/).filter(Boolean);
   if (tokens.length && page.words?.length) {
     for (const w of page.words) {
-      if (!tokens.some((t) => w.t.toLowerCase().includes(t))) continue;
+      if (!tokens.some((t) => foldText(w.t).includes(t))) continue;
       const box = document.createElement('div');
       box.className = 'vhl-box';
       box.style.left = `${w.x}px`;
