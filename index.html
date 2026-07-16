@@ -14,7 +14,7 @@
   </head>
   <body>
     <header class="toolbar">
-      <button id="notebooks-btn" class="btn ghost" title="Notebooks">📚</button>
+      <button id="notebooks-btn" class="btn ghost" title="Notebooks" aria-label="Notebooks">📚</button>
       <span id="current-notebook" class="current-notebook"></span>
 
       <label class="btn" for="file-input">＋ Add pages</label>
@@ -39,15 +39,15 @@
         <button id="sync-btn" class="btn ghost" title="Sync notebooks across devices via your Google Drive"><span id="sync-icon" class="sync-icon">☁</span> Sync</button>
 
         <div class="bm-wrap">
-          <button id="bookmark-toggle" class="btn ghost" title="Bookmark this page (B)">🔖</button>
-          <button id="bookmarks-btn" class="btn ghost" title="Show bookmarks">▾</button>
+          <button id="bookmark-toggle" class="btn ghost" title="Bookmark this page (B)" aria-label="Bookmark this page" aria-pressed="false">🔖</button>
+          <button id="bookmarks-btn" class="btn ghost" title="Show bookmarks" aria-label="Show bookmarks">▾</button>
         </div>
         <button id="pages-btn" class="btn ghost" title="All pages">🗂 Pages</button>
         <button id="zoom-btn" class="btn ghost" title="Zoom in to read (Z)">🔍 Zoom</button>
         <button id="panel-toggle" class="btn ghost" title="Show page text">📖 Text</button>
         <button id="chat-btn" class="btn ghost" title="Chat about this notebook with a local AI (LM Studio)">💬 Chat</button>
-        <button id="fullscreen-btn" class="btn ghost" title="Full screen (F)">⛶</button>
-        <button id="settings-btn" class="btn ghost" title="API key">⚙</button>
+        <button id="fullscreen-btn" class="btn ghost" title="Full screen (F)" aria-label="Full screen">⛶</button>
+        <button id="settings-btn" class="btn ghost" title="API key" aria-label="Settings">⚙</button>
       </div>
     </header>
 
@@ -63,9 +63,9 @@
         <div id="highlights" class="highlights" aria-hidden="true"></div>
 
         <div id="pager" class="pager" hidden>
-          <button id="first" class="pager-btn" title="First page (Home)">⏮</button>
+          <button id="first" class="pager-btn" title="First page (Home)" aria-label="First page">⏮</button>
           <span id="page-indicator" class="page-indicator">1 / 1</span>
-          <button id="last" class="pager-btn" title="Last page (End)">⏭</button>
+          <button id="last" class="pager-btn" title="Last page (End)" aria-label="Last page">⏭</button>
         </div>
       </div>
 
@@ -74,7 +74,7 @@
       <aside id="panel" class="panel" hidden>
         <div class="panel-head">
           <strong>Page text</strong>
-          <button id="panel-close" class="btn ghost small">✕</button>
+          <button id="panel-close" class="btn ghost small" aria-label="Close panel">✕</button>
         </div>
         <div id="panel-body" class="panel-body"></div>
         <div id="results" class="results" hidden></div>
@@ -84,8 +84,8 @@
       <aside id="chat" class="panel chat-panel" hidden>
         <div class="panel-head chat-head">
           <strong>💬 Chat</strong>
-          <button id="chat-clear" class="btn ghost small" title="Clear this conversation">🧹</button>
-          <button id="chat-close" class="btn ghost small" title="Close">✕</button>
+          <button id="chat-clear" class="btn ghost small" title="Clear this conversation" aria-label="Clear this conversation">🧹</button>
+          <button id="chat-close" class="btn ghost small" title="Close" aria-label="Close chat">✕</button>
         </div>
         <div id="chat-context" class="chat-context"></div>
         <div id="chat-messages" class="chat-messages"></div>
@@ -100,14 +100,14 @@
         </div>
         <form id="chat-form" class="chat-form">
           <textarea id="chat-input" rows="1" placeholder="Ask about this notebook…" autocomplete="off"></textarea>
-          <button id="chat-send" class="btn" type="submit" title="Send">➤</button>
+          <button id="chat-send" class="btn" type="submit" title="Send" aria-label="Send">➤</button>
         </form>
       </aside>
 
       <!-- Reading zoom viewer. Fullscreen overlay on desktop; on phones it sits
            below the toolbar and becomes the one and only reading view. -->
       <div id="viewer" class="viewer" hidden>
-        <button id="immersive-btn" class="immersive-btn" title="Full screen">⛶</button>
+        <button id="immersive-btn" class="immersive-btn" title="Full screen" aria-label="Full screen">⛶</button>
         <div id="viewer-stage" class="viewer-stage">
           <div id="viewer-content" class="viewer-content">
             <img id="viewer-img" class="viewer-img" alt="" draggable="false" />
@@ -115,15 +115,15 @@
           </div>
         </div>
         <div class="viewer-toolbar">
-          <button id="viewer-prev" class="btn ghost small" title="Previous page (←)">‹</button>
+          <button id="viewer-prev" class="btn ghost small" title="Previous page (←)" aria-label="Previous page">‹</button>
           <span id="viewer-indicator" class="viewer-indicator">1 / 1</span>
-          <button id="viewer-next" class="btn ghost small" title="Next page (→)">›</button>
+          <button id="viewer-next" class="btn ghost small" title="Next page (→)" aria-label="Next page">›</button>
           <span class="viewer-sep"></span>
-          <button id="viewer-bookmark" class="btn ghost small" title="Bookmark this page (B)">🔖</button>
+          <button id="viewer-bookmark" class="btn ghost small" title="Bookmark this page (B)" aria-label="Bookmark this page" aria-pressed="false">🔖</button>
           <span class="viewer-sep"></span>
-          <button id="viewer-zoom-out" class="btn ghost small" title="Zoom out (−)">−</button>
+          <button id="viewer-zoom-out" class="btn ghost small" title="Zoom out (−)" aria-label="Zoom out">−</button>
           <span id="viewer-zoom-level" class="viewer-zoom-level">100%</span>
-          <button id="viewer-zoom-in" class="btn ghost small" title="Zoom in (+)">＋</button>
+          <button id="viewer-zoom-in" class="btn ghost small" title="Zoom in (+)" aria-label="Zoom in">＋</button>
           <button id="viewer-reset" class="btn ghost small" title="Fit to screen (0)">Fit</button>
           <span class="viewer-sep"></span>
           <button id="viewer-close" class="btn ghost small" title="Close (Esc)">✕ Close</button>

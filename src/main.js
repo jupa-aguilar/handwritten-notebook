@@ -863,6 +863,7 @@ function updateBookmarkButtons() {
     if (!btn) return;
     btn.classList.toggle('active', on);
     btn.title = on ? 'Remove bookmark (B)' : 'Bookmark this page (B)';
+    btn.setAttribute('aria-pressed', String(on));
   };
   // The toolbar button reflects the whole visible spread, not just the
   // current index — a ribbon on either page counts.
@@ -910,8 +911,8 @@ function renderBookmarksList() {
           <span class="bm-page">p.${i + 1}</span>
           <span class="bm-label${p.bookmarkLabel ? '' : ' faded'}">${escapeHtml(label)}</span>
         </button>
-        <button class="btn ghost small bm-edit-btn" data-id="${p.id}" title="Edit label">✏️</button>
-        <button class="btn ghost small bm-remove" data-id="${p.id}" title="Remove bookmark">✕</button>
+        <button class="btn ghost small bm-edit-btn" data-id="${p.id}" title="Edit label" aria-label="Edit label">✏️</button>
+        <button class="btn ghost small bm-remove" data-id="${p.id}" title="Remove bookmark" aria-label="Remove bookmark">✕</button>
       </li>`;
     })
     .join('');
@@ -1056,10 +1057,10 @@ async function renderNotebookList() {
           <span class="nb-count" id="nb-count-${nb.id}"></span>
         </button>
         <span class="nb-actions">
-          <button class="btn ghost small nb-rename" data-id="${nb.id}" title="Rename">✏️</button>
-          <button class="btn ghost small nb-retrans" data-id="${nb.id}" title="Re-transcribe">🔄</button>
-          <button class="btn ghost small nb-export" data-id="${nb.id}" title="Export / backup">📤</button>
-          <button class="btn ghost small nb-delete" data-id="${nb.id}" title="Delete">🗑️</button>
+          <button class="btn ghost small nb-rename" data-id="${nb.id}" title="Rename" aria-label="Rename notebook">✏️</button>
+          <button class="btn ghost small nb-retrans" data-id="${nb.id}" title="Re-transcribe" aria-label="Re-transcribe notebook">🔄</button>
+          <button class="btn ghost small nb-export" data-id="${nb.id}" title="Export / backup" aria-label="Export notebook">📤</button>
+          <button class="btn ghost small nb-delete" data-id="${nb.id}" title="Delete" aria-label="Delete notebook">🗑️</button>
         </span>
       </li>`
     )
@@ -1394,8 +1395,8 @@ function renderPagesGrid() {
           </button>
           <figcaption class="page-card-meta">
             <span class="page-card-num">Page ${i + 1}</span>
-            <button class="btn ghost small page-card-bookmark${p.bookmarked ? ' on' : ''}" data-id="${p.id}" title="${p.bookmarked ? 'Remove bookmark' : 'Bookmark this page'}">🔖</button>
-            <button class="btn ghost small page-card-delete" data-id="${p.id}" title="Delete this page">🗑️</button>
+            <button class="btn ghost small page-card-bookmark${p.bookmarked ? ' on' : ''}" data-id="${p.id}" title="${p.bookmarked ? 'Remove bookmark' : 'Bookmark this page'}" aria-label="${p.bookmarked ? 'Remove bookmark' : 'Bookmark this page'}" aria-pressed="${p.bookmarked}">🔖</button>
+            <button class="btn ghost small page-card-delete" data-id="${p.id}" title="Delete this page" aria-label="Delete this page">🗑️</button>
           </figcaption>
         </figure>`;
     })
