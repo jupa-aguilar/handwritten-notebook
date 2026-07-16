@@ -2201,6 +2201,25 @@ function wire() {
     });
   }
 
+  // StPageFlip tracks the pointer through window-level mousemove/touchmove,
+  // so it kept folding page corners underneath open dialogs. Stop those
+  // moves at capture — before the flipbook's window handlers see them —
+  // whenever they happen over an overlay. Moves over the visible book still
+  // flip normally, and the app's own widgets are untouched: everything else
+  // here runs on pointer events, clicks or drag&drop.
+  for (const type of ['mousemove', 'touchmove']) {
+    window.addEventListener(
+      type,
+      (e) => {
+        const el = e.target instanceof Element ? e.target : null;
+        if (el?.closest('.modal, .viewer, .panel, .bookmarks-pop')) {
+          e.stopImmediatePropagation();
+        }
+      },
+      { capture: true, passive: true }
+    );
+  }
+
   document.addEventListener('keydown', (e) => {
     // Cmd/Ctrl+F jumps to the notebook search (the native find bar is useless
     // here). Works from anywhere; closes the zoom viewer if it's covering the
