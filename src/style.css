@@ -628,6 +628,39 @@ mark {
   border-color: rgba(0, 0, 0, 0.2);
 }
 
+/* ---------- keyboard shortcuts cheatsheet ---------- */
+
+.shortcut-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  align-items: center;
+  margin: 10px 0 4px;
+  font-size: 0.9rem;
+}
+.shortcut-list dt {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.shortcut-list dd {
+  margin: 0;
+  color: #4a4138;
+}
+kbd {
+  font-family: inherit;
+  font-size: 0.78rem;
+  line-height: 1;
+  padding: 4px 7px;
+  min-width: 1.1em;
+  text-align: center;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--panel-ink);
+}
+
 /* ---------- pages overview ---------- */
 
 .modal-wide {

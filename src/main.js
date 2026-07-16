@@ -2004,7 +2004,9 @@ function wire() {
     { el: $('#notebooks'), close: () => ($('#notebooks').hidden = true) },
     { el: $('#pages-overview'), close: closePagesOverview },
     { el: $('#settings'), close: closeSettings },
+    { el: $('#shortcuts'), close: () => ($('#shortcuts').hidden = true) },
   ];
+  $('#shortcuts-close').addEventListener('click', () => ($('#shortcuts').hidden = true));
   for (const { el, close } of modals) {
     // Track where the press started: a drag that merely *ends* on the
     // backdrop (e.g. selecting text in an input) must not close the modal.
@@ -2065,6 +2067,7 @@ function wire() {
     if (e.key === 'f' || e.key === 'F') toggleFullscreen();
     if (e.key === 'z' || e.key === 'Z') openViewer();
     if (e.key === 'b' || e.key === 'B') toggleBookmark();
+    if (e.key === '?') $('#shortcuts').hidden = !$('#shortcuts').hidden;
   });
 
   // Reposition highlight boxes whenever the book area changes size — window
