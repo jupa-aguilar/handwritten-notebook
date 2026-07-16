@@ -58,6 +58,7 @@ let objectUrls = [];     // live object URLs to revoke on re-render
 let gridUrls = [];       // thumbnail object URLs for the pages overview
 let selectedPageIds = new Set(); // page ids ticked in the pages overview
 let dragSrcIndex = null;  // index of the page being dragged in the overview
+let replaceTargetId = null; // page whose 🔁 button opened the file picker
 let dragBlockIds = null;  // ids moving together when a selected card is dragged
 let pageFlip = null;
 let currentPage = 0;
@@ -1395,6 +1396,7 @@ function renderPagesGrid() {
           </button>
           <figcaption class="page-card-meta">
             <span class="page-card-num">Page ${i + 1}</span>
+            <button class="btn ghost small page-card-replace" data-id="${p.id}" title="Replace with an edited image…" aria-label="Replace page image">🔁</button>
             <button class="btn ghost small page-card-bookmark${p.bookmarked ? ' on' : ''}" data-id="${p.id}" title="${p.bookmarked ? 'Remove bookmark' : 'Bookmark this page'}" aria-label="${p.bookmarked ? 'Remove bookmark' : 'Bookmark this page'}" aria-pressed="${p.bookmarked}">🔖</button>
             <button class="btn ghost small page-card-delete" data-id="${p.id}" title="Delete this page" aria-label="Delete this page">🗑️</button>
           </figcaption>
@@ -1436,6 +1438,13 @@ function renderPagesGrid() {
       await removePage(Number(b.dataset.id));
       if (pages.length === 0) closePagesOverview();
       else renderPagesGrid();
+    })
+  );
+
+  grid.querySelectorAll('.page-card-replace').forEach((b) =>
+    b.addEventListener('click', () => {
+      replaceTargetId = Number(b.dataset.id);
+      $('#replace-input').click();
     })
   );
 
@@ -1510,6 +1519,9 @@ function renderPagesGrid() {
 // current selection.
 function updatePagesSelectionUI() {
   const n = selectedPageIds.size;
+  const dl = $('#pages-download-selected');
+  dl.hidden = n === 0;
+  dl.textContent = `⬇ Download selected (${n})`;
   const del = $('#pages-delete-selected');
   del.hidden = n === 0;
   del.textContent = `🗑 Delete selected (${n})`;
@@ -1528,6 +1540,69 @@ function setAllPagesSelected(selected) {
       box.closest('.page-card').classList.toggle('selected', selected);
     });
   updatePagesSelectionUI();
+}
+
+// Save the selected pages as image files — the stored JPEGs, the best
+// quality the app has — named after the notebook and page number.
+async function downloadSelectedPages() {
+  const ids = new Set(selectedPageIds);
+  if (ids.size === 0) return;
+  const nbName = ($('#current-notebook').textContent || 'notebook').replace(/[/\\:]/g, '-');
+  const a = document.createElement('a');
+  let done = 0;
+  for (const [i, p] of pages.entries()) {
+    if (!ids.has(p.id)) continue;
+    const url = URL.createObjectURL(p.blob);
+    const ext = { 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }[p.mediaType] || 'jpg';
+    a.href = url;
+    a.download = `${nbName} - p${String(i + 1).padStart(2, '0')}.${ext}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    done++;
+    // Pace the clicks: browsers drop rapid-fire downloads.
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  setOcrStatus(`Downloaded ${done} page${done === 1 ? '' : 's'}`);
+}
+
+// Swap a page's image for an edited file. The page keeps its slot, bookmark
+// and label; the transcript is redone from the new image. Sync-wise this is
+// a brand-new page (fresh uuid + createdAt): Drive images are immutable
+// (uploaded once per uuid), and the merge logic must treat the edit as newer
+// than any remote manifest, or a concurrent pull would drop it.
+async function replacePage(id, file) {
+  const page = pages.find((p) => p.id === id);
+  if (!page) return;
+  let processed;
+  try {
+    processed = await processImage(file);
+  } catch (err) {
+    console.error('Could not replace page', err);
+    setOcrStatus(`Could not replace page: ${err.message}`);
+    return;
+  }
+  Object.assign(page, {
+    uuid: crypto.randomUUID(),
+    createdAt: Date.now(),
+    name: file.name,
+    blob: processed.blob,
+    mediaType: processed.mediaType,
+    width: processed.width,
+    height: processed.height,
+    text: '',
+    words: [],
+    error: '',
+    ocrStatus: TRANSCRIPTION_ENABLED ? 'pending' : 'skipped',
+  });
+  await putPage(page);
+  await touchNotebook(currentNotebookId);
+  scheduleSync();
+  pages = await getPages(currentNotebookId);
+  renderBook();
+  refreshSearch();
+  setOcrStatus(`Replaced page ${pages.findIndex((p) => p.id === id) + 1}`);
+  if (!$('#pages-overview').hidden) renderPagesGrid();
+  runOcrQueue();
 }
 
 // Delete every selected page in one go, behind a single confirmation.
@@ -2093,6 +2168,12 @@ function wire() {
     setAllPagesSelected(e.target.checked)
   );
   $('#pages-delete-selected').addEventListener('click', deleteSelectedPages);
+  $('#pages-download-selected').addEventListener('click', downloadSelectedPages);
+  $('#replace-input').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file && replaceTargetId != null) replacePage(replaceTargetId, file);
+    e.target.value = ''; // so picking the same file again still fires change
+  });
 
   $('#panel-toggle').addEventListener('click', togglePanel);
   $('#panel-close').addEventListener('click', () => setPanelHidden(true));
