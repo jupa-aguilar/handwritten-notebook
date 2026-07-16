@@ -1444,7 +1444,9 @@ function renderPagesGrid() {
   grid.querySelectorAll('.page-card-replace').forEach((b) =>
     b.addEventListener('click', () => {
       replaceTargetId = Number(b.dataset.id);
-      $('#replace-input').click();
+      const input = $('#replace-input');
+      input.multiple = false;
+      input.click();
     })
   );
 
@@ -1522,6 +1524,9 @@ function updatePagesSelectionUI() {
   const dl = $('#pages-download-selected');
   dl.hidden = n === 0;
   dl.textContent = `⬇ Download selected (${n})`;
+  const rp = $('#pages-replace-selected');
+  rp.hidden = n === 0;
+  rp.textContent = `🔁 Replace selected (${n})`;
   const del = $('#pages-delete-selected');
   del.hidden = n === 0;
   del.textContent = `🗑 Delete selected (${n})`;
@@ -1542,45 +1547,125 @@ function setAllPagesSelected(selected) {
   updatePagesSelectionUI();
 }
 
-// Save the selected pages as image files — the stored JPEGs, the best
-// quality the app has — named after the notebook and page number.
-async function downloadSelectedPages() {
-  const ids = new Set(selectedPageIds);
-  if (ids.size === 0) return;
-  const nbName = ($('#current-notebook').textContent || 'notebook').replace(/[/\\:]/g, '-');
-  const a = document.createElement('a');
-  let done = 0;
-  for (const [i, p] of pages.entries()) {
-    if (!ids.has(p.id)) continue;
-    const url = URL.createObjectURL(p.blob);
-    const ext = { 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }[p.mediaType] || 'jpg';
-    a.href = url;
-    a.download = `${nbName} - p${String(i + 1).padStart(2, '0')}.${ext}`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    done++;
-    // Pace the clicks: browsers drop rapid-fire downloads.
-    await new Promise((r) => setTimeout(r, 300));
+// ---------- minimal ZIP writer (store-only) ----------
+// Several pages must leave as ONE download: browsers only honour the first
+// programmatic download per user gesture, so N separate clicks silently drop
+// all but one file. The images are JPEGs, so storing beats deflating anyway.
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
   }
-  setOcrStatus(`Downloaded ${done} page${done === 1 ? '' : 's'}`);
+  return t;
+})();
+
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
 }
 
-// Swap a page's image for an edited file. The page keeps its slot, bookmark
-// and label; the transcript is redone from the new image. Sync-wise this is
-// a brand-new page (fresh uuid + createdAt): Drive images are immutable
-// (uploaded once per uuid), and the merge logic must treat the edit as newer
-// than any remote manifest, or a concurrent pull would drop it.
-async function replacePage(id, file) {
-  const page = pages.find((p) => p.id === id);
-  if (!page) return;
-  let processed;
-  try {
-    processed = await processImage(file);
-  } catch (err) {
-    console.error('Could not replace page', err);
-    setOcrStatus(`Could not replace page: ${err.message}`);
-    return;
+function buildZip(entries) {
+  // entries: [{ name, bytes }] → Blob. Store-only, UTF-8 names, 32-bit sizes.
+  const enc = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  for (const { name, bytes } of entries) {
+    const nameBytes = enc.encode(name);
+    const crc = crc32(bytes);
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true); // local file header signature
+    local.setUint16(4, 20, true); // version needed
+    local.setUint16(6, 0x0800, true); // flags: UTF-8 names
+    local.setUint16(8, 0, true); // method: store
+    local.setUint16(10, dosTime, true);
+    local.setUint16(12, dosDate, true);
+    local.setUint32(14, crc, true);
+    local.setUint32(18, bytes.length, true); // compressed size
+    local.setUint32(22, bytes.length, true); // uncompressed size
+    local.setUint16(26, nameBytes.length, true);
+    local.setUint16(28, 0, true); // extra field length
+    central.push({ nameBytes, crc, size: bytes.length, offset });
+    chunks.push(new Uint8Array(local.buffer), nameBytes, bytes);
+    offset += 30 + nameBytes.length + bytes.length;
   }
+  const cdStart = offset;
+  for (const e of central) {
+    const cd = new DataView(new ArrayBuffer(46));
+    cd.setUint32(0, 0x02014b50, true); // central directory signature
+    cd.setUint16(4, 20, true); // version made by
+    cd.setUint16(6, 20, true); // version needed
+    cd.setUint16(8, 0x0800, true); // flags: UTF-8 names
+    cd.setUint16(10, 0, true); // method: store
+    cd.setUint16(12, dosTime, true);
+    cd.setUint16(14, dosDate, true);
+    cd.setUint32(16, e.crc, true);
+    cd.setUint32(20, e.size, true);
+    cd.setUint32(24, e.size, true);
+    cd.setUint16(28, e.nameBytes.length, true);
+    cd.setUint32(42, e.offset, true); // local header offset
+    chunks.push(new Uint8Array(cd.buffer), e.nameBytes);
+    offset += 46 + e.nameBytes.length;
+  }
+  const eocd = new DataView(new ArrayBuffer(22));
+  eocd.setUint32(0, 0x06054b50, true); // end-of-central-directory signature
+  eocd.setUint16(8, central.length, true); // entries on this disk
+  eocd.setUint16(10, central.length, true); // entries total
+  eocd.setUint32(12, offset - cdStart, true); // central directory size
+  eocd.setUint32(16, cdStart, true); // central directory offset
+  chunks.push(new Uint8Array(eocd.buffer));
+  return new Blob(chunks, { type: 'application/zip' });
+}
+
+// Save the selected pages as image files — the stored JPEGs, the best
+// quality the app has — named after the notebook and page number. One page
+// downloads directly; several leave as a single .zip.
+async function downloadSelectedPages() {
+  const selected = pages
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => selectedPageIds.has(p.id));
+  if (selected.length === 0) return;
+  const nbName = ($('#current-notebook').textContent || 'notebook').replace(/[/\\:]/g, '-');
+  const fileName = ({ p, i }) => {
+    const ext = { 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }[p.mediaType] || 'jpg';
+    return `${nbName} - p${String(i + 1).padStart(2, '0')}.${ext}`;
+  };
+  let blob, downloadName;
+  if (selected.length === 1) {
+    blob = selected[0].p.blob;
+    downloadName = fileName(selected[0]);
+  } else {
+    setOcrStatus(`Packing ${selected.length} pages…`);
+    const entries = [];
+    for (const s of selected) {
+      entries.push({ name: fileName(s), bytes: new Uint8Array(await s.p.blob.arrayBuffer()) });
+    }
+    blob = buildZip(entries);
+    downloadName = `${nbName} - ${selected.length} pages.zip`;
+  }
+  const a = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  a.href = url;
+  a.download = downloadName;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  setOcrStatus(`Downloaded ${selected.length === 1 ? '1 page' : downloadName}`);
+}
+
+// Swap one page's image for an edited file. The page keeps its slot,
+// bookmark and label; the transcript is redone from the new image.
+// Sync-wise this is a brand-new page (fresh uuid + createdAt): Drive images
+// are immutable (uploaded once per uuid), and the merge logic must treat the
+// edit as newer than any remote manifest, or a concurrent pull would drop it.
+async function swapPageImage(page, file) {
+  const processed = await processImage(file);
   Object.assign(page, {
     uuid: crypto.randomUUID(),
     createdAt: Date.now(),
@@ -1595,14 +1680,36 @@ async function replacePage(id, file) {
     ocrStatus: TRANSCRIPTION_ENABLED ? 'pending' : 'skipped',
   });
   await putPage(page);
-  await touchNotebook(currentNotebookId);
-  scheduleSync();
-  pages = await getPages(currentNotebookId);
-  renderBook();
-  refreshSearch();
-  setOcrStatus(`Replaced page ${pages.findIndex((p) => p.id === id) + 1}`);
-  if (!$('#pages-overview').hidden) renderPagesGrid();
-  runOcrQueue();
+}
+
+// Replace a batch of pages ([{ page, file }] pairs), then refresh everything
+// once: reading view, search, overview grid, OCR queue and sync.
+async function replacePages(pairs) {
+  let done = 0;
+  const errors = [];
+  for (const { page, file } of pairs) {
+    try {
+      await swapPageImage(page, file);
+      done++;
+    } catch (err) {
+      console.error('Could not replace page', file.name, err);
+      errors.push(`${file.name}: ${err.message}`);
+    }
+  }
+  if (done > 0) {
+    await touchNotebook(currentNotebookId);
+    scheduleSync();
+    pages = await getPages(currentNotebookId);
+    renderBook();
+    refreshSearch();
+    if (!$('#pages-overview').hidden) renderPagesGrid();
+    runOcrQueue();
+  }
+  setOcrStatus(
+    errors.length
+      ? `Replaced ${done}, failed ${errors.length}: ${errors.join('; ')}`
+      : `Replaced ${done} page${done === 1 ? '' : 's'}`
+  );
 }
 
 // Delete every selected page in one go, behind a single confirmation.
@@ -2169,10 +2276,34 @@ function wire() {
   );
   $('#pages-delete-selected').addEventListener('click', deleteSelectedPages);
   $('#pages-download-selected').addEventListener('click', downloadSelectedPages);
+  // Bulk replace: replaceTargetId === null tells the change handler that the
+  // picked files belong to the selection, not to a single card's 🔁.
+  $('#pages-replace-selected').addEventListener('click', () => {
+    replaceTargetId = null;
+    const input = $('#replace-input');
+    input.multiple = true;
+    input.click();
+  });
   $('#replace-input').addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (file && replaceTargetId != null) replacePage(replaceTargetId, file);
+    const files = [...e.target.files];
     e.target.value = ''; // so picking the same file again still fires change
+    if (files.length === 0) return;
+    if (replaceTargetId != null) {
+      const page = pages.find((p) => p.id === replaceTargetId);
+      if (page) replacePages([{ page, file: files[0] }]);
+      return;
+    }
+    // Pair the picked files with the selected pages, both in order: pages by
+    // notebook position, files by natural name order (p02 before p10).
+    const targets = pages.filter((p) => selectedPageIds.has(p.id));
+    if (files.length !== targets.length) {
+      setOcrStatus(
+        `${targets.length} page(s) selected but ${files.length} file(s) picked — nothing replaced`
+      );
+      return;
+    }
+    files.sort((a, b) => naturalCompare(a.name, b.name));
+    replacePages(targets.map((page, k) => ({ page, file: files[k] })));
   });
 
   $('#panel-toggle').addEventListener('click', togglePanel);

@@ -158,12 +158,13 @@
     <div id="pages-overview" class="modal" hidden>
       <div class="modal-card modal-wide">
         <h2>All pages</h2>
-        <p class="hint">Drag a page to reorder it. Click a page to open it, or tick the checkboxes to select several pages — they can then be downloaded or deleted together, or dragged as one block. 🔁 swaps a page for an edited copy.</p>
+        <p class="hint">Drag a page to reorder it. Click a page to open it, or tick the checkboxes to select several pages — they can then be downloaded (as a zip), replaced or deleted together, or dragged as one block. 🔁 swaps a page for an edited copy; replacing several pairs your files with the selected pages in name order.</p>
         <div id="pages-grid" class="pages-grid"></div>
         <input id="replace-input" type="file" accept="image/*" hidden />
         <div class="modal-actions pages-actions">
           <label class="select-all"><input type="checkbox" id="pages-select-all" /> Select all</label>
           <button id="pages-download-selected" class="btn ghost" hidden>⬇ Download selected</button>
+          <button id="pages-replace-selected" class="btn ghost" hidden title="Pick as many files as selected pages; they pair up in name order">🔁 Replace selected</button>
           <button id="pages-delete-selected" class="btn danger" hidden>🗑 Delete selected</button>
           <button id="pages-overview-close" class="btn ghost">Close</button>
         </div>
