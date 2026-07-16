@@ -30,21 +30,25 @@
         <span id="search-count" class="search-count"></span>
       </div>
 
-      <span id="ocr-status" class="ocr-status"></span>
-      <span id="usage" class="usage" title="Google Cloud Vision free tier: 1,000 pages per month (local estimate)"></span>
-
-      <button id="sync-btn" class="btn ghost" title="Sync notebooks across devices via your Google Drive">☁ Sync</button>
-
-      <div class="bm-wrap">
-        <button id="bookmark-toggle" class="btn ghost" title="Bookmark this page (B)">🔖</button>
-        <button id="bookmarks-btn" class="btn ghost" title="Show bookmarks">▾</button>
+      <div class="toolbar-status">
+        <span id="ocr-status" class="ocr-status"></span>
+        <span id="usage" class="usage" title="Google Cloud Vision free tier: 1,000 pages per month (local estimate)"></span>
       </div>
-      <button id="pages-btn" class="btn ghost" title="All pages">🗂 Pages</button>
-      <button id="zoom-btn" class="btn ghost" title="Zoom in to read (Z)">🔍 Zoom</button>
-      <button id="panel-toggle" class="btn ghost" title="Show page text">📖 Text</button>
-      <button id="chat-btn" class="btn ghost" title="Chat about this notebook with a local AI (LM Studio)">💬 Chat</button>
-      <button id="fullscreen-btn" class="btn ghost" title="Full screen (F)">⛶</button>
-      <button id="settings-btn" class="btn ghost" title="API key">⚙</button>
+
+      <div class="toolbar-actions">
+        <button id="sync-btn" class="btn ghost" title="Sync notebooks across devices via your Google Drive"><span id="sync-icon" class="sync-icon">☁</span> Sync</button>
+
+        <div class="bm-wrap">
+          <button id="bookmark-toggle" class="btn ghost" title="Bookmark this page (B)">🔖</button>
+          <button id="bookmarks-btn" class="btn ghost" title="Show bookmarks">▾</button>
+        </div>
+        <button id="pages-btn" class="btn ghost" title="All pages">🗂 Pages</button>
+        <button id="zoom-btn" class="btn ghost" title="Zoom in to read (Z)">🔍 Zoom</button>
+        <button id="panel-toggle" class="btn ghost" title="Show page text">📖 Text</button>
+        <button id="chat-btn" class="btn ghost" title="Chat about this notebook with a local AI (LM Studio)">💬 Chat</button>
+        <button id="fullscreen-btn" class="btn ghost" title="Full screen (F)">⛶</button>
+        <button id="settings-btn" class="btn ghost" title="API key">⚙</button>
+      </div>
     </header>
 
     <main class="stage">

@@ -675,8 +675,9 @@ async function doSync(interactive) {
   if (syncRunning) return;
   syncRunning = true;
   const btn = $('#sync-btn');
+  const icon = $('#sync-icon');
   btn.disabled = true;
-  btn.textContent = '⏳ Sync';
+  icon.textContent = '⏳';
   try {
     const res = await syncNow({ interactive, onStatus: setOcrStatus });
     if (res.pulled.length || res.deletedLocal.length) {
@@ -694,19 +695,19 @@ async function doSync(interactive) {
       if (!$('#notebooks').hidden) renderNotebookList();
     }
     setOcrStatus('');
-    btn.textContent = '✓ Sync';
+    icon.textContent = '✓';
     setTimeout(() => {
-      if (btn.textContent === '✓ Sync') btn.textContent = '☁ Sync';
+      if (icon.textContent === '✓') icon.textContent = '☁';
     }, 4000);
   } catch (err) {
     console.error('Sync failed', err);
     if (interactive) {
-      btn.textContent = '☁ Sync';
+      icon.textContent = '☁';
       setOcrStatus(`Sync failed: ${err.message}`);
     } else {
       // A silent attempt failed (usually: sign-in expired). Don't open any
       // UI, but leave a visible cue that local changes haven't been pushed.
-      btn.textContent = '⚠ Sync';
+      icon.textContent = '⚠';
       setOcrStatus('Not synced yet — click ⚠ Sync');
     }
   } finally {

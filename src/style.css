@@ -65,6 +65,9 @@ body {
   border-radius: 8px;
   padding: 8px 14px;
   font-size: 0.9rem;
+  /* Explicit line-height so emoji glyphs (taller font metrics than text)
+     can't change the button height when a label/icon swaps. */
+  line-height: 1.4;
   cursor: pointer;
   white-space: nowrap;
   transition: filter 0.15s ease;
@@ -96,7 +99,6 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
 }
 #search {
   width: 240px;
@@ -116,6 +118,50 @@ body {
   font-size: 0.8rem;
   color: var(--muted);
   white-space: nowrap;
+}
+/* Reserved slot so the count appearing/disappearing doesn't reflow the row. */
+.search-count {
+  min-width: 5em;
+}
+
+/* Flexible zone between the search box and the action buttons. The status
+   texts live here and get truncated when the window runs out of room, so the
+   buttons on the right never move. */
+.toolbar-status {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.toolbar-status > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Action buttons form one rigid block anchored at the right edge; on a narrow
+   window the whole block drops to the next row instead of breaking apart.
+   The auto margin keeps it hugging the right edge on its own row too. */
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+/* The sync emoji changes state (☁/⏳/✓/⚠) and each glyph has a different
+   width; a fixed slot keeps the button — and its neighbors — from shifting. */
+.sync-icon {
+  display: inline-block;
+  width: 1.3em;
+  text-align: center;
+}
+/* Same idea for the fullscreen toggle's ⛶/⤡ glyphs. */
+#fullscreen-btn {
+  min-width: 44px;
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 .usage {
@@ -966,11 +1012,26 @@ mark {
   .search-wrap {
     order: 10;
     flex: 1 1 100%;
-    margin-left: 0;
   }
   #search {
     width: 100%;
     max-width: none;
+  }
+  /* Phone: dissolve the button block so buttons flow (and wrap) one by one —
+     a rigid block would overflow the narrow screen. */
+  .toolbar-actions {
+    display: contents;
+  }
+  /* No room to squeeze status text between buttons here: give it a full row
+     of its own, but only when there is something to say (.usage is already
+     hidden on phones, so only the OCR/sync status counts). */
+  .toolbar-status {
+    order: 9;
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+  .toolbar-status:not(:has(> .ocr-status:not(:empty))) {
+    display: none;
   }
   .book-area {
     padding: 12px;
