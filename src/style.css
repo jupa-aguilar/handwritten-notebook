@@ -824,6 +824,20 @@ kbd {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(200, 116, 60, 0.55);
 }
+/* The page currently open in the reading view: the overview scrolls to it
+   on open, and this makes it easy to spot once there. */
+.page-card.current .page-thumb {
+  border-color: var(--accent);
+  border-width: 2px;
+}
+.page-card.current .page-card-num {
+  color: var(--accent);
+}
+.page-card.current .page-card-num::after {
+  content: ' — reading';
+  font-weight: 400;
+  font-size: 0.72rem;
+}
 .pages-actions {
   align-items: center;
 }

@@ -1356,6 +1356,11 @@ function openPagesOverview() {
   selectedPageIds.clear();
   $('#pages-overview').hidden = false;
   renderPagesGrid();
+  // Land on the page being read, not at the top — with hundreds of pages the
+  // scroll back down is a chore. Only on open; re-renders keep their scroll.
+  $('#pages-grid')
+    .querySelector(`.page-card[data-index="${currentPage}"]`)
+    ?.scrollIntoView({ block: 'center' });
 }
 
 function closePagesOverview() {
@@ -1386,7 +1391,7 @@ function renderPagesGrid() {
       const u = URL.createObjectURL(p.blob);
       gridUrls.push(u);
       const selected = selectedPageIds.has(p.id);
-      return `<figure class="page-card${selected ? ' selected' : ''}${p.bookmarked ? ' bookmarked' : ''}" draggable="true" data-index="${i}">
+      return `<figure class="page-card${selected ? ' selected' : ''}${p.bookmarked ? ' bookmarked' : ''}${i === currentPage ? ' current' : ''}" draggable="true" data-index="${i}">
           <label class="page-select" title="Select page ${i + 1}">
             <input type="checkbox" data-id="${p.id}"${selected ? ' checked' : ''} />
           </label>
