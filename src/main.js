@@ -476,7 +476,7 @@ function refreshSearch() {
   results.querySelectorAll('.result').forEach((btn) => {
     btn.addEventListener('click', () => {
       const idx = Number(btn.dataset.page);
-      if (!$('#viewer').hidden) loadViewerPage(idx);
+      if (!$('#viewer').hidden) loadViewerPage(idx, { fit: true });
       if (pageFlip) pageFlip.flip(idx);
       currentPage = idx;
       updatePanel();
@@ -960,7 +960,7 @@ function renderBookmarksList() {
     b.addEventListener('click', () => {
       const idx = Number(b.dataset.index);
       closeBookmarks();
-      if (!$('#viewer').hidden) loadViewerPage(idx);
+      if (!$('#viewer').hidden) loadViewerPage(idx, { fit: true });
       if (pageFlip) pageFlip.flip(idx);
       currentPage = idx;
       updatePanel();
@@ -1461,7 +1461,7 @@ function renderPagesGrid() {
     b.addEventListener('click', () => {
       const idx = Number(b.dataset.index);
       closePagesOverview();
-      if (!$('#viewer').hidden) loadViewerPage(idx);
+      if (!$('#viewer').hidden) loadViewerPage(idx, { fit: true });
       if (pageFlip) pageFlip.flip(idx);
       currentPage = idx;
       updatePanel();
@@ -1842,7 +1842,7 @@ async function movePagesTo(ids, targetId, after) {
 function openViewer(index = currentPage) {
   if (pages.length === 0) return;
   $('#viewer').hidden = false;
-  loadViewerPage(index);
+  loadViewerPage(index, { fit: true });
 }
 
 function closeViewer() {
@@ -1861,7 +1861,16 @@ function closeViewer() {
   updateHighlights();
 }
 
-function loadViewerPage(index) {
+// Show a page in the viewer. Sequential turns (buttons, arrows, swipes) keep
+// the reader's current magnification so they don't have to re-zoom every
+// page; jumps that land somewhere new (opening the viewer, a search/bookmark/
+// thumbnail jump) pass { fit:true } to reset to fit-to-screen.
+function loadViewerPage(index, { fit = false } = {}) {
+  // Capture the zoom relative to the OLD page's fit before its dimensions
+  // change, so the new page opens at the same magnification, not the same
+  // raw scale (pages may differ in size).
+  const factor = fit || vFit <= 0 ? 1 : vScale / vFit;
+
   viewerPage = Math.max(0, Math.min(index, pages.length - 1));
   const page = pages[viewerPage];
   if (!page) return;
@@ -1885,8 +1894,21 @@ function loadViewerPage(index) {
   savePage(currentNotebookId, viewerPage);
   updatePanel();
 
-  fitViewer();
+  showViewerAtFactor(factor);
   renderViewerHighlights();
+}
+
+// Fit the current page to the stage, then multiply by `factor` (1 = plain
+// fit). Anchored top-left so a kept-zoom page turn starts reading at the top
+// of the page; clampViewerPan re-centers whichever axis still fits.
+function showViewerAtFactor(factor) {
+  const rect = $('#viewer-stage').getBoundingClientRect();
+  vFit = Math.min(rect.width / vNatW, rect.height / vNatH) || 1;
+  vScale = Math.min(Math.max(8, vFit), vFit * Math.max(1, factor));
+  vTx = 0;
+  vTy = 0;
+  clampViewerPan();
+  applyViewerTransform();
 }
 
 // Scale so the whole page fits the stage, and center it.
@@ -2166,7 +2188,7 @@ function wireViewer() {
           next >= 0 && next < pages.length
         ) {
           vDrag = null;
-          loadViewerPage(next); // lands at fit, like a photo viewer
+          loadViewerPage(next); // keeps the current zoom on the new page
         }
       }
     }
