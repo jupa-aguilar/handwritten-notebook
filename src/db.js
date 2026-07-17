@@ -119,16 +119,24 @@ export async function countPages(notebookId) {
 
 export async function addPage(page) {
   const db = await dbPromise;
+  page.modifiedAt ??= page.createdAt || Date.now();
   return db.add('pages', page);
 }
 
+// Every app-side write lands here, so this is where a page's modifiedAt gets
+// bumped — the sync merge uses it to decide which device's copy is newer.
+// (Sync-applied remote pages are written with raw puts and keep the remote's
+// own modifiedAt.)
 export async function putPage(page) {
   const db = await dbPromise;
+  page.modifiedAt = Date.now();
   return db.put('pages', page);
 }
 
 export async function deletePage(id) {
   const db = await dbPromise;
+  const page = await db.get('pages', id);
+  if (page?.uuid) recordPageTombstone(page.uuid);
   return db.delete('pages', id);
 }
 
@@ -142,6 +150,7 @@ export async function reorderPages(orderedIds) {
     const page = await store.get(orderedIds[i]);
     if (page && page.order !== i) {
       page.order = i;
+      page.modifiedAt = Date.now(); // reorders propagate through sync too
       await store.put(page);
     }
   }
@@ -162,6 +171,39 @@ export async function clearAll() {
 }
 
 // ---------- sync support ----------
+
+// Uuids of pages deleted (or replaced — same thing to sync) on this device.
+// A pull consults them so a manifest that still lists such a page can't
+// resurrect it here; the following push then removes it remotely as well.
+// Pruned by age: once every device has synced they're dead weight.
+const PAGE_TOMBSTONES_KEY = 'notebook.syncPageTombstones';
+const PAGE_TOMBSTONE_TTL = 60 * 24 * 60 * 60 * 1000; // 60 days
+
+export function getPageTombstones() {
+  let map;
+  try {
+    map = JSON.parse(localStorage.getItem(PAGE_TOMBSTONES_KEY) || '{}');
+  } catch {
+    map = {};
+  }
+  const cutoff = Date.now() - PAGE_TOMBSTONE_TTL;
+  let dirty = false;
+  for (const [uuid, at] of Object.entries(map)) {
+    if (at < cutoff) {
+      delete map[uuid];
+      dirty = true;
+    }
+  }
+  if (dirty) localStorage.setItem(PAGE_TOMBSTONES_KEY, JSON.stringify(map));
+  return map;
+}
+
+export function recordPageTombstone(uuid) {
+  if (!uuid) return;
+  const map = getPageTombstones();
+  map[uuid] = Date.now();
+  localStorage.setItem(PAGE_TOMBSTONES_KEY, JSON.stringify(map));
+}
 
 // Give every notebook and page a stable cross-device uuid (pre-sync records
 // were created without one).
@@ -199,12 +241,22 @@ export async function deleteNotebookByUuid(uuid) {
   if (nb) await deleteNotebook(nb.id);
 }
 
-// Create or update a local notebook from a remote manifest. `resolveBlob(pm)`
-// fetches the image for pages we don't have locally. Local pages created
-// after the remote's updatedAt are kept (they'll be pushed on the next pass);
-// returns { id, merged } where merged means such pages survived.
-export async function applyRemoteNotebook(manifest, resolveBlob) {
+// Create or update a local notebook from a remote manifest, merging page by
+// page so simultaneous edits on two devices both survive. `resolveBlob(pm)`
+// fetches the image for pages we don't have locally. Merge rules:
+//   - shared page: whichever side modified it last wins (per-page modifiedAt;
+//     manifests from older app versions fall back to the notebook updatedAt);
+//   - local-only page: kept when created/edited after the last successful
+//     sync (`lastSyncAt`, this device's clock) — otherwise its absence means
+//     it was deleted remotely, so it goes here too;
+//   - remote-only page: added, unless its uuid is tombstoned here (deleted or
+//     replaced locally) — then the push-back removes it remotely instead.
+// Returns { id, merged, updatedAt }; merged means local material survived
+// that the remote lacks, so the caller must push the result back.
+export async function applyRemoteNotebook(manifest, resolveBlob, opts = {}) {
+  const { lastSyncAt = 0, pageTombstones = {} } = opts;
   const db = await dbPromise;
+  let merged = false;
   let nb = await getNotebookByUuid(manifest.uuid);
   if (!nb) {
     const id = await db.add('notebooks', {
@@ -215,6 +267,8 @@ export async function applyRemoteNotebook(manifest, resolveBlob) {
       updatedAt: manifest.updatedAt,
     });
     nb = await db.get('notebooks', id);
+  } else if ((nb.updatedAt || 0) > (manifest.updatedAt || 0)) {
+    merged = true; // the side that edited last names the notebook
   } else {
     nb.name = manifest.name;
     if (typeof manifest.order === 'number') nb.order = manifest.order;
@@ -228,7 +282,12 @@ export async function applyRemoteNotebook(manifest, resolveBlob) {
   for (const pm of manifest.pages) {
     inManifest.add(pm.uuid);
     const local = byUuid.get(pm.uuid);
+    const remoteAt = pm.modifiedAt ?? manifest.updatedAt ?? 0;
     if (local) {
+      if ((local.modifiedAt ?? local.createdAt ?? 0) > remoteAt) {
+        merged = true; // the local edit is newer: keep it, push it back
+        continue;
+      }
       Object.assign(local, {
         order: pm.order,
         name: pm.name,
@@ -238,8 +297,11 @@ export async function applyRemoteNotebook(manifest, resolveBlob) {
         error: pm.error || '',
         bookmarked: !!pm.bookmarked,
         bookmarkLabel: pm.bookmarkLabel || '',
+        modifiedAt: remoteAt,
       });
       await db.put('pages', local);
+    } else if (pageTombstones[pm.uuid]) {
+      merged = true; // deleted/replaced here: the push-back drops it remotely
     } else {
       const blob = await resolveBlob(pm);
       await db.add('pages', {
@@ -257,23 +319,28 @@ export async function applyRemoteNotebook(manifest, resolveBlob) {
         error: pm.error || '',
         bookmarked: !!pm.bookmarked,
         bookmarkLabel: pm.bookmarkLabel || '',
+        modifiedAt: remoteAt,
         createdAt: Date.now(),
       });
     }
   }
 
-  let merged = false;
   for (const p of existing) {
     if (inManifest.has(p.uuid)) continue;
-    if ((p.createdAt || 0) > manifest.updatedAt) {
-      merged = true; // locally-new page: keep it, push it later
-    } else {
-      await db.delete('pages', p.id);
-    }
+    // Absent from the remote: either created/edited here since the last sync
+    // (keep — edits win over a remote delete) or deleted remotely (drop).
+    // Until a synced-state timestamp exists (first sync after upgrading),
+    // fall back to the old created-after-remote-update heuristic.
+    const localAt = Math.max(p.createdAt || 0, p.modifiedAt || 0);
+    const keep =
+      lastSyncAt > 0 ? localAt > lastSyncAt : (p.createdAt || 0) > manifest.updatedAt;
+    if (keep) merged = true;
+    else await db.delete('pages', p.id);
   }
+
   if (merged) {
     nb.updatedAt = Date.now();
     await db.put('notebooks', nb);
   }
-  return { id: nb.id, merged };
+  return { id: nb.id, merged, updatedAt: nb.updatedAt };
 }

@@ -17,6 +17,7 @@ import {
   nextOrder,
   clearAll,
   touchNotebook,
+  recordPageTombstone,
 } from './db.js';
 import { transcribeImage } from './ocr.js';
 import {
@@ -1685,6 +1686,9 @@ async function downloadSelectedPages() {
 // edit as newer than any remote manifest, or a concurrent pull would drop it.
 async function swapPageImage(page, file) {
   const processed = await processImage(file);
+  // The old image identity dies here: tombstone it so a pull can't bring the
+  // pre-edit page back from a manifest that still lists it.
+  recordPageTombstone(page.uuid);
   Object.assign(page, {
     uuid: crypto.randomUUID(),
     createdAt: Date.now(),

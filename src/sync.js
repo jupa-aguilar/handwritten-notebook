@@ -5,9 +5,12 @@
 //   nb-<uuid>.json   per-notebook manifest: name, updatedAt, pages (text, words, order)
 //   pg-<uuid>.jpg    page images — immutable, uploaded once
 //
-// Reconciliation is last-write-wins per notebook on updatedAt, with tombstones
-// for deletions. Locally-added pages survive a pull and get pushed right after
-// (see applyRemoteNotebook in db.js).
+// Reconciliation is a per-page merge: when a notebook changed on both sides
+// since this device's last sync, the pull merges page by page (newest
+// modifiedAt wins; local-only pages created since the last sync survive;
+// tombstoned pages stay dead) and pushes the union back — see
+// applyRemoteNotebook in db.js. Notebook deletions still propagate through
+// tombstones in meta.json.
 //
 // Auth is Google Identity Services (token client) in the browser; the Electron
 // shell swaps in a system-browser loopback flow (electron/main.cjs) that keeps
@@ -21,6 +24,7 @@ import {
   ensureSyncIds,
   applyRemoteNotebook,
   deleteNotebookByUuid,
+  getPageTombstones,
 } from './db.js';
 
 const CLIENT_KEY = 'notebook.syncClientId';
@@ -73,6 +77,28 @@ export function recordTombstone(uuid) {
   const t = getTombstones();
   t[uuid] = Date.now();
   localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(t));
+}
+
+// What each notebook looked like right after its last successful sync:
+// { [uuid]: { localAt, remoteAt, at } } — the updatedAt seen on each side,
+// plus the local wall-clock moment. Comparing both sides against this tells
+// a real change apart from mere clock differences between devices, and `at`
+// is what page merging compares local createdAt/modifiedAt against (same
+// clock, so no cross-device skew).
+const SYNC_STATE_KEY = 'notebook.syncState';
+
+function getSyncState() {
+  try {
+    return JSON.parse(localStorage.getItem(SYNC_STATE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function setSyncedState(uuid, localAt, remoteAt) {
+  const s = getSyncState();
+  s[uuid] = { localAt, remoteAt, at: Date.now() };
+  localStorage.setItem(SYNC_STATE_KEY, JSON.stringify(s));
 }
 
 // ---------- auth (Google Identity Services) ----------
@@ -271,6 +297,9 @@ async function pushNotebook(token, files, meta, nbId, onStatus = () => {}) {
       error: p.error || '',
       bookmarked: !!p.bookmarked,
       bookmarkLabel: p.bookmarkLabel || '',
+      // Older records without a modifiedAt inherit the notebook's, which
+      // reproduces the pre-merge last-write-wins for them.
+      modifiedAt: p.modifiedAt ?? nb.updatedAt,
     })),
   };
   await uploadFile(
@@ -281,6 +310,7 @@ async function pushNotebook(token, files, meta, nbId, onStatus = () => {}) {
     JSON.stringify(manifest)
   );
   meta.notebooks[nb.uuid] = { name: nb.name, updatedAt: nb.updatedAt };
+  setSyncedState(nb.uuid, nb.updatedAt, nb.updatedAt);
 }
 
 async function pullNotebook(token, files, meta, uuid, onStatus = () => {}) {
@@ -289,15 +319,21 @@ async function pullNotebook(token, files, meta, uuid, onStatus = () => {}) {
   const manifest = await downloadFile(token, mf.id, 'json');
   const total = (manifest.pages || []).length;
   let done = 0;
-  const { id, merged } = await applyRemoteNotebook(manifest, async (pm) => {
-    const f = files.get(`pg-${pm.uuid}`);
-    if (!f) throw new Error(`image for page ${pm.uuid} missing on Drive`);
-    done++;
-    onStatus(`Downloading “${manifest.name}” — page ${done}/${total}…`);
-    return downloadFile(token, f.id, 'blob');
-  });
-  // Locally-added pages survived the pull: push the merged result back now.
+  const { id, merged, updatedAt } = await applyRemoteNotebook(
+    manifest,
+    async (pm) => {
+      const f = files.get(`pg-${pm.uuid}`);
+      if (!f) throw new Error(`image for page ${pm.uuid} missing on Drive`);
+      done++;
+      onStatus(`Downloading “${manifest.name}” — page ${done}/${total}…`);
+      return downloadFile(token, f.id, 'blob');
+    },
+    { lastSyncAt: getSyncState()[uuid]?.at || 0, pageTombstones: getPageTombstones() }
+  );
+  // Anything local the remote lacked survived the merge: publish it back so
+  // every device converges on the union. (pushNotebook records the state.)
   if (merged) await pushNotebook(token, files, meta, id, onStatus);
+  else setSyncedState(uuid, updatedAt, manifest.updatedAt);
 }
 
 async function deleteRemoteNotebook(token, files, uuid) {
@@ -381,11 +417,21 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
       onStatus(`Downloading “${entry.name}”…`);
       await pullNotebook(token, files, meta, uuid, onStatus);
       result.pulled.push(uuid);
-    } else if (entry.updatedAt > local.updatedAt) {
+      continue;
+    }
+    // Compare each side against what it looked like after the last sync of
+    // THIS device — not against each other, whose clocks may disagree.
+    const st = getSyncState()[uuid] || { localAt: 0, remoteAt: 0 };
+    const localChanged = local.updatedAt !== st.localAt;
+    const remoteChanged = entry.updatedAt !== st.remoteAt;
+    if (remoteChanged) {
+      // Pull even when we changed too: the pull merges page by page and, if
+      // anything local survived that the remote lacks, pushes the union back
+      // — neither device's edits get stomped.
       onStatus(`Downloading “${entry.name}”…`);
       await pullNotebook(token, files, meta, uuid, onStatus);
       result.pulled.push(uuid);
-    } else if (entry.updatedAt < local.updatedAt) {
+    } else if (localChanged) {
       onStatus(`Uploading “${local.name}”…`);
       await pushNotebook(token, files, meta, local.id, onStatus);
       result.pushed.push(uuid);
