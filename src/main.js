@@ -137,18 +137,43 @@ const ACCENT_VARIANTS = {
   y: 'yýÿ',
 };
 
-function highlight(text, query) {
-  const safe = escapeHtml(text);
-  if (!query) return safe;
-  // Turn the folded query into a regex where each base letter also matches
-  // its accented forms, so the original (accented) text is what gets marked.
-  const pattern = [...foldText(query)]
+// Split a query into folded search words. Whitespace-separated; empty when
+// the query is blank. Shared by the page filter, the highlighter and the
+// word-box overlays so all three agree on what "a word" is.
+function searchTokens(query) {
+  return foldText(query).split(/\s+/).filter(Boolean);
+}
+
+// A page is a search hit when its text contains every query word. Used both
+// to filter the results list and to gate the word-box overlays, so a box
+// never appears on a page the search reports as a non-match.
+function pageHasAllTokens(page, tokens) {
+  const hay = foldText(page.text || '');
+  return tokens.every((t) => hay.includes(t));
+}
+
+// Regex fragment matching one folded token, with each base letter widened to
+// also match its accented forms (so the original accented text gets marked).
+function accentPattern(token) {
+  return [...token]
     .map((ch) =>
       ACCENT_VARIANTS[ch]
         ? `[${ACCENT_VARIANTS[ch]}]`
         : ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     )
     .join('');
+}
+
+function highlight(text, query) {
+  const safe = escapeHtml(text);
+  const tokens = searchTokens(query);
+  if (tokens.length === 0) return safe;
+  // Mark every query word wherever it appears. Longest first so "abc" wins
+  // over "ab" when both are searched and overlap.
+  const pattern = [...tokens]
+    .sort((a, b) => b.length - a.length)
+    .map(accentPattern)
+    .join('|');
   return safe.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>');
 }
 
@@ -411,10 +436,12 @@ function refreshSearch() {
     return;
   }
 
-  const q = foldText(query);
+  // A page matches when it contains every query word (in any order), not the
+  // literal phrase — so "musica manana" finds a page mentioning both.
+  const tokens = searchTokens(query);
   const matches = pages
     .map((p, i) => ({ page: p, index: i }))
-    .filter(({ page }) => foldText(page.text || '').includes(q));
+    .filter(({ page }) => pageHasAllTokens(page, tokens));
 
   count.textContent = `${matches.length} page${matches.length === 1 ? '' : 's'}`;
 
@@ -428,11 +455,16 @@ function refreshSearch() {
         matches
           .map(({ page, index }) => {
             const text = page.text || '';
-            const at = foldText(text).indexOf(q);
+            // Anchor the snippet on the earliest word that matched.
+            const hay = foldText(text);
+            let at = Math.min(
+              ...tokens.map((t) => hay.indexOf(t)).filter((i) => i >= 0)
+            );
+            if (!Number.isFinite(at)) at = 0;
             const start = Math.max(0, at - 30);
             const snippet =
               (start > 0 ? '…' : '') +
-              text.slice(start, at + q.length + 40).replace(/\s+/g, ' ') +
+              text.slice(start, at + 70).replace(/\s+/g, ' ') +
               '…';
             return `<button class="result" data-page="${index}">
                 <span class="result-page">p.${index + 1}</span>
@@ -475,8 +507,7 @@ function updateHighlights() {
   layer.replaceChildren();
 
   if (!pageFlip || pages.length === 0) return;
-  const query = foldText($('#search').value.trim());
-  const tokens = query.split(/\s+/).filter(Boolean);
+  const tokens = searchTokens($('#search').value.trim());
 
   const canvas = $('#book').querySelector('canvas');
   const rect = pageFlip.getRender().getRect(); // { left, top, height, pageWidth }
@@ -514,7 +545,13 @@ function updateHighlights() {
       rib.style.height = `${rw * 1.8}px`;
       frag.appendChild(rib);
     }
-    if (tokens.length === 0 || !page.words?.length || !page.width || !page.height)
+    if (
+      tokens.length === 0 ||
+      !page.words?.length ||
+      !page.width ||
+      !page.height ||
+      !pageHasAllTokens(page, tokens)
+    )
       continue;
     const sx = rect.pageWidth / page.width;
     const sy = rect.height / page.height;
@@ -1940,8 +1977,8 @@ function renderViewerHighlights() {
     frag.appendChild(rib);
   }
 
-  const tokens = foldText($('#search').value.trim()).split(/\s+/).filter(Boolean);
-  if (tokens.length && page.words?.length) {
+  const tokens = searchTokens($('#search').value.trim());
+  if (tokens.length && page.words?.length && pageHasAllTokens(page, tokens)) {
     for (const w of page.words) {
       if (!tokens.some((t) => foldText(w.t).includes(t))) continue;
       const box = document.createElement('div');
