@@ -277,6 +277,25 @@ async function pushNotebook(token, files, meta, nbId, onStatus = () => {}) {
       await uploadFile(token, files, name, p.mediaType || 'image/jpeg', p.blob);
     }
   }
+  // Note which images the outgoing manifest stops referencing (deleted or
+  // replaced pages). Images are immutable and per-uuid, so once no manifest
+  // lists one it can never be needed again — but only delete them AFTER the
+  // new manifest is safely up: deleting first could leave the old manifest
+  // pointing at missing images if the upload then failed.
+  let staleImages = [];
+  const oldMf = files.get(`nb-${nb.uuid}.json`);
+  if (oldMf) {
+    try {
+      const old = await downloadFile(token, oldMf.id, 'json');
+      const keep = new Set(pages.map((p) => p.uuid));
+      staleImages = (old.pages || [])
+        .map((pm) => pm.uuid)
+        .filter((uuid) => uuid && !keep.has(uuid));
+    } catch {
+      /* unreadable old manifest: skip the cleanup this round */
+    }
+  }
+
   onStatus(`Uploading “${nb.name}” — saving index…`);
   const manifest = {
     uuid: nb.uuid,
@@ -311,6 +330,13 @@ async function pushNotebook(token, files, meta, nbId, onStatus = () => {}) {
   );
   meta.notebooks[nb.uuid] = { name: nb.name, updatedAt: nb.updatedAt };
   setSyncedState(nb.uuid, nb.updatedAt, nb.updatedAt);
+  for (const uuid of staleImages) {
+    try {
+      await deleteFile(token, files, `pg-${uuid}`);
+    } catch {
+      /* orphans are harmless; another push will retry */
+    }
+  }
 }
 
 async function pullNotebook(token, files, meta, uuid, onStatus = () => {}) {
