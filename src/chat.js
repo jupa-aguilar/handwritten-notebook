@@ -10,8 +10,38 @@ const DEFAULT_URL = 'http://localhost:1234';
 // Page transcriptions travel as plain text in the system prompt. Local models
 // have small context windows and modest hardware pays for every token at the
 // start of each conversation, so cap what we send and say what was left out.
+// This is only a ceiling: the real budget is sized to the loaded model's
+// context length per request (see contextCharBudget).
 const CONTEXT_CHAR_BUDGET = 14000;
 const HISTORY_SENT = 12; // most recent messages included per request
+
+// Rough char↔token ratio for sizing the context. Deliberately low (mixed
+// prose, code and math OCR pack more tokens per char than plain English) so
+// we under-fill rather than overflow the model's window.
+const CHARS_PER_TOKEN = 3.5;
+// Token headroom kept free within the context for the model's own answer and
+// the fixed system-prompt instructions.
+const REPLY_TOKEN_RESERVE = 800;
+const BOILERPLATE_TOKEN_RESERVE = 400;
+// Assumed context length when the server won't report one (older LM Studio
+// without /api/v0). Conservative on purpose — better a short prompt than a
+// crash on a small-context model.
+const FALLBACK_CONTEXT_TOKENS = 4096;
+
+// How many characters of notebook text fit alongside the reply, the boilerplate
+// and this turn's conversation history, given the loaded model's context.
+function contextCharBudget(contextTokens, sentHistory) {
+  const ctx = contextTokens || FALLBACK_CONTEXT_TOKENS;
+  const historyTokens = Math.ceil(
+    sentHistory.reduce((n, m) => n + m.content.length, 0) / CHARS_PER_TOKEN
+  );
+  const availTokens =
+    ctx - REPLY_TOKEN_RESERVE - BOILERPLATE_TOKEN_RESERVE - historyTokens;
+  return Math.min(
+    CONTEXT_CHAR_BUDGET,
+    Math.max(0, Math.floor(availTokens * CHARS_PER_TOKEN))
+  );
+}
 
 export function getChatServerUrl() {
   return (
@@ -45,8 +75,10 @@ function history() {
 
 // Pick the model to talk to — whichever one is loaded in LM Studio, so there
 // is nothing to choose in the app. Called before every request; also serves
-// as the "is the server up?" probe. LM Studio's own REST API says what is in
-// memory; servers without it fall back to the first chat model /v1 lists.
+// as the "is the server up?" probe. Returns { id, contextLength }, where
+// contextLength is the loaded context window in tokens (null if the server
+// doesn't report it). LM Studio's own REST API says what is in memory; servers
+// without it fall back to the first chat model /v1 lists.
 async function resolveModel() {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 4000);
@@ -62,7 +94,11 @@ async function resolveModel() {
           (m) => m.state === 'loaded' && m.type !== 'embeddings'
         );
         if (!loaded) throw new Error(noModel);
-        return loaded.id;
+        return {
+          id: loaded.id,
+          contextLength:
+            loaded.loaded_context_length ?? loaded.max_context_length ?? null,
+        };
       }
     } catch (err) {
       if (err.message === noModel || err.name === 'AbortError') throw err;
@@ -76,7 +112,7 @@ async function resolveModel() {
       .map((m) => m.id)
       .filter((id) => !/embed/i.test(id)); // embedding models can't chat
     if (ids.length === 0) throw new Error(noModel);
-    return ids[0];
+    return { id: ids[0], contextLength: null };
   } finally {
     clearTimeout(t);
   }
@@ -131,7 +167,7 @@ async function streamCompletion(model, messages, signal, onDelta) {
 
 // ---------- notebook context ----------
 
-function buildSystemPrompt(name, pages) {
+function buildSystemPrompt(name, pages, budget = CONTEXT_CHAR_BUDGET) {
   const chunks = [];
   let used = 0;
   let included = 0;
@@ -141,7 +177,7 @@ function buildSystemPrompt(name, pages) {
     if (!text) return;
     withText++;
     const chunk = `--- Page ${i + 1} ---\n${text}`;
-    if (used + chunk.length > CONTEXT_CHAR_BUDGET) return;
+    if (used + chunk.length > budget) return;
     chunks.push(chunk);
     used += chunk.length;
     included++;
@@ -341,14 +377,12 @@ async function send() {
   autosize(input);
   render();
 
-  // Failed exchanges are shown but never sent back to the model.
-  const sent = [
-    { role: 'system', content: buildSystemPrompt(name, pages) },
-    ...msgs
-      .filter((m) => !m.error)
-      .slice(-HISTORY_SENT)
-      .map(({ role, content }) => ({ role, content })),
-  ];
+  // The conversation history to send (failed exchanges are shown but never
+  // sent back). Captured before the empty reply below so it isn't included.
+  const priorMsgs = msgs
+    .filter((m) => !m.error)
+    .slice(-HISTORY_SENT)
+    .map(({ role, content }) => ({ role, content }));
 
   const reply = { role: 'assistant', content: '' };
   msgs.push(reply);
@@ -366,8 +400,20 @@ async function send() {
   setSendStopping(true);
   try {
     // Re-resolve so switching models in LM Studio mid-conversation is picked
-    // up by the very next message.
-    const model = await resolveModel();
+    // up by the very next message. Its context length sizes how much notebook
+    // text we can attach without overflowing the model's window.
+    const { id: model, contextLength } = await resolveModel();
+    const sent = [
+      {
+        role: 'system',
+        content: buildSystemPrompt(
+          name,
+          pages,
+          contextCharBudget(contextLength, priorMsgs)
+        ),
+      },
+      ...priorMsgs,
+    ];
     await streamCompletion(model, sent, streamCtrl.signal, ({ content, reasoning }) => {
       if (content) {
         reply.content += content;
