@@ -1528,10 +1528,10 @@ function updatePagesSelectionUI() {
   const n = selectedPageIds.size;
   const dl = $('#pages-download-selected');
   dl.hidden = n === 0;
-  dl.textContent = `⬇ Download selected (${n})`;
+  if (!dl.disabled) dl.textContent = `⬇ Download selected (${n})`;
   const rp = $('#pages-replace-selected');
   rp.hidden = n === 0;
-  rp.textContent = `🔁 Replace selected (${n})`;
+  if (!rp.disabled) rp.textContent = `🔁 Replace selected (${n})`;
   const del = $('#pages-delete-selected');
   del.hidden = n === 0;
   del.textContent = `🗑 Delete selected (${n})`;
@@ -1647,12 +1647,26 @@ async function downloadSelectedPages() {
     blob = selected[0].p.blob;
     downloadName = fileName(selected[0]);
   } else {
-    setOcrStatus(`Packing ${selected.length} pages…`);
-    const entries = [];
-    for (const s of selected) {
-      entries.push({ name: fileName(s), bytes: new Uint8Array(await s.p.blob.arrayBuffer()) });
+    // The toolbar status is dimmed behind the dialog, so progress lives in
+    // the button that started the download.
+    const btn = $('#pages-download-selected');
+    btn.disabled = true;
+    try {
+      const entries = [];
+      for (const [k, s] of selected.entries()) {
+        btn.textContent = `⏳ Packing ${k + 1} / ${selected.length}…`;
+        // Reading blobs rarely yields long enough to paint; give the event
+        // loop a beat every few pages so the count visibly ticks. (Not
+        // requestAnimationFrame: that never fires in a backgrounded tab and
+        // would freeze the pack if the user switches away mid-download.)
+        if (k % 10 === 0) await new Promise((r) => setTimeout(r));
+        entries.push({ name: fileName(s), bytes: new Uint8Array(await s.p.blob.arrayBuffer()) });
+      }
+      blob = buildZip(entries);
+    } finally {
+      btn.disabled = false;
+      updatePagesSelectionUI();
     }
-    blob = buildZip(entries);
     downloadName = `${nbName} - ${selected.length} pages.zip`;
   }
   const a = document.createElement('a');
@@ -1690,15 +1704,28 @@ async function swapPageImage(page, file) {
 // Replace a batch of pages ([{ page, file }] pairs), then refresh everything
 // once: reading view, search, overview grid, OCR queue and sync.
 async function replacePages(pairs) {
+  // Re-encoding images takes real time; tick the progress off in the bulk
+  // button (the toolbar status is dimmed behind the dialog).
+  const btn = $('#pages-replace-selected');
+  const showProgress = pairs.length > 1;
+  if (showProgress) btn.disabled = true;
   let done = 0;
   const errors = [];
-  for (const { page, file } of pairs) {
-    try {
-      await swapPageImage(page, file);
-      done++;
-    } catch (err) {
-      console.error('Could not replace page', file.name, err);
-      errors.push(`${file.name}: ${err.message}`);
+  try {
+    for (const [k, { page, file }] of pairs.entries()) {
+      if (showProgress) btn.textContent = `⏳ Replacing ${k + 1} / ${pairs.length}…`;
+      try {
+        await swapPageImage(page, file);
+        done++;
+      } catch (err) {
+        console.error('Could not replace page', file.name, err);
+        errors.push(`${file.name}: ${err.message}`);
+      }
+    }
+  } finally {
+    if (showProgress) {
+      btn.disabled = false;
+      updatePagesSelectionUI();
     }
   }
   if (done > 0) {
