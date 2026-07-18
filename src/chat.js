@@ -9,9 +9,11 @@ const DEFAULT_URL = 'http://localhost:1234';
 
 // Reasoning ("thinking") is off by default: local models spend minutes on
 // hidden chain-of-thought before the first visible word. The 🧠 toggle turns
-// it back on for hard questions. Implemented with Qwen's soft switch — the
-// outgoing message gets "/no_think" appended (never shown, never stored), and
-// only when the loaded model is a Qwen; other models don't know the tag.
+// it back on for hard questions. Two mechanisms, belt and suspenders:
+// reasoning_effort:"none" in the request (honored by LM Studio for current
+// Qwen/gpt-oss-style models, ignored by the rest) plus Qwen's legacy
+// "/no_think" soft switch on the outgoing message copy (older hybrids only
+// respect that; never shown in the bubble, never stored).
 const THINK_KEY = 'notebook.chat.think';
 
 function isThinkingOn() {
@@ -129,7 +131,7 @@ async function resolveModel() {
   }
 }
 
-async function streamCompletion(model, messages, signal, onDelta) {
+async function streamCompletion(model, messages, signal, onDelta, extra = {}) {
   const resp = await fetch(`${getChatServerUrl()}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -138,6 +140,7 @@ async function streamCompletion(model, messages, signal, onDelta) {
       messages,
       stream: true,
       temperature: 0.7,
+      ...extra,
     }),
     signal,
   });
@@ -492,6 +495,7 @@ async function send() {
     // answer replaces it and the reasoning is never kept in the history.
     let thinkingLen = 0;
     let thinkingTail = '';
+    const extra = isThinkingOn() ? {} : { reasoning_effort: 'none' };
     await streamCompletion(model, sent, streamCtrl.signal, ({ content, reasoning }) => {
       if (content) {
         reply.content += content;
@@ -506,7 +510,7 @@ async function send() {
       if (box.scrollHeight - box.scrollTop - box.clientHeight < 80) {
         box.scrollTop = box.scrollHeight;
       }
-    });
+    }, extra);
   } catch (err) {
     if (err.name !== 'AbortError') {
       console.error('Chat failed', err);
