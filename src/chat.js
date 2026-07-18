@@ -167,28 +167,81 @@ async function streamCompletion(model, messages, signal, onDelta) {
 
 // ---------- notebook context ----------
 
-function buildSystemPrompt(name, pages, budget = CONTEXT_CHAR_BUDGET) {
-  const chunks = [];
-  let used = 0;
-  let included = 0;
+// Fold case + strip accents so query terms match regardless of accent/case.
+function fold(s) {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// Meaningful terms from the question, used to pull the pages that actually
+// answer it into a limited context. Drops short words and common stopwords so
+// "¿qué es PCIe?" keys on "pcie", not "que"/"es".
+const STOPWORDS = new Set(
+  (
+    'que qué de la el los las un una unos unas y o u en del al con por para se su sus lo mas más ' +
+    'como cómo cual cuál cuales cuáles donde dónde cuando cuándo sobre este esta esto ese esa eso ' +
+    'what is are was the a an of in on for to and or how does do about my me tell explain give'
+  ).split(/\s+/)
+);
+
+function queryTerms(q) {
+  return [
+    ...new Set(
+      fold(q)
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length >= 3 && !STOPWORDS.has(w))
+    ),
+  ];
+}
+
+// How many times the query terms appear in a page's (folded) text.
+function scorePage(foldedText, terms) {
+  let score = 0;
+  for (const term of terms) {
+    let idx = 0;
+    while ((idx = foldedText.indexOf(term, idx)) !== -1) {
+      score++;
+      idx += term.length;
+    }
+  }
+  return score;
+}
+
+function buildSystemPrompt(name, pages, query, budget = CONTEXT_CHAR_BUDGET) {
+  const terms = queryTerms(query);
+  const entries = [];
   let withText = 0;
   pages.forEach((p, i) => {
     const text = (p.text || '').trim();
     if (!text) return;
     withText++;
-    const chunk = `--- Page ${i + 1} ---\n${text}`;
-    if (used + chunk.length > budget) return;
-    chunks.push(chunk);
-    used += chunk.length;
-    included++;
+    entries.push({
+      i,
+      chunk: `--- Page ${i + 1} ---\n${text}`,
+      score: scorePage(fold(text), terms),
+    });
   });
+
+  // Fit pages to the budget most-relevant-first, so the pages that answer the
+  // question survive truncation even when they sit deep in a long notebook.
+  // With no usable query terms this is a stable no-op and pages fill in order.
+  const kept = new Set();
+  let used = 0;
+  for (const e of [...entries].sort((a, b) => b.score - a.score || a.i - b.i)) {
+    if (used + e.chunk.length + 2 > budget) continue;
+    kept.add(e.i);
+    used += e.chunk.length + 2;
+  }
+  // Emit the kept pages in page order for a natural top-to-bottom read.
+  const chunks = entries.filter((e) => kept.has(e.i)).map((e) => e.chunk);
 
   const notes = [
     `The notebook has ${pages.length} page(s); ${withText} of them are transcribed.`,
   ];
-  if (included < withText) {
+  if (chunks.length < withText) {
     notes.push(
-      `Only ${included} transcribed page(s) fit below; the rest were cut to fit the model's context.`
+      terms.length
+        ? `Only ${chunks.length} of the transcribed pages fit below; they were chosen for relevance to the question. Others you have may still cover it, so if the answer isn't here, say it may be on a page not shown rather than that the notebook lacks it.`
+        : `Only ${chunks.length} transcribed page(s) fit below; the rest were cut to fit the model's context.`
     );
   }
 
@@ -409,6 +462,7 @@ async function send() {
         content: buildSystemPrompt(
           name,
           pages,
+          text,
           contextCharBudget(contextLength, priorMsgs)
         ),
       },
