@@ -898,6 +898,17 @@ kbd {
 .chat-head strong {
   margin-right: auto;
 }
+/* Thinking toggle: dim when off (the default), accent when on. */
+#chat-think:not(.active) {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+#chat-think.active {
+  border-color: var(--accent);
+  background: rgba(200, 116, 60, 0.14);
+  filter: none;
+  opacity: 1;
+}
 .chat-context {
   font-size: 0.72rem;
   color: #8a7d6c;

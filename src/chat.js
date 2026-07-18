@@ -7,6 +7,17 @@
 const URL_KEY = 'notebook.lmstudio.url';
 const DEFAULT_URL = 'http://localhost:1234';
 
+// Reasoning ("thinking") is off by default: local models spend minutes on
+// hidden chain-of-thought before the first visible word. The 🧠 toggle turns
+// it back on for hard questions. Implemented with Qwen's soft switch — the
+// outgoing message gets "/no_think" appended (never shown, never stored), and
+// only when the loaded model is a Qwen; other models don't know the tag.
+const THINK_KEY = 'notebook.chat.think';
+
+function isThinkingOn() {
+  return localStorage.getItem(THINK_KEY) === '1';
+}
+
 // Page transcriptions travel as plain text in the system prompt. Local models
 // have small context windows and modest hardware pays for every token at the
 // start of each conversation, so cap what we send and say what was left out.
@@ -456,6 +467,13 @@ async function send() {
     // up by the very next message. Its context length sizes how much notebook
     // text we can attach without overflowing the model's window.
     const { id: model, contextLength } = await resolveModel();
+    // With thinking off, tag only the outgoing copy of this turn's message —
+    // the stored history stays clean, so every turn follows the toggle.
+    const outgoing = priorMsgs.map((m) => ({ ...m }));
+    const last = outgoing[outgoing.length - 1];
+    if (!isThinkingOn() && /qwen/i.test(model) && last?.role === 'user') {
+      last.content += ' /no_think';
+    }
     const sent = [
       {
         role: 'system',
@@ -466,7 +484,7 @@ async function send() {
           contextCharBudget(contextLength, priorMsgs)
         ),
       },
-      ...priorMsgs,
+      ...outgoing,
     ];
     // Reasoning models spend long stretches on hidden thinking before the
     // first visible word. Stream that thinking live (LM Studio-style, just
@@ -544,6 +562,22 @@ export function initChat(opts) {
     setChatHidden($('#chat').hidden === false)
   );
   $('#chat-close').addEventListener('click', () => setChatHidden(true));
+
+  const think = $('#chat-think');
+  const applyThink = () => {
+    const on = isThinkingOn();
+    think.classList.toggle('active', on);
+    think.setAttribute('aria-pressed', String(on));
+    think.title = on
+      ? 'Thinking is ON: deeper answers, but slow to start. Click for instant replies.'
+      : 'Thinking is OFF: replies start right away. Click to let the model think first (better for hard questions, slower).';
+  };
+  think.addEventListener('click', () => {
+    if (isThinkingOn()) localStorage.removeItem(THINK_KEY);
+    else localStorage.setItem(THINK_KEY, '1');
+    applyThink();
+  });
+  applyThink();
   $('#chat-retry').addEventListener('click', connect);
   $('#chat-clear').addEventListener('click', () => {
     histories.set(getContext().id, []);
