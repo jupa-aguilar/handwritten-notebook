@@ -468,13 +468,21 @@ async function send() {
       },
       ...priorMsgs,
     ];
+    // Reasoning models spend long stretches on hidden thinking before the
+    // first visible word. Stream that thinking live (LM Studio-style, just
+    // the rolling tail) so the wait reads as progress, not a hang; the
+    // answer replaces it and the reasoning is never kept in the history.
+    let thinkingLen = 0;
+    let thinkingTail = '';
     await streamCompletion(model, sent, streamCtrl.signal, ({ content, reasoning }) => {
       if (content) {
         reply.content += content;
         div.classList.remove('pending');
         div.innerHTML = renderMarkdown(reply.content);
       } else if (reasoning && !reply.content) {
-        div.textContent = 'Thinking…';
+        thinkingLen += reasoning.length;
+        thinkingTail = (thinkingTail + reasoning).slice(-280).trimStart();
+        div.textContent = `Thinking…\n${thinkingLen > 280 ? '…' : ''}${thinkingTail}`;
       }
       // Follow the reply unless the user scrolled up to read something.
       if (box.scrollHeight - box.scrollTop - box.clientHeight < 80) {
