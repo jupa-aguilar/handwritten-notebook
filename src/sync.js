@@ -12,6 +12,11 @@
 // applyRemoteNotebook in db.js. Notebook deletions still propagate through
 // tombstones in meta.json.
 //
+// This module holds no local state of its own: tombstones and per-notebook
+// synced state live in IndexedDB next to the notebooks they describe (db.js).
+// Only the credentials below stay in localStorage — losing them costs a
+// sign-in, not data.
+//
 // Auth is Google Identity Services (token client) in the browser; the Electron
 // shell swaps in a system-browser loopback flow (electron/main.cjs) that keeps
 // a refresh token when a client secret is configured. The user supplies their
@@ -25,12 +30,15 @@ import {
   applyRemoteNotebook,
   deleteNotebookByUuid,
   getPageTombstones,
+  getNotebookTombstones,
+  setNotebookTombstones,
+  getSyncedState,
+  setSyncedState,
 } from './db.js';
 
 const CLIENT_KEY = 'notebook.syncClientId';
 const SECRET_KEY = 'notebook.syncClientSecret';
 const TOKEN_KEY = 'notebook.syncToken';
-const TOMBSTONES_KEY = 'notebook.syncTombstones';
 const SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
@@ -60,45 +68,6 @@ export function setSyncClientSecret(secret) {
 
 export function isSyncConfigured() {
   return !!getSyncClientId();
-}
-
-// Notebooks deleted locally since the last successful sync, so the deletion
-// can propagate: { [uuid]: deletedAtMs }.
-function getTombstones() {
-  try {
-    return JSON.parse(localStorage.getItem(TOMBSTONES_KEY) || '{}');
-  } catch {
-    return {};
-  }
-}
-
-export function recordTombstone(uuid) {
-  if (!uuid) return;
-  const t = getTombstones();
-  t[uuid] = Date.now();
-  localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(t));
-}
-
-// What each notebook looked like right after its last successful sync:
-// { [uuid]: { localAt, remoteAt, at } } — the updatedAt seen on each side,
-// plus the local wall-clock moment. Comparing both sides against this tells
-// a real change apart from mere clock differences between devices, and `at`
-// is what page merging compares local createdAt/modifiedAt against (same
-// clock, so no cross-device skew).
-const SYNC_STATE_KEY = 'notebook.syncState';
-
-function getSyncState() {
-  try {
-    return JSON.parse(localStorage.getItem(SYNC_STATE_KEY) || '{}');
-  } catch {
-    return {};
-  }
-}
-
-function setSyncedState(uuid, localAt, remoteAt) {
-  const s = getSyncState();
-  s[uuid] = { localAt, remoteAt, at: Date.now() };
-  localStorage.setItem(SYNC_STATE_KEY, JSON.stringify(s));
 }
 
 // ---------- auth (Google Identity Services) ----------
@@ -329,7 +298,7 @@ async function pushNotebook(token, files, meta, nbId, onStatus = () => {}) {
     JSON.stringify(manifest)
   );
   meta.notebooks[nb.uuid] = { name: nb.name, updatedAt: nb.updatedAt };
-  setSyncedState(nb.uuid, nb.updatedAt, nb.updatedAt);
+  await setSyncedState(nb.uuid, nb.updatedAt, nb.updatedAt);
   for (const uuid of staleImages) {
     try {
       await deleteFile(token, files, `pg-${uuid}`);
@@ -354,12 +323,15 @@ async function pullNotebook(token, files, meta, uuid, onStatus = () => {}) {
       onStatus(`Downloading “${manifest.name}” — page ${done}/${total}…`);
       return downloadFile(token, f.id, 'blob');
     },
-    { lastSyncAt: getSyncState()[uuid]?.at || 0, pageTombstones: getPageTombstones() }
+    {
+      lastSyncAt: (await getSyncedState(uuid))?.at || 0,
+      pageTombstones: await getPageTombstones(),
+    }
   );
   // Anything local the remote lacked survived the merge: publish it back so
   // every device converges on the union. (pushNotebook records the state.)
   if (merged) await pushNotebook(token, files, meta, id, onStatus);
-  else setSyncedState(uuid, updatedAt, manifest.updatedAt);
+  else await setSyncedState(uuid, updatedAt, manifest.updatedAt);
 }
 
 async function deleteRemoteNotebook(token, files, uuid) {
@@ -401,7 +373,7 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
   }
 
   const result = { pulled: [], pushed: [], deletedLocal: [], deletedRemote: [] };
-  const tombs = getTombstones();
+  const tombs = await getNotebookTombstones();
 
   // 1. Propagate local deletions (unless the remote copy is newer — it wins).
   for (const [uuid, deletedAt] of Object.entries(tombs)) {
@@ -447,7 +419,7 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
     }
     // Compare each side against what it looked like after the last sync of
     // THIS device — not against each other, whose clocks may disagree.
-    const st = getSyncState()[uuid] || { localAt: 0, remoteAt: 0 };
+    const st = (await getSyncedState(uuid)) || { localAt: 0, remoteAt: 0 };
     const localChanged = local.updatedAt !== st.localAt;
     const remoteChanged = entry.updatedAt !== st.remoteAt;
     if (remoteChanged) {
@@ -475,6 +447,6 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
 
   onStatus('Saving index…');
   await uploadFile(token, files, 'meta.json', 'application/json', JSON.stringify(meta));
-  localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(tombs));
+  await setNotebookTombstones(tombs);
   return result;
 }

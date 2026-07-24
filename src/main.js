@@ -18,6 +18,7 @@ import {
   clearAll,
   touchNotebook,
   recordPageTombstone,
+  recordNotebookTombstone,
 } from './db.js';
 import { transcribeImage } from './ocr.js';
 import {
@@ -33,7 +34,6 @@ import {
   setSyncClientId,
   getSyncClientSecret,
   setSyncClientSecret,
-  recordTombstone,
 } from './sync.js';
 
 // Handwriting OCR via Google Cloud Vision. Flip to `false` to disable.
@@ -1227,7 +1227,8 @@ async function deleteNotebookFlow(id) {
   if (!confirm('Delete this notebook and all its pages? This cannot be undone.'))
     return;
   const notebooks = await listNotebooks();
-  recordTombstone(notebooks.find((n) => n.id === id)?.uuid); // propagate via sync
+  // Record before deleting: deleteNotebook drops the notebook's uuid with it.
+  await recordNotebookTombstone(notebooks.find((n) => n.id === id)?.uuid);
   await deleteNotebook(id);
   let remaining = await listNotebooks();
   if (remaining.length === 0) {
@@ -1725,7 +1726,7 @@ async function swapPageImage(page, file) {
   const processed = await processImage(file);
   // The old image identity dies here: tombstone it so a pull can't bring the
   // pre-edit page back from a manifest that still lists it.
-  recordPageTombstone(page.uuid);
+  await recordPageTombstone(page.uuid);
   Object.assign(page, {
     uuid: crypto.randomUUID(),
     createdAt: Date.now(),

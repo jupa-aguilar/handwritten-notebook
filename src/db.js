@@ -1,13 +1,63 @@
 // IndexedDB persistence.
 //
 // Stores:
-//   notebooks: { id, name, createdAt, updatedAt }
-//   pages:     { id, notebookId, order, name, blob, mediaType, width, height,
-//                text, ocrStatus, error, bookmarked, bookmarkLabel }
+//   notebooks:          { id, name, createdAt, updatedAt }
+//   pages:              { id, notebookId, order, name, blob, mediaType, width,
+//                         height, text, ocrStatus, error, bookmarked,
+//                         bookmarkLabel }
 //     ocrStatus: 'pending' | 'done' | 'error' | 'skipped'
+//   pageTombstones:     { uuid, at }  pages deleted/replaced here
+//   notebookTombstones: { uuid, at }  notebooks deleted here
+//   syncState:          { uuid, localAt, remoteAt, at }  per notebook
+//
+// The last three are sync bookkeeping and used to live in localStorage. They
+// don't anymore: localStorage and IndexedDB have independent lifetimes, so
+// anything that wiped one but not the other (privacy extensions, a partial
+// "clear site data", a stale profile) left the notebooks without their
+// tombstones — and the next pull cheerfully resurrected every page the user
+// had deleted. Same database means they fall together or not at all, and a
+// delete can now share one transaction with its tombstone.
 import { openDB } from 'idb';
 
-const dbPromise = openDB('handwritten-notebook', 2, {
+// Pre-v3 homes of the stores above, read once by the v3 migration.
+const LEGACY_SYNC_KEYS = [
+  'notebook.syncPageTombstones',
+  'notebook.syncTombstones',
+  'notebook.syncState',
+];
+
+function readLegacyMap(key) {
+  try {
+    const map = JSON.parse(localStorage.getItem(key) || '{}');
+    return map && typeof map === 'object' ? map : {};
+  } catch {
+    return {};
+  }
+}
+
+// Copy the localStorage bookkeeping into the new stores. Runs inside the
+// upgrade transaction, so a failed upgrade leaves the originals as the only
+// copy; they're removed once the database has actually opened (below).
+function migrateLegacySyncState(tx) {
+  const [pageKey, notebookKey, stateKey] = LEGACY_SYNC_KEYS;
+  for (const [uuid, at] of Object.entries(readLegacyMap(pageKey))) {
+    if (typeof at === 'number') tx.objectStore('pageTombstones').put({ uuid, at });
+  }
+  for (const [uuid, at] of Object.entries(readLegacyMap(notebookKey))) {
+    if (typeof at === 'number') tx.objectStore('notebookTombstones').put({ uuid, at });
+  }
+  for (const [uuid, s] of Object.entries(readLegacyMap(stateKey))) {
+    if (!s || typeof s !== 'object') continue;
+    tx.objectStore('syncState').put({
+      uuid,
+      localAt: s.localAt || 0,
+      remoteAt: s.remoteAt || 0,
+      at: s.at || 0,
+    });
+  }
+}
+
+const dbPromise = openDB('handwritten-notebook', 3, {
   async upgrade(db, oldVersion, _newVersion, tx) {
     if (oldVersion < 1) {
       const pages = db.createObjectStore('pages', {
@@ -34,7 +84,19 @@ const dbPromise = openDB('handwritten-notebook', 2, {
         }
       }
     }
+    if (oldVersion < 3) {
+      db.createObjectStore('pageTombstones', { keyPath: 'uuid' });
+      db.createObjectStore('notebookTombstones', { keyPath: 'uuid' });
+      db.createObjectStore('syncState', { keyPath: 'uuid' });
+      migrateLegacySyncState(tx);
+    }
   },
+}).then((db) => {
+  // The upgrade committed, so the copies in localStorage are now the stale
+  // ones. Dropping them here (not inside the upgrade, which could still have
+  // aborted) means there is only ever one source of truth.
+  for (const key of LEGACY_SYNC_KEYS) localStorage.removeItem(key);
+  return db;
 });
 
 // ---------- notebooks ----------
@@ -93,8 +155,15 @@ export async function reorderNotebooks(orderedIds) {
 
 export async function deleteNotebook(id) {
   const db = await dbPromise;
-  const tx = db.transaction(['notebooks', 'pages'], 'readwrite');
-  await tx.objectStore('notebooks').delete(id);
+  const tx = db.transaction(['notebooks', 'pages', 'syncState'], 'readwrite');
+  const notebooks = tx.objectStore('notebooks');
+  const nb = await notebooks.get(id);
+  await notebooks.delete(id);
+  // Its synced-state record describes a notebook that no longer exists; left
+  // behind, a later pull of the same uuid would start from stale timestamps.
+  // (The tombstone is recorded separately — only deletions the *user* made
+  // should propagate, not ones sync itself just applied.)
+  if (nb?.uuid) await tx.objectStore('syncState').delete(nb.uuid);
   const idx = tx.objectStore('pages').index('notebookId');
   let cursor = await idx.openCursor(id);
   while (cursor) {
@@ -135,9 +204,16 @@ export async function putPage(page) {
 
 export async function deletePage(id) {
   const db = await dbPromise;
-  const page = await db.get('pages', id);
-  if (page?.uuid) recordPageTombstone(page.uuid);
-  return db.delete('pages', id);
+  const tx = db.transaction(['pages', 'pageTombstones'], 'readwrite');
+  const pages = tx.objectStore('pages');
+  const page = await pages.get(id);
+  // One transaction: the page can't go without its tombstone, which is the
+  // only thing stopping the next pull from bringing it back.
+  if (page?.uuid) {
+    await tx.objectStore('pageTombstones').put({ uuid: page.uuid, at: Date.now() });
+  }
+  await pages.delete(id);
+  await tx.done;
 }
 
 // Persist a new page order. `orderedIds` lists page ids in their desired order;
@@ -164,9 +240,18 @@ export async function nextOrder(notebookId) {
 
 export async function clearAll() {
   const db = await dbPromise;
-  const tx = db.transaction(['notebooks', 'pages'], 'readwrite');
-  await tx.objectStore('notebooks').clear();
-  await tx.objectStore('pages').clear();
+  // Sync bookkeeping describes notebooks that are about to stop existing, so
+  // it goes with them — otherwise the next sync would push tombstones for a
+  // library the user just chose to wipe.
+  const stores = [
+    'notebooks',
+    'pages',
+    'pageTombstones',
+    'notebookTombstones',
+    'syncState',
+  ];
+  const tx = db.transaction(stores, 'readwrite');
+  await Promise.all(stores.map((s) => tx.objectStore(s).clear()));
   await tx.done;
 }
 
@@ -176,33 +261,71 @@ export async function clearAll() {
 // A pull consults them so a manifest that still lists such a page can't
 // resurrect it here; the following push then removes it remotely as well.
 // Pruned by age: once every device has synced they're dead weight.
-const PAGE_TOMBSTONES_KEY = 'notebook.syncPageTombstones';
 const PAGE_TOMBSTONE_TTL = 60 * 24 * 60 * 60 * 1000; // 60 days
 
-export function getPageTombstones() {
-  let map;
-  try {
-    map = JSON.parse(localStorage.getItem(PAGE_TOMBSTONES_KEY) || '{}');
-  } catch {
-    map = {};
-  }
+// Returns { [uuid]: deletedAtMs }, dropping expired entries on the way — a
+// map, because the merge looks up hundreds of pages against it.
+export async function getPageTombstones() {
+  const db = await dbPromise;
+  const tx = db.transaction('pageTombstones', 'readwrite');
   const cutoff = Date.now() - PAGE_TOMBSTONE_TTL;
-  let dirty = false;
-  for (const [uuid, at] of Object.entries(map)) {
-    if (at < cutoff) {
-      delete map[uuid];
-      dirty = true;
-    }
+  const map = {};
+  let cursor = await tx.store.openCursor();
+  while (cursor) {
+    if (cursor.value.at < cutoff) await cursor.delete();
+    else map[cursor.value.uuid] = cursor.value.at;
+    cursor = await cursor.continue();
   }
-  if (dirty) localStorage.setItem(PAGE_TOMBSTONES_KEY, JSON.stringify(map));
+  await tx.done;
   return map;
 }
 
-export function recordPageTombstone(uuid) {
+export async function recordPageTombstone(uuid) {
   if (!uuid) return;
-  const map = getPageTombstones();
-  map[uuid] = Date.now();
-  localStorage.setItem(PAGE_TOMBSTONES_KEY, JSON.stringify(map));
+  const db = await dbPromise;
+  return db.put('pageTombstones', { uuid, at: Date.now() });
+}
+
+// Notebooks deleted locally since the last successful sync, so the deletion
+// can propagate: { [uuid]: deletedAtMs }.
+export async function getNotebookTombstones() {
+  const db = await dbPromise;
+  const all = await db.getAll('notebookTombstones');
+  return Object.fromEntries(all.map((t) => [t.uuid, t.at]));
+}
+
+export async function recordNotebookTombstone(uuid) {
+  if (!uuid) return;
+  const db = await dbPromise;
+  return db.put('notebookTombstones', { uuid, at: Date.now() });
+}
+
+// Replace the whole set. A sync run drops entries from its in-memory copy as
+// it propagates them and saves what's left once, at the end — so a run that
+// dies halfway retries the lot rather than forgetting a deletion it never
+// managed to publish.
+export async function setNotebookTombstones(map) {
+  const db = await dbPromise;
+  const tx = db.transaction('notebookTombstones', 'readwrite');
+  await tx.store.clear();
+  for (const [uuid, at] of Object.entries(map)) await tx.store.put({ uuid, at });
+  await tx.done;
+}
+
+// What a notebook looked like right after its last successful sync:
+// { uuid, localAt, remoteAt, at } — the updatedAt seen on each side, plus the
+// local wall-clock moment. Comparing both sides against this tells a real
+// change apart from mere clock differences between devices, and `at` is what
+// page merging compares local createdAt/modifiedAt against (same clock, so no
+// cross-device skew).
+export async function getSyncedState(uuid) {
+  const db = await dbPromise;
+  return (await db.get('syncState', uuid)) || null;
+}
+
+export async function setSyncedState(uuid, localAt, remoteAt) {
+  const db = await dbPromise;
+  return db.put('syncState', { uuid, localAt, remoteAt, at: Date.now() });
 }
 
 // Give every notebook and page a stable cross-device uuid (pre-sync records
