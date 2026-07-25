@@ -860,10 +860,11 @@ kbd {
   background: #c0392b;
 }
 
-#api-key,
-#sync-client-id,
-#sync-client-secret,
-#lmstudio-url {
+/* Every text field in Settings. Matched by type rather than listed by id:
+   the id list silently left new fields unstyled, which is how the OpenAI key
+   ended up a third of the width of the box above it. */
+#settings input[type='text'],
+#settings input[type='password'] {
   width: 100%;
   padding: 10px 12px;
   border-radius: 8px;
