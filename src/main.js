@@ -37,6 +37,7 @@ import {
   setChatServerUrl,
   getOpenAiKey,
   setOpenAiKey,
+  chatWorksWithoutLocalServer,
 } from './chat.js';
 import {
   syncNow,
@@ -750,6 +751,7 @@ function saveSettings() {
   setSyncClientSecret($('#sync-client-secret').value.trim());
   setOpenAiKey($('#openai-key').value.trim());
   setChatServerUrl($('#lmstudio-url').value.trim());
+  updateChatAvailability();
   closeSettings();
   runOcrQueue(); // resume any pending transcriptions now that a key exists
   // First-time setup or a new secret: sign in now. A new secret needs one
@@ -759,6 +761,15 @@ function saveSettings() {
 }
 
 // ---------- panel ----------
+
+// Phones only get the chat when it doesn't need a server on this device —
+// see chatWorksWithoutLocalServer. Re-evaluated whenever settings change, so
+// pasting a key lights the 💬 button up without a reload.
+function updateChatAvailability() {
+  const unavailable = IS_MOBILE && !chatWorksWithoutLocalServer();
+  document.body.classList.toggle('chat-unavailable', unavailable);
+  if (unavailable) $('#chat').hidden = true;
+}
 
 function toggleFullscreen() {
   if (!document.fullscreenElement) {
@@ -2338,6 +2349,7 @@ function wire() {
 
 async function init() {
   document.body.classList.toggle('is-mobile', IS_MOBILE);
+  updateChatAvailability();
   wire();
   await ensureNotebook();
   await loadCurrentNotebook();

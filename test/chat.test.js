@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { contextCharBudget, renderMarkdown } from '../src/chat.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  contextCharBudget,
+  renderMarkdown,
+  chatWorksWithoutLocalServer,
+  setOpenAiKey,
+  setChatServerUrl,
+} from '../src/chat.js';
 
 const msgs = (...lengths) => lengths.map((n) => ({ role: 'user', content: 'x'.repeat(n) }));
 
@@ -34,6 +40,53 @@ describe('contextCharBudget', () => {
   it('never goes negative when the reserves exceed the window', () => {
     expect(contextCharBudget(500, [])).toBe(0);
     expect(contextCharBudget(4096, msgs(100_000))).toBe(0);
+  });
+});
+
+// This gates whether phones get the chat at all, and the failure mode is
+// silent either way: too strict and the button never appears, too loose and
+// it appears pointing at a server the phone can't reach.
+describe('chatWorksWithoutLocalServer', () => {
+  beforeEach(() => {
+    setOpenAiKey('');
+    setChatServerUrl('');
+  });
+
+  it('is true with a hosted key, whatever the local address says', () => {
+    setOpenAiKey('sk-test');
+    expect(chatWorksWithoutLocalServer()).toBe(true);
+    setChatServerUrl('http://localhost:1234');
+    expect(chatWorksWithoutLocalServer()).toBe(true);
+  });
+
+  it('is false for the default address — on a phone that is the phone', () => {
+    expect(chatWorksWithoutLocalServer()).toBe(false);
+  });
+
+  it('is false for every spelling of this machine', () => {
+    for (const url of [
+      'http://localhost:1234',
+      'http://LOCALHOST:1234',
+      'https://localhost',
+      'http://127.0.0.1:1234',
+      'http://[::1]:1234',
+    ]) {
+      setChatServerUrl(url);
+      expect(chatWorksWithoutLocalServer(), url).toBe(false);
+    }
+  });
+
+  it('is true for an address on the network', () => {
+    for (const url of ['http://192.168.1.40:1234', 'http://studio.local:1234']) {
+      setChatServerUrl(url);
+      expect(chatWorksWithoutLocalServer(), url).toBe(true);
+    }
+  });
+
+  // "localhostel.example.com" is not this machine — the boundary matters.
+  it('does not mistake a hostname that merely starts with localhost', () => {
+    setChatServerUrl('http://localhost-server.example.com:1234');
+    expect(chatWorksWithoutLocalServer()).toBe(true);
   });
 });
 

@@ -113,6 +113,17 @@ export function setChatServerUrl(url) {
   else localStorage.removeItem(URL_KEY);
 }
 
+// Can the chat work on a device that isn't the one running LM Studio? True
+// with a hosted key, or when the configured address points at another machine
+// on the network. A plain localhost address can't: on a phone it resolves to
+// the phone itself, which is why the panel used to be hidden there outright.
+export function chatWorksWithoutLocalServer() {
+  if (getOpenAiKey()) return true;
+  return !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(
+    getChatServerUrl()
+  );
+}
+
 const $ = (sel) => document.querySelector(sel);
 
 let getContext = null; // () => { id, name, pages }, supplied by main.js

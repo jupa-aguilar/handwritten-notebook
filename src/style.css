@@ -1203,17 +1203,27 @@ body.is-mobile .viewer {
 }
 body.is-mobile .nav,
 body.is-mobile #zoom-btn,
-body.is-mobile #chat-btn,
-body.is-mobile #chat,
 body.is-mobile #fullscreen-btn,
 body.is-mobile #viewer-close {
+  display: none;
+}
+/* The chat is hidden only where it couldn't work anyway — a phone pointed at
+   an LM Studio on localhost, which on a phone means the phone itself. With a
+   hosted key (or a LAN address) it works there like anywhere else, so the
+   class is set from JS rather than keyed to phone mode. */
+body.chat-unavailable #chat-btn,
+body.chat-unavailable #chat {
   display: none;
 }
 body.is-mobile .viewer-toolbar .viewer-sep:last-of-type {
   display: none;
 }
 body.is-mobile .panel {
-  z-index: 40; /* text/search panel overlays the viewer */
+  z-index: 40; /* text/search and chat panels overlay the viewer */
+  /* Full width on a phone: the desktop 340px would leave a sliver of viewer
+     showing that is too narrow to read and too wide to ignore. */
+  width: 100%;
+  border-left: none;
 }
 
 /* Immersive reading: floating ⛶ toggle hides both toolbars (iOS has no real
