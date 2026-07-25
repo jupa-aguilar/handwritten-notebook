@@ -35,6 +35,8 @@ import {
   chatNotebookChanged,
   getStoredChatServerUrl,
   setChatServerUrl,
+  getOpenAiKey,
+  setOpenAiKey,
 } from './chat.js';
 import {
   syncNow,
@@ -728,6 +730,7 @@ function openSettings() {
   $('#api-key').value = getApiKey();
   $('#sync-client-id').value = getSyncClientId();
   $('#sync-client-secret').value = getSyncClientSecret();
+  $('#openai-key').value = getOpenAiKey();
   $('#lmstudio-url').value = getStoredChatServerUrl();
   $('#settings').hidden = false;
   $('#api-key').focus();
@@ -745,6 +748,7 @@ function saveSettings() {
   const secretChanged = $('#sync-client-secret').value.trim() !== getSyncClientSecret();
   setSyncClientId($('#sync-client-id').value.trim());
   setSyncClientSecret($('#sync-client-secret').value.trim());
+  setOpenAiKey($('#openai-key').value.trim());
   setChatServerUrl($('#lmstudio-url').value.trim());
   closeSettings();
   runOcrQueue(); // resume any pending transcriptions now that a key exists

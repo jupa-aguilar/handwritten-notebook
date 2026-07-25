@@ -204,10 +204,18 @@
         <input id="sync-client-id" type="text" placeholder="1234…apps.googleusercontent.com" autocomplete="off" />
         <input id="sync-client-secret" type="password" placeholder="GOCSPX-… (client secret — Mac app only)" autocomplete="off" />
 
-        <h3 class="settings-subtitle">Local chat (LM Studio, optional)</h3>
+        <h3 class="settings-subtitle">Chat (optional)</h3>
         <p class="hint">
-          💬 Chat answers questions about the open notebook with a model running
-          entirely on this machine via
+          💬 Chat answers questions about the open notebook. With an
+          <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">OpenAI API key</a>
+          it uses <code>gpt-5.6-luna</code>: fast, but <strong>each message is
+          billed</strong> and the transcribed pages are sent to OpenAI — set a
+          spending limit on the key. Leave it empty to keep everything on this
+          machine instead.
+        </p>
+        <input id="openai-key" type="password" placeholder="sk-… (leave empty to use LM Studio)" autocomplete="off" />
+        <p class="hint">
+          Without a key, chat uses a model running locally via
           <a href="https://lmstudio.ai" target="_blank" rel="noopener">LM Studio</a>:
           in its <strong>Developer</strong> tab, load a model, start the server and
           enable <strong>CORS</strong>. Leave the address empty for the default

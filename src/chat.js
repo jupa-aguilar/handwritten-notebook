@@ -1,32 +1,72 @@
-// Chat about the current notebook, answered by a local model served from
-// LM Studio's OpenAI-compatible server (Developer tab → Start Server, with
-// CORS enabled — the app runs on a different origin than the server).
-// Everything stays on this machine; the panel only works while that server is
-// running. Conversations are kept in memory per notebook and reset on reload.
+// Chat about the current notebook. Two backends, one wire protocol — both
+// speak OpenAI-style Chat Completions with SSE, so only the address, the auth
+// header and the model name differ:
+//
+//   - An API key in Settings → OpenAI's hosted gpt-5.6-luna. Costs money per
+//     message; the notebook pages are sent to OpenAI.
+//   - No key → whatever model LM Studio has loaded on this machine (Developer
+//     tab → Start Server, with CORS enabled). Free, private, works offline.
+//
+// Conversations are kept in memory per notebook and reset on reload.
 
 import { foldText, escapeHtml } from './text.js';
 
 const URL_KEY = 'notebook.lmstudio.url';
 const DEFAULT_URL = 'http://localhost:1234';
 
+// The hosted backend. Luna is the cheap tier of the GPT-5.6 family ($1/$6 per
+// million tokens as of 2026-07) — plenty for reading transcribed pages back.
+// Note the exact id: the bare `gpt-5.6` alias routes to Sol, six times the
+// output price, and nothing in the response would tell you.
+const OPENAI_KEY_STORAGE = 'notebook.openaiKey';
+const OPENAI_URL = 'https://api.openai.com';
+const OPENAI_MODEL = 'gpt-5.6-luna';
+const OPENAI_CONTEXT_TOKENS = 1_050_000;
+
+export function getOpenAiKey() {
+  return (localStorage.getItem(OPENAI_KEY_STORAGE) || '').trim();
+}
+
+export function setOpenAiKey(key) {
+  if (key) localStorage.setItem(OPENAI_KEY_STORAGE, key);
+  else localStorage.removeItem(OPENAI_KEY_STORAGE);
+}
+
+// Which backend this request goes to. Resolved per call, so pasting a key in
+// Settings (or clearing it) takes effect on the very next message.
+function backend() {
+  const key = getOpenAiKey();
+  return key
+    ? {
+        hosted: true,
+        url: OPENAI_URL,
+        headers: { Authorization: `Bearer ${key}` },
+        model: OPENAI_MODEL,
+        contextLength: OPENAI_CONTEXT_TOKENS,
+      }
+    : { hosted: false, url: getChatServerUrl(), headers: {} };
+}
+
 // Reasoning ("thinking") is off by default: local models spend minutes on
-// hidden chain-of-thought before the first visible word. The 🧠 toggle turns
-// it back on for hard questions. Two mechanisms, belt and suspenders:
-// reasoning_effort:"none" in the request (honored by LM Studio for current
+// hidden chain-of-thought before the first visible word, and hosted ones bill
+// for every one of those tokens. The 🧠 toggle turns it back on for hard
+// questions. Two mechanisms, belt and suspenders: reasoning_effort:"none" in
+// the request (native on gpt-5.6, honored by LM Studio for current
 // Qwen/gpt-oss-style models, ignored by the rest) plus Qwen's legacy
-// "/no_think" soft switch on the outgoing message copy (older hybrids only
-// respect that; never shown in the bubble, never stored).
+// "/no_think" soft switch on the outgoing message copy (older local hybrids
+// only respect that; never shown in the bubble, never stored).
 const THINK_KEY = 'notebook.chat.think';
 
 function isThinkingOn() {
   return localStorage.getItem(THINK_KEY) === '1';
 }
 
-// Page transcriptions travel as plain text in the system prompt. Local models
-// have small context windows and modest hardware pays for every token at the
-// start of each conversation, so cap what we send and say what was left out.
-// This is only a ceiling: the real budget is sized to the loaded model's
-// context length per request (see contextCharBudget).
+// Page transcriptions travel as plain text in the system prompt, so this cap
+// is what every message costs before a word is generated. It binds for a
+// different reason on each backend: locally it's the model's small window and
+// the seconds spent reading it; on the hosted one the window is 1M tokens and
+// the ceiling is purely about the bill. Whatever doesn't fit is reported to
+// the model rather than silently dropped.
 const CONTEXT_CHAR_BUDGET = 14000;
 const HISTORY_SENT = 12; // most recent messages included per request
 
@@ -88,20 +128,43 @@ function history() {
 
 // ---------- LM Studio client ----------
 
-// Pick the model to talk to — whichever one is loaded in LM Studio, so there
-// is nothing to choose in the app. Called before every request; also serves
-// as the "is the server up?" probe. Returns { id, contextLength }, where
-// contextLength is the loaded context window in tokens (null if the server
-// doesn't report it). LM Studio's own REST API says what is in memory; servers
-// without it fall back to the first chat model /v1 lists.
+// Pick the model to talk to. Hosted: a fixed id, so the only question is
+// whether the key works — /v1/models answers that in one cheap call. Local:
+// whichever model LM Studio has loaded, so there is nothing to choose in the
+// app. Called before every request; also serves as the "can we reach it?"
+// probe. Returns { id, contextLength } in tokens (null when unknown).
 async function resolveModel() {
+  const be = backend();
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 4000);
+
+  if (be.hosted) {
+    try {
+      let resp;
+      try {
+        resp = await fetch(`${be.url}/v1/models`, {
+          headers: be.headers,
+          signal: ctrl.signal,
+        });
+      } catch {
+        // Never reached the server: offline, DNS, or a blocked request.
+        throw new Error("can't be reached — are you online?");
+      }
+      if (resp.status === 401 || resp.status === 403) {
+        throw new Error('rejected the API key — check it in ⚙ Settings');
+      }
+      if (!resp.ok) throw new Error(`returned HTTP ${resp.status}`);
+      return { id: be.model, contextLength: be.contextLength };
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
   const noModel =
     'the server is running but no model is loaded — load one in LM Studio';
   try {
     try {
-      const resp = await fetch(`${getChatServerUrl()}/api/v0/models`, {
+      const resp = await fetch(`${be.url}/api/v0/models`, {
         signal: ctrl.signal,
       });
       if (resp.ok) {
@@ -119,7 +182,7 @@ async function resolveModel() {
       if (err.message === noModel || err.name === 'AbortError') throw err;
       // Older server without /api/v0 — fall through to the OpenAI endpoint.
     }
-    const resp = await fetch(`${getChatServerUrl()}/v1/models`, {
+    const resp = await fetch(`${be.url}/v1/models`, {
       signal: ctrl.signal,
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -134,9 +197,10 @@ async function resolveModel() {
 }
 
 async function streamCompletion(model, messages, signal, onDelta, extra = {}) {
-  const resp = await fetch(`${getChatServerUrl()}/v1/chat/completions`, {
+  const be = backend();
+  const resp = await fetch(`${be.url}/v1/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...be.headers },
     body: JSON.stringify({
       model,
       messages,
@@ -148,7 +212,8 @@ async function streamCompletion(model, messages, signal, onDelta, extra = {}) {
   });
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
-    throw new Error(`LM Studio ${resp.status}: ${body.slice(0, 200)}`);
+    const who = be.hosted ? 'OpenAI' : 'LM Studio';
+    throw new Error(`${who} ${resp.status}: ${body.slice(0, 200)}`);
   }
 
   // OpenAI-style SSE: `data: {json}` lines, closed by `data: [DONE]`.
@@ -363,10 +428,13 @@ function bubble(m) {
 function updateContextLine() {
   const { pages } = getContext();
   const withText = pages.filter((p) => (p.text || '').trim()).length;
+  // Name the backend: with a key configured every message is billed and the
+  // pages leave this machine, which the reader should not have to guess.
+  const where = backend().hosted ? `${OPENAI_MODEL} · billed` : 'local model';
   $('#chat-context').textContent = pages.length
     ? `Context: ${withText} of ${pages.length} page${
         pages.length === 1 ? '' : 's'
-      } transcribed`
+      } transcribed · ${where}`
     : 'This notebook has no pages yet.';
 }
 
@@ -399,16 +467,19 @@ function setSendStopping(on) {
   btn.title = on ? 'Stop' : 'Send';
 }
 
-// Probe the server and flip between the composer and the "server not
-// running" notice. The model itself is resolved fresh on every send.
+// Probe the backend and flip between the composer and the "can't reach it"
+// notice. The model itself is resolved fresh on every send.
 async function connect() {
   const offline = $('#chat-offline');
   const note = $('#chat-offline-note');
+  const be = backend();
   serverOk = false;
   setComposerEnabled(false);
   offline.hidden = false;
   $('#chat-retry').hidden = true;
-  note.textContent = 'Looking for the LM Studio server…';
+  note.textContent = be.hosted
+    ? 'Checking the OpenAI key…'
+    : 'Looking for the LM Studio server…';
   try {
     await resolveModel();
     serverOk = true;
@@ -416,7 +487,9 @@ async function connect() {
     setComposerEnabled(true);
     $('#chat-input').focus();
   } catch (err) {
-    note.textContent = `Can't reach LM Studio at ${getChatServerUrl()} — ${err.message}`;
+    note.textContent = be.hosted
+      ? `OpenAI ${err.message}`
+      : `Can't reach LM Studio at ${be.url} — ${err.message}`;
     $('#chat-retry').hidden = false;
   }
 }

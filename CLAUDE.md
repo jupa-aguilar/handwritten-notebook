@@ -6,8 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 "My Notebook" — a browser-only digital notebook for scanned handwritten pages: 3D page-turn
 reading (StPageFlip), handwriting OCR via Google Cloud Vision, full-text search with word
-boxes drawn on the page image, optional Google Drive sync, and a chat panel backed by a local
-LM Studio model. Vanilla JS + Vite, no framework, no TypeScript.
+boxes drawn on the page image, optional Google Drive sync, and a chat panel over the
+transcribed pages. Vanilla JS + Vite, no framework, no TypeScript.
+
+Every external service is bring-your-own-credentials, kept in `localStorage` and called
+straight from the browser: the Vision key, the Drive OAuth client, and the chat's OpenAI key.
+The chat is the one where a leaked key means open-ended spend — the settings copy tells the
+user to set a limit on it.
 
 ## Commands
 
@@ -64,7 +69,7 @@ wiring silently.
 | `src/db.js` | IndexedDB (`idb`), schema v3: `notebooks`, `pages`, plus the sync bookkeeping (`pageTombstones`, `notebookTombstones`, `syncState`). Owns the migrations and the sync merge logic (`applyRemoteNotebook`). |
 | `src/ocr.js` | Google Cloud Vision `DOCUMENT_TEXT_DETECTION` called straight from the browser; flattens the page→block→paragraph→word tree into `{ t, x, y, w, h }` boxes in image pixels. A Claude-vision provider is kept commented out as an alternative. |
 | `src/sync.js` | Google Drive `appDataFolder` sync: `meta.json`, `nb-<uuid>.json` manifests, `pg-<uuid>` images. Auth via GIS in the browser, via the Electron loopback flow in the app. |
-| `src/chat.js` | Chat panel talking to LM Studio's OpenAI-compatible server. Owns its own conversation state per notebook; `main.js` only supplies `getContext()`. |
+| `src/chat.js` | Chat panel. Two backends behind one wire protocol (OpenAI-style Chat Completions + SSE): OpenAI's hosted `gpt-5.6-luna` when an API key is set, otherwise whatever model LM Studio has loaded locally. Owns its own conversation state per notebook; `main.js` only supplies `getContext()`. |
 | `electron/main.cjs` + `preload.cjs` | Mac shell. Loads the hosted PWA, falls back to `dist/`. Runs the system-browser OAuth loopback on `127.0.0.1:17987` and stores a refresh token encrypted via `safeStorage`. |
 
 ### Identity: `id` vs `uuid`
