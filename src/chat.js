@@ -4,6 +4,8 @@
 // Everything stays on this machine; the panel only works while that server is
 // running. Conversations are kept in memory per notebook and reset on reload.
 
+import { foldText, escapeHtml } from './text.js';
+
 const URL_KEY = 'notebook.lmstudio.url';
 const DEFAULT_URL = 'http://localhost:1234';
 
@@ -43,7 +45,7 @@ const FALLBACK_CONTEXT_TOKENS = 4096;
 
 // How many characters of notebook text fit alongside the reply, the boilerplate
 // and this turn's conversation history, given the loaded model's context.
-function contextCharBudget(contextTokens, sentHistory) {
+export function contextCharBudget(contextTokens, sentHistory) {
   const ctx = contextTokens || FALLBACK_CONTEXT_TOKENS;
   const historyTokens = Math.ceil(
     sentHistory.reduce((n, m) => n + m.content.length, 0) / CHARS_PER_TOKEN
@@ -181,11 +183,6 @@ async function streamCompletion(model, messages, signal, onDelta, extra = {}) {
 
 // ---------- notebook context ----------
 
-// Fold case + strip accents so query terms match regardless of accent/case.
-function fold(s) {
-  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
-
 // Meaningful terms from the question, used to pull the pages that actually
 // answer it into a limited context. Drops short words and common stopwords so
 // "¿qué es PCIe?" keys on "pcie", not "que"/"es".
@@ -200,7 +197,7 @@ const STOPWORDS = new Set(
 function queryTerms(q) {
   return [
     ...new Set(
-      fold(q)
+      foldText(q)
         .split(/[^a-z0-9]+/)
         .filter((w) => w.length >= 3 && !STOPWORDS.has(w))
     ),
@@ -231,7 +228,7 @@ function buildSystemPrompt(name, pages, query, budget = CONTEXT_CHAR_BUDGET) {
     entries.push({
       i,
       chunk: `--- Page ${i + 1} ---\n${text}`,
-      score: scorePage(fold(text), terms),
+      score: scorePage(foldText(text), terms),
     });
   });
 
@@ -278,12 +275,6 @@ function buildSystemPrompt(name, pages, query, budget = CONTEXT_CHAR_BUDGET) {
 // bold/italic, inline code, fenced code, lists). Everything is HTML-escaped
 // first, so only the tags emitted here ever reach innerHTML.
 
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
-  );
-}
-
 function mdInline(s) {
   return s
     .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -291,7 +282,7 @@ function mdInline(s) {
     .replace(/\*([^*]+)\*/g, '<em>$1</em>');
 }
 
-function renderMarkdown(md) {
+export function renderMarkdown(md) {
   const lines = escapeHtml(md).split('\n');
   const out = [];
   let para = []; // pending paragraph lines

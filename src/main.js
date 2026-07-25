@@ -22,6 +22,15 @@ import {
 } from './db.js';
 import { transcribeImage } from './ocr.js';
 import {
+  naturalCompare,
+  escapeHtml,
+  foldText,
+  searchTokens,
+  pageHasAllTokens,
+  highlight,
+} from './text.js';
+import { buildZip } from './zip.js';
+import {
   initChat,
   chatNotebookChanged,
   getStoredChatServerUrl,
@@ -80,10 +89,6 @@ let vDrag = null;         // { x, y, tx, ty } while panning
 
 const $ = (sel) => document.querySelector(sel);
 
-function naturalCompare(a, b) {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-}
-
 function getApiKey() {
   return localStorage.getItem(KEY_STORAGE) || '';
 }
@@ -109,72 +114,6 @@ function savePage(notebookId, index) {
   }
   map[notebookId] = index;
   localStorage.setItem(POSITIONS_KEY, JSON.stringify(map));
-}
-
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
-  );
-}
-
-// Lowercase and strip diacritics so search is accent-insensitive: "cancion"
-// finds "canción" and vice versa. NFD splits each letter from its combining
-// marks and dropping the marks leaves one char per source letter, so indexes
-// into the folded string still line up with the original text.
-function foldText(s) {
-  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
-
-// Accented variants each base letter should also match when highlighting.
-const ACCENT_VARIANTS = {
-  a: 'aáàâäãå',
-  c: 'cç',
-  e: 'eéèêë',
-  i: 'iíìîï',
-  n: 'nñ',
-  o: 'oóòôöõ',
-  u: 'uúùûü',
-  y: 'yýÿ',
-};
-
-// Split a query into folded search words. Whitespace-separated; empty when
-// the query is blank. Shared by the page filter, the highlighter and the
-// word-box overlays so all three agree on what "a word" is.
-function searchTokens(query) {
-  return foldText(query).split(/\s+/).filter(Boolean);
-}
-
-// A page is a search hit when its text contains every query word. Used both
-// to filter the results list and to gate the word-box overlays, so a box
-// never appears on a page the search reports as a non-match.
-function pageHasAllTokens(page, tokens) {
-  const hay = foldText(page.text || '');
-  return tokens.every((t) => hay.includes(t));
-}
-
-// Regex fragment matching one folded token, with each base letter widened to
-// also match its accented forms (so the original accented text gets marked).
-function accentPattern(token) {
-  return [...token]
-    .map((ch) =>
-      ACCENT_VARIANTS[ch]
-        ? `[${ACCENT_VARIANTS[ch]}]`
-        : ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    )
-    .join('');
-}
-
-function highlight(text, query) {
-  const safe = escapeHtml(text);
-  const tokens = searchTokens(query);
-  if (tokens.length === 0) return safe;
-  // Mark every query word wherever it appears. Longest first so "abc" wins
-  // over "ab" when both are searched and overlap.
-  const pattern = [...tokens]
-    .sort((a, b) => b.length - a.length)
-    .map(accentPattern)
-    .join('|');
-  return safe.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>');
 }
 
 // Downscale + re-encode to JPEG via canvas. Returns { blob, mediaType, width, height }.
@@ -1589,83 +1528,6 @@ function setAllPagesSelected(selected) {
       box.closest('.page-card').classList.toggle('selected', selected);
     });
   updatePagesSelectionUI();
-}
-
-// ---------- minimal ZIP writer (store-only) ----------
-// Several pages must leave as ONE download: browsers only honour the first
-// programmatic download per user gesture, so N separate clicks silently drop
-// all but one file. The images are JPEGs, so storing beats deflating anyway.
-
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-
-function crc32(bytes) {
-  let c = 0xffffffff;
-  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-
-function buildZip(entries) {
-  // entries: [{ name, bytes }] → Blob. Store-only, UTF-8 names, 32-bit sizes.
-  const enc = new TextEncoder();
-  const chunks = [];
-  const central = [];
-  let offset = 0;
-  const now = new Date();
-  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
-  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
-  for (const { name, bytes } of entries) {
-    const nameBytes = enc.encode(name);
-    const crc = crc32(bytes);
-    const local = new DataView(new ArrayBuffer(30));
-    local.setUint32(0, 0x04034b50, true); // local file header signature
-    local.setUint16(4, 20, true); // version needed
-    local.setUint16(6, 0x0800, true); // flags: UTF-8 names
-    local.setUint16(8, 0, true); // method: store
-    local.setUint16(10, dosTime, true);
-    local.setUint16(12, dosDate, true);
-    local.setUint32(14, crc, true);
-    local.setUint32(18, bytes.length, true); // compressed size
-    local.setUint32(22, bytes.length, true); // uncompressed size
-    local.setUint16(26, nameBytes.length, true);
-    local.setUint16(28, 0, true); // extra field length
-    central.push({ nameBytes, crc, size: bytes.length, offset });
-    chunks.push(new Uint8Array(local.buffer), nameBytes, bytes);
-    offset += 30 + nameBytes.length + bytes.length;
-  }
-  const cdStart = offset;
-  for (const e of central) {
-    const cd = new DataView(new ArrayBuffer(46));
-    cd.setUint32(0, 0x02014b50, true); // central directory signature
-    cd.setUint16(4, 20, true); // version made by
-    cd.setUint16(6, 20, true); // version needed
-    cd.setUint16(8, 0x0800, true); // flags: UTF-8 names
-    cd.setUint16(10, 0, true); // method: store
-    cd.setUint16(12, dosTime, true);
-    cd.setUint16(14, dosDate, true);
-    cd.setUint32(16, e.crc, true);
-    cd.setUint32(20, e.size, true);
-    cd.setUint32(24, e.size, true);
-    cd.setUint16(28, e.nameBytes.length, true);
-    cd.setUint32(42, e.offset, true); // local header offset
-    chunks.push(new Uint8Array(cd.buffer), e.nameBytes);
-    offset += 46 + e.nameBytes.length;
-  }
-  const eocd = new DataView(new ArrayBuffer(22));
-  eocd.setUint32(0, 0x06054b50, true); // end-of-central-directory signature
-  eocd.setUint16(8, central.length, true); // entries on this disk
-  eocd.setUint16(10, central.length, true); // entries total
-  eocd.setUint32(12, offset - cdStart, true); // central directory size
-  eocd.setUint32(16, cdStart, true); // central directory offset
-  chunks.push(new Uint8Array(eocd.buffer));
-  return new Blob(chunks, { type: 'application/zip' });
 }
 
 // Save the selected pages as image files — the stored JPEGs, the best
