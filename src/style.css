@@ -516,6 +516,11 @@ mark {
   border-radius: 12px;
   padding: 24px;
   width: min(440px, 92vw);
+  /* Never taller than the window. Without this a long card (Settings, the
+     shortcuts sheet) overflowed off both ends of the screen — .modal centers
+     it vertically — with nothing to scroll and Save out of reach. */
+  max-height: 90vh;
+  overflow-y: auto;
 }
 .modal-card h2 {
   margin: 0 0 8px;
@@ -881,6 +886,16 @@ kbd {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  /* Pinned to the bottom of the scrolling card so Save/Cancel stay reachable
+     however long the content above them is. The negative margins bleed the
+     bar out to the card's edges, cancelling its 24px padding; `bottom` does
+     the same for the sticky offset. */
+  position: sticky;
+  bottom: -24px;
+  margin: 18px -24px -24px;
+  padding: 14px 24px;
+  background: var(--panel);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 .modal-actions .btn.ghost {
   color: var(--panel-ink);
