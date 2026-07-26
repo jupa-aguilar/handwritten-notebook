@@ -9,6 +9,11 @@
 //   pageTombstones:     { uuid, at }  pages deleted/replaced here
 //   notebookTombstones: { uuid, at }  notebooks deleted here
 //   syncState:          { uuid, localAt, remoteAt, at }  per notebook
+//   chats:              { notebookId, messages, updatedAt }  chat history
+//
+// Chats are local-only on purpose: they are cheap to regenerate, would bloat
+// every sync manifest, and can contain a stray question the user would rather
+// not copy to another device.
 //
 // The last three are sync bookkeeping and used to live in localStorage. They
 // don't anymore: localStorage and IndexedDB have independent lifetimes, so
@@ -57,7 +62,7 @@ function migrateLegacySyncState(tx) {
   }
 }
 
-const dbPromise = openDB('handwritten-notebook', 3, {
+const dbPromise = openDB('handwritten-notebook', 4, {
   async upgrade(db, oldVersion, _newVersion, tx) {
     if (oldVersion < 1) {
       const pages = db.createObjectStore('pages', {
@@ -89,6 +94,9 @@ const dbPromise = openDB('handwritten-notebook', 3, {
       db.createObjectStore('notebookTombstones', { keyPath: 'uuid' });
       db.createObjectStore('syncState', { keyPath: 'uuid' });
       migrateLegacySyncState(tx);
+    }
+    if (oldVersion < 4) {
+      db.createObjectStore('chats', { keyPath: 'notebookId' });
     }
   },
 }).then((db) => {
@@ -155,10 +163,14 @@ export async function reorderNotebooks(orderedIds) {
 
 export async function deleteNotebook(id) {
   const db = await dbPromise;
-  const tx = db.transaction(['notebooks', 'pages', 'syncState'], 'readwrite');
+  const tx = db.transaction(
+    ['notebooks', 'pages', 'syncState', 'chats'],
+    'readwrite'
+  );
   const notebooks = tx.objectStore('notebooks');
   const nb = await notebooks.get(id);
   await notebooks.delete(id);
+  await tx.objectStore('chats').delete(id); // its conversation goes with it
   // Its synced-state record describes a notebook that no longer exists; left
   // behind, a later pull of the same uuid would start from stale timestamps.
   // (The tombstone is recorded separately — only deletions the *user* made
@@ -249,10 +261,34 @@ export async function clearAll() {
     'pageTombstones',
     'notebookTombstones',
     'syncState',
+    'chats',
   ];
   const tx = db.transaction(stores, 'readwrite');
   await Promise.all(stores.map((s) => tx.objectStore(s).clear()));
   await tx.done;
+}
+
+// ---------- chat history ----------
+//
+// One conversation per notebook, replaced wholesale on each turn — they are
+// short, and rewriting the thread is simpler than tracking single messages.
+// Failed exchanges are stored too: they are visible in the panel, so dropping
+// them on reload would be its own little surprise.
+
+export async function getChat(notebookId) {
+  if (notebookId == null) return [];
+  const db = await dbPromise;
+  const row = await db.get('chats', notebookId);
+  return Array.isArray(row?.messages) ? row.messages : [];
+}
+
+export async function saveChat(notebookId, messages) {
+  if (notebookId == null) return;
+  const db = await dbPromise;
+  // An empty thread is an absent row, so 🧹 and "never asked anything" look
+  // the same in storage rather than leaving an empty husk behind.
+  if (!messages?.length) return db.delete('chats', notebookId);
+  return db.put('chats', { notebookId, messages, updatedAt: Date.now() });
 }
 
 // ---------- sync support ----------

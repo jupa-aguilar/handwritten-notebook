@@ -10,6 +10,7 @@
 // Conversations are kept in memory per notebook and reset on reload.
 
 import { foldText, escapeHtml } from './text.js';
+import { getChat, saveChat } from './db.js';
 
 const URL_KEY = 'notebook.lmstudio.url';
 const DEFAULT_URL = 'http://localhost:1234';
@@ -194,6 +195,7 @@ const $ = (sel) => document.querySelector(sel);
 let getContext = null; // () => { id, name, pages }, supplied by main.js
 let onSpendChanged = () => {}; // main.js redraws its counter
 const histories = new Map(); // notebookId -> [{ role, content, error? }]
+const loaded = new Set(); // notebookIds already read back from IndexedDB
 let streamCtrl = null; // AbortController while a reply is streaming
 let serverOk = false;
 
@@ -201,6 +203,26 @@ function history() {
   const { id } = getContext();
   if (!histories.has(id)) histories.set(id, []);
   return histories.get(id);
+}
+
+// Read a notebook's stored conversation into memory, once per session. The
+// in-memory copy is authoritative from then on — it's what a streaming reply
+// mutates — so a second call must not clobber it.
+async function loadHistory(notebookId) {
+  if (notebookId == null || loaded.has(notebookId)) return;
+  loaded.add(notebookId);
+  const stored = await getChat(notebookId);
+  if (stored.length && !histories.get(notebookId)?.length) {
+    histories.set(notebookId, stored);
+  }
+}
+
+// Conversations cost money to produce, so they outlive a reload. Writes are
+// fire-and-forget: a failed save must never break the reply on screen.
+function persist(notebookId) {
+  saveChat(notebookId, histories.get(notebookId) || []).catch((err) =>
+    console.error('Could not save the conversation', err)
+  );
 }
 
 // ---------- LM Studio client ----------
@@ -691,17 +713,22 @@ async function send() {
     }
     streamCtrl = null;
     setSendStopping(false);
+    // Save whatever the turn ended up being — answered, failed, or stopped
+    // halfway. The user paid for it either way.
+    persist(getContext().id);
   }
 }
 
 // ---------- panel wiring ----------
 
-function setChatHidden(hidden) {
+async function setChatHidden(hidden) {
   $('#chat').hidden = hidden;
   if (!hidden) $('#panel').hidden = true; // one side panel at a time
   // The book shares the row with this panel; StPageFlip refits on 'resize'.
   window.dispatchEvent(new Event('resize'));
   if (!hidden) {
+    render(); // draw immediately; the stored thread arrives a tick later
+    await loadHistory(getContext().id);
     render();
     connect(); // re-probe every open — the server may have started/stopped
   }
@@ -714,8 +741,10 @@ function autosize(ta) {
 
 // Called by main.js whenever another notebook is loaded, so an open chat
 // switches to that notebook's conversation and context.
-export function chatNotebookChanged() {
+export async function chatNotebookChanged() {
   if (!getContext || $('#chat').hidden) return;
+  render();
+  await loadHistory(getContext().id);
   render();
 }
 
@@ -745,7 +774,9 @@ export function initChat(opts) {
   applyThink();
   $('#chat-retry').addEventListener('click', connect);
   $('#chat-clear').addEventListener('click', () => {
-    histories.set(getContext().id, []);
+    const { id } = getContext();
+    histories.set(id, []);
+    persist(id); // an empty thread deletes the stored row
     render();
   });
   $('#chat-form').addEventListener('submit', (e) => {

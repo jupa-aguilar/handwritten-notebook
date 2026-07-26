@@ -178,6 +178,68 @@ describe('tombstone and state bookkeeping', () => {
   });
 });
 
+describe('chat history', () => {
+  let db;
+  beforeEach(async () => {
+    db = await freshDb();
+  });
+
+  const thread = [
+    { role: 'user', content: '¿qué dice de PCIe?' },
+    { role: 'assistant', content: 'En la página 2…' },
+  ];
+
+  it('round-trips a conversation', async () => {
+    const nb = await db.addNotebook('N');
+    await db.saveChat(nb, thread);
+    expect(await db.getChat(nb)).toEqual(thread);
+  });
+
+  it('keeps conversations apart per notebook', async () => {
+    const a = await db.addNotebook('A');
+    const b = await db.addNotebook('B');
+    await db.saveChat(a, thread);
+    expect(await db.getChat(b)).toEqual([]);
+  });
+
+  it('is empty for a notebook that was never asked anything', async () => {
+    expect(await db.getChat(await db.addNotebook('N'))).toEqual([]);
+    expect(await db.getChat(undefined)).toEqual([]);
+  });
+
+  it('stores failed exchanges too — they are on screen either way', async () => {
+    const nb = await db.addNotebook('N');
+    const withError = [...thread, { role: 'assistant', content: 'Request failed', error: true }];
+    await db.saveChat(nb, withError);
+    expect((await db.getChat(nb))[2].error).toBe(true);
+  });
+
+  it('deletes the row when the conversation is cleared', async () => {
+    const nb = await db.addNotebook('N');
+    await db.saveChat(nb, thread);
+    await db.saveChat(nb, []);
+    expect(await rawAll('chats')).toEqual([]);
+  });
+
+  it('goes away with its notebook', async () => {
+    const nb = await db.addNotebook('Doomed');
+    const kept = await db.addNotebook('Kept');
+    await db.saveChat(nb, thread);
+    await db.saveChat(kept, thread);
+
+    await db.deleteNotebook(nb);
+
+    expect(await db.getChat(nb)).toEqual([]);
+    expect(await db.getChat(kept)).toEqual(thread);
+  });
+
+  it('is wiped by clearAll', async () => {
+    await db.saveChat(await db.addNotebook('N'), thread);
+    await db.clearAll();
+    expect(await rawAll('chats')).toEqual([]);
+  });
+});
+
 describe('the mutation ritual sync depends on', () => {
   let db;
   beforeEach(async () => {
