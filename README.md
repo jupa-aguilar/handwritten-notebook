@@ -2,7 +2,8 @@
 
 A browser-only digital notebook. Upload scans/photos of your handwritten notebook
 pages and read them like a real book — with a realistic 3D page-turn animation,
-plus full-text search powered by handwriting transcription.
+full-text search powered by handwriting transcription, and a chat panel that
+answers questions about what you wrote.
 
 ## How it works
 
@@ -17,6 +18,13 @@ plus full-text search powered by handwriting transcription.
   for very messy handwriting.)
 - **Page-turn animation** uses [StPageFlip](https://nodlik.github.io/StPageFlip/)
   for a real 3D page curl.
+- **Chat over your pages.** 💬 Chat answers questions using the transcriptions as
+  context. Two ways to run it: with an **OpenAI API key** it uses `gpt-5.6-luna`
+  ($1/$6 per million tokens in/out — well under a cent per message at the context
+  size this app sends, but the transcribed pages do go to OpenAI); with no key it
+  talks to a model you run yourself through
+  [LM Studio](https://lmstudio.ai), which is free and private but only reachable
+  from the machine running it.
 
 ## Setup
 
@@ -34,6 +42,11 @@ Then:
    Pages are ordered by filename, so name them like `page-01.jpg`, `page-02.jpg`.
 3. Pages appear immediately; transcription runs in the background (status shown in
    the toolbar).
+4. *Optional, for 💬 Chat:* paste an
+   [OpenAI API key](https://platform.openai.com/api-keys) into ⚙ as well —
+   **give it a spending limit first**, since every message is billed. Leave it
+   empty to use a local LM Studio model instead: in its **Developer** tab load a
+   model, start the server and enable **CORS**.
 
 ## Using it
 
@@ -52,6 +65,17 @@ Then:
 - **Zoom in to read:** click **🔍 Zoom** (or press **Z**, or double-click the page)
   to open a full-screen viewer. Scroll/pinch or use **＋ − Fit** to zoom, drag to
   pan, **← →** to change page, **Esc** to close. Search hits are boxed here too.
+- **Chat about the notebook:** click **💬 Chat** and ask in plain language — *"what
+  did I write about X?"* — answered from the transcribed pages, with the model
+  free to add its own general knowledge on top. The pages most relevant to your
+  question are sent as context, capped in size, so a long notebook is trimmed
+  rather than sent whole (the model is told when that happens). **🧠** turns the
+  model's reasoning on for hard questions — better answers, slower and dearer;
+  off by default. **🧹** clears the conversation, which also resets on reload:
+  chats are never saved. The line under the header names the model in use, so you
+  can tell at a glance whether a message costs money. On phones the button only
+  appears when the chat can actually reach a model — with an OpenAI key, or with
+  an LM Studio address pointing at another machine on your network.
 - **Back up / move a notebook:** open **📚**, then **📤** on a notebook to download
   it as a `.notebook.json` file (images + transcripts + word boxes). Use **⬆ Import…**
   to restore it — handy before clearing browser data or to copy a notebook to
@@ -95,9 +119,10 @@ npm run app:dev   # Electron against the vite dev server (run `npm run dev` firs
 
 Open the DMG and drag **My Notebook** to Applications. Notes:
 
-- The Electron app has its **own IndexedDB** (`~/Library/Application Support/My
-  Notebook`), separate from any browser. Move notebooks with 📤 Export / ⬆ Import,
-  and re-enter the API key in ⚙.
+- The Electron app has its **own IndexedDB**
+  (`~/Library/Application Support/handwritten-notebook`), separate from any
+  browser. Move notebooks with 📤 Export / ⬆ Import, and re-enter the API keys
+  in ⚙.
 - The app is unsigned (no Apple Developer certificate): it runs fine locally, but
   on another Mac you'd need right-click → Open to pass Gatekeeper.
 - The icon is generated from `build/icon.svg` (rasterized with `qlmanage`, packed
@@ -110,5 +135,8 @@ Open the DMG and drag **My Notebook** to Applications. Notes:
   Google Vision returns. (Pages transcribed before this feature have no saved word
   positions — re-run **🔄 Re-transcribe** on the notebook to get on-image boxes.)
 - Reset everything by running `resetNotebook()` in the browser console.
-- The API key is exposed to anyone who can open this browser profile — fine for a
-  personal machine; don't deploy this app publicly with a shared key.
+- API keys are exposed to anyone who can open this browser profile — fine for a
+  personal machine; don't deploy this app publicly with shared keys. They live in
+  each device's `localStorage` and do **not** travel with ☁ Sync, so every device
+  needs its own. The Vision key is capped by its free tier; the OpenAI one isn't,
+  which is why it wants a spending limit.
