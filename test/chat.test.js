@@ -3,9 +3,12 @@ import {
   contextCharBudget,
   renderMarkdown,
   chatWorksWithoutLocalServer,
+  buildSystemPrompt,
   setOpenAiKey,
   setChatServerUrl,
 } from '../src/chat.js';
+
+const pagesOf = (...texts) => texts.map((text) => ({ text }));
 
 const msgs = (...lengths) => lengths.map((n) => ({ role: 'user', content: 'x'.repeat(n) }));
 
@@ -40,6 +43,66 @@ describe('contextCharBudget', () => {
   it('never goes negative when the reserves exceed the window', () => {
     expect(contextCharBudget(500, [])).toBe(0);
     expect(contextCharBudget(4096, msgs(100_000))).toBe(0);
+  });
+
+  // The hosted model has a 1M window, so the local 14K ceiling would throw
+  // away most of a notebook — and with it the chance of a cache hit.
+  it('lifts the ceiling for the hosted backend', () => {
+    expect(contextCharBudget(1_050_000, [], true)).toBe(120_000);
+    expect(contextCharBudget(1_050_000, [], false)).toBe(14_000);
+  });
+
+  it('still respects a small window even when hosted', () => {
+    expect(contextCharBudget(4096, [], true)).toBe(contextCharBudget(4096, [], false));
+  });
+});
+
+describe('buildSystemPrompt', () => {
+  const notebook = pagesOf(
+    'La canción de mañana',
+    'Notas sobre PCIe y ancho de banda',
+    'Una receta de pan'
+  );
+
+  // The hosted backend bills cached input at a tenth of the price, but only
+  // for a byte-identical prefix. If a question ever leaks into the prompt of a
+  // notebook that fits, every message silently pays full price again.
+  it('is identical for different questions when the whole notebook fits', () => {
+    const a = buildSystemPrompt('Cuaderno', notebook, '¿qué dice de PCIe?', 100000);
+    const b = buildSystemPrompt('Cuaderno', notebook, 'háblame del pan', 100000);
+    const c = buildSystemPrompt('Cuaderno', notebook, '', 100000);
+    expect(a).toBe(b);
+    expect(a).toBe(c);
+  });
+
+  it('includes every transcribed page, in page order', () => {
+    const prompt = buildSystemPrompt('Cuaderno', notebook, 'pan', 100000);
+    expect(prompt).toContain('--- Page 1 ---');
+    expect(prompt).toContain('--- Page 3 ---');
+    expect(prompt.indexOf('--- Page 1 ---')).toBeLessThan(prompt.indexOf('--- Page 2 ---'));
+    expect(prompt).not.toMatch(/Only \d+ of the transcribed pages fit/);
+  });
+
+  it('falls back to relevance — and to varying prompts — once it overflows', () => {
+    const tight = 60; // room for roughly one page
+    const aboutPcie = buildSystemPrompt('Cuaderno', notebook, 'PCIe', tight);
+    const aboutBread = buildSystemPrompt('Cuaderno', notebook, 'receta de pan', tight);
+    expect(aboutPcie).toContain('PCIe');
+    expect(aboutBread).toContain('receta de pan');
+    expect(aboutPcie).not.toBe(aboutBread);
+  });
+
+  it('tells the model when pages were left out, so it does not deny they exist', () => {
+    const prompt = buildSystemPrompt('Cuaderno', notebook, 'PCIe', 60);
+    expect(prompt).toMatch(/chosen for relevance/);
+    expect(prompt).toMatch(/may be on a page not shown/);
+  });
+
+  it('counts pages without transcriptions but does not send them', () => {
+    const mixed = [{ text: 'transcrita' }, { text: '' }, {}];
+    const prompt = buildSystemPrompt('Cuaderno', mixed, 'x', 100000);
+    expect(prompt).toContain('The notebook has 3 page(s); 1 of them are transcribed.');
+    expect(prompt.match(/--- Page/g)).toHaveLength(1);
   });
 });
 

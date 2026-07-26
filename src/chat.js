@@ -63,11 +63,14 @@ function isThinkingOn() {
 
 // Page transcriptions travel as plain text in the system prompt, so this cap
 // is what every message costs before a word is generated. It binds for a
-// different reason on each backend: locally it's the model's small window and
-// the seconds spent reading it; on the hosted one the window is 1M tokens and
-// the ceiling is purely about the bill. Whatever doesn't fit is reported to
-// the model rather than silently dropped.
+// different reason on each backend, hence two of them: locally it's the
+// model's small window and the seconds spent reading it, so stay frugal; on
+// the hosted one the window is 1M tokens and the only limit is the bill, so
+// the cap is set where a whole notebook usually fits — which is also what
+// lets the prompt cache work (see buildSystemPrompt). Whatever doesn't fit is
+// reported to the model rather than silently dropped.
 const CONTEXT_CHAR_BUDGET = 14000;
+const HOSTED_CONTEXT_CHAR_BUDGET = 120000; // ~34K tokens, ~3¢ uncached
 const HISTORY_SENT = 12; // most recent messages included per request
 
 // Rough char↔token ratio for sizing the context. Deliberately low (mixed
@@ -85,7 +88,7 @@ const FALLBACK_CONTEXT_TOKENS = 4096;
 
 // How many characters of notebook text fit alongside the reply, the boilerplate
 // and this turn's conversation history, given the loaded model's context.
-export function contextCharBudget(contextTokens, sentHistory) {
+export function contextCharBudget(contextTokens, sentHistory, hosted = false) {
   const ctx = contextTokens || FALLBACK_CONTEXT_TOKENS;
   const historyTokens = Math.ceil(
     sentHistory.reduce((n, m) => n + m.content.length, 0) / CHARS_PER_TOKEN
@@ -93,7 +96,7 @@ export function contextCharBudget(contextTokens, sentHistory) {
   const availTokens =
     ctx - REPLY_TOKEN_RESERVE - BOILERPLATE_TOKEN_RESERVE - historyTokens;
   return Math.min(
-    CONTEXT_CHAR_BUDGET,
+    hosted ? HOSTED_CONTEXT_CHAR_BUDGET : CONTEXT_CHAR_BUDGET,
     Math.max(0, Math.floor(availTokens * CHARS_PER_TOKEN))
   );
 }
@@ -293,7 +296,12 @@ function scorePage(foldedText, terms) {
   return score;
 }
 
-function buildSystemPrompt(name, pages, query, budget = CONTEXT_CHAR_BUDGET) {
+// The system prompt carrying the notebook. When every transcribed page fits
+// the budget, this is byte-identical for every question about that notebook —
+// nothing here depends on the query — which is what lets the hosted backend
+// serve it from its prompt cache at a tenth of the input price. That property
+// is load-bearing, not incidental: test/chat.test.js pins it.
+export function buildSystemPrompt(name, pages, query, budget = CONTEXT_CHAR_BUDGET) {
   const terms = queryTerms(query);
   const entries = [];
   let withText = 0;
@@ -310,7 +318,9 @@ function buildSystemPrompt(name, pages, query, budget = CONTEXT_CHAR_BUDGET) {
 
   // Fit pages to the budget most-relevant-first, so the pages that answer the
   // question survive truncation even when they sit deep in a long notebook.
-  // With no usable query terms this is a stable no-op and pages fill in order.
+  // When everything fits, every page is kept whatever the ranking said, so the
+  // result is the same prompt for every question — the cacheable case. Ranking
+  // only starts to matter, and to vary the prompt, once the notebook overflows.
   const kept = new Set();
   let used = 0;
   for (const e of [...entries].sort((a, b) => b.score - a.score || a.i - b.i)) {
@@ -559,7 +569,7 @@ async function send() {
           name,
           pages,
           text,
-          contextCharBudget(contextLength, priorMsgs)
+          contextCharBudget(contextLength, priorMsgs, backend().hosted)
         ),
       },
       ...outgoing,
