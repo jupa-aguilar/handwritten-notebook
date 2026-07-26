@@ -38,6 +38,7 @@ import {
   getOpenAiKey,
   setOpenAiKey,
   chatWorksWithoutLocalServer,
+  getChatSpend,
 } from './chat.js';
 import {
   syncNow,
@@ -589,17 +590,35 @@ function bumpUsage() {
   updateUsageDisplay();
 }
 
+// Two meters in one line: pages transcribed against Vision's free tier, and
+// what the hosted chat has cost this month. The chat half only appears once
+// something has actually been spent — no point showing $0.00 to someone
+// running a local model.
 function updateUsageDisplay() {
   const el = $('#usage');
   if (!el) return;
-  if (!TRANSCRIPTION_ENABLED) {
-    el.textContent = '';
-    return;
-  }
+  const parts = [];
   const { count } = getUsage();
-  el.textContent = `OCR: ${count} / ${FREE_TIER} this month`;
-  el.classList.toggle('over', count >= FREE_TIER);
-  el.classList.toggle('warn', count >= FREE_TIER * 0.8 && count < FREE_TIER);
+  if (TRANSCRIPTION_ENABLED) parts.push(`OCR: ${count} / ${FREE_TIER} this month`);
+  const spend = getChatSpend();
+  if (spend.messages > 0) {
+    // Below a cent, a rounded figure would read as free; show it as such.
+    const shown = spend.dollars < 0.01 ? '<$0.01' : `$${spend.dollars.toFixed(2)}`;
+    parts.push(`Chat: ${shown}`);
+  }
+  el.textContent = parts.join(' · ');
+  el.title = spend.messages
+    ? `${spend.messages} chat message(s) this month — ` +
+      `${spend.input.toLocaleString()} input tokens, ` +
+      `${spend.cachedInput.toLocaleString()} cached, ` +
+      `${spend.output.toLocaleString()} output. Estimated from the prices ` +
+      `published for gpt-5.6-luna; the bill is what OpenAI says it is.`
+    : 'Google Cloud Vision free tier: 1,000 pages per month (local estimate)';
+  el.classList.toggle('over', TRANSCRIPTION_ENABLED && count >= FREE_TIER);
+  el.classList.toggle(
+    'warn',
+    TRANSCRIPTION_ENABLED && count >= FREE_TIER * 0.8 && count < FREE_TIER
+  );
 }
 
 // ---------- uploads ----------
@@ -2307,6 +2326,7 @@ function wire() {
       name: $('#current-notebook').textContent,
       pages,
     }),
+    onSpendChanged: updateUsageDisplay,
   });
 
   $('#settings-btn').addEventListener('click', openSettings);

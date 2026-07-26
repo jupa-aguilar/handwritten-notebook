@@ -23,6 +23,11 @@ const OPENAI_URL = 'https://api.openai.com';
 const OPENAI_MODEL = 'gpt-5.6-luna';
 const OPENAI_CONTEXT_TOKENS = 1_050_000;
 
+// Per million tokens, as published 2026-07. Cached input is what makes a
+// stable system prompt worth having — see buildSystemPrompt.
+const PRICE_PER_MTOK = { input: 1.0, cachedInput: 0.1, output: 6.0 };
+const SPEND_KEY = 'notebook.chatSpend';
+
 export function getOpenAiKey() {
   return (localStorage.getItem(OPENAI_KEY_STORAGE) || '').trim();
 }
@@ -116,6 +121,63 @@ export function setChatServerUrl(url) {
   else localStorage.removeItem(URL_KEY);
 }
 
+// ---------- spend tracking ----------
+//
+// What the hosted chat has cost this month, counted from the usage the API
+// reports on each reply. An estimate, not a bill: it can't know about requests
+// made from another device or browser profile, and prices change. It exists so
+// the cost of a conversation isn't invisible until the statement arrives.
+
+function thisMonth() {
+  return new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+}
+
+const emptySpend = () => ({
+  month: thisMonth(),
+  input: 0,
+  cachedInput: 0,
+  output: 0,
+  messages: 0,
+});
+
+// Resets on the 1st, like the OCR counter it sits next to.
+export function getChatSpend() {
+  let s;
+  try {
+    s = JSON.parse(localStorage.getItem(SPEND_KEY) || 'null');
+  } catch {
+    s = null;
+  }
+  if (!s || s.month !== thisMonth() || typeof s.input !== 'number') s = emptySpend();
+  s.dollars =
+    (s.input * PRICE_PER_MTOK.input +
+      s.cachedInput * PRICE_PER_MTOK.cachedInput +
+      s.output * PRICE_PER_MTOK.output) /
+    1e6;
+  return s;
+}
+
+// `usage` as the API reports it. Cached prompt tokens are counted separately
+// because they cost a tenth; they arrive nested in prompt_tokens_details.
+export function recordSpend(usage) {
+  if (!usage) return;
+  const cached = usage.prompt_tokens_details?.cached_tokens || 0;
+  const prompt = usage.prompt_tokens || 0;
+  const s = getChatSpend();
+  s.input += Math.max(0, prompt - cached);
+  s.cachedInput += cached;
+  s.output += usage.completion_tokens || 0;
+  s.messages += 1;
+  delete s.dollars; // derived on read, never stored
+  localStorage.setItem(SPEND_KEY, JSON.stringify(s));
+  onSpendChanged();
+}
+
+export function resetChatSpend() {
+  localStorage.removeItem(SPEND_KEY);
+  onSpendChanged();
+}
+
 // Can the chat work on a device that isn't the one running LM Studio? True
 // with a hosted key, or when the configured address points at another machine
 // on the network. A plain localhost address can't: on a phone it resolves to
@@ -130,6 +192,7 @@ export function chatWorksWithoutLocalServer() {
 const $ = (sel) => document.querySelector(sel);
 
 let getContext = null; // () => { id, name, pages }, supplied by main.js
+let onSpendChanged = () => {}; // main.js redraws its counter
 const histories = new Map(); // notebookId -> [{ role, content, error? }]
 let streamCtrl = null; // AbortController while a reply is streaming
 let serverOk = false;
@@ -220,6 +283,10 @@ async function streamCompletion(model, messages, signal, onDelta, extra = {}) {
       messages,
       stream: true,
       temperature: 0.7,
+      // Ask for a final usage chunk so the reply can be priced. Hosted only:
+      // it's an OpenAI extension, and an unknown field can make a local
+      // server reject the whole request.
+      ...(be.hosted ? { stream_options: { include_usage: true } } : {}),
       ...extra,
     }),
     signal,
@@ -234,9 +301,15 @@ async function streamCompletion(model, messages, signal, onDelta, extra = {}) {
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
+  // The usage chunk arrives last, after the content, carrying empty choices.
+  // Recorded on the way out so an aborted reply still bills what it used.
+  let usage = null;
+  const finish = () => {
+    if (usage) recordSpend(usage);
+  };
   while (true) {
     const { done, value } = await reader.read();
-    if (done) return;
+    if (done) return finish();
     buf += decoder.decode(value, { stream: true });
     let nl;
     while ((nl = buf.indexOf('\n')) !== -1) {
@@ -244,13 +317,15 @@ async function streamCompletion(model, messages, signal, onDelta, extra = {}) {
       buf = buf.slice(nl + 1);
       if (!line.startsWith('data:')) continue;
       const payload = line.slice(5).trim();
-      if (payload === '[DONE]') return;
-      let delta;
+      if (payload === '[DONE]') return finish();
+      let parsed;
       try {
-        delta = JSON.parse(payload).choices?.[0]?.delta;
+        parsed = JSON.parse(payload);
       } catch {
         continue; // keep-alive or partial line
       }
+      if (parsed.usage) usage = parsed.usage;
+      const delta = parsed.choices?.[0]?.delta;
       // Reasoning models stream their hidden thinking as reasoning_content;
       // surface it so the UI can show progress instead of looking stuck.
       if (delta?.content || delta?.reasoning_content) {
@@ -646,6 +721,7 @@ export function chatNotebookChanged() {
 
 export function initChat(opts) {
   getContext = opts.getContext;
+  if (opts.onSpendChanged) onSpendChanged = opts.onSpendChanged;
 
   $('#chat-btn').addEventListener('click', () =>
     setChatHidden($('#chat').hidden === false)

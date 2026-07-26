@@ -4,6 +4,9 @@ import {
   renderMarkdown,
   chatWorksWithoutLocalServer,
   buildSystemPrompt,
+  getChatSpend,
+  recordSpend,
+  resetChatSpend,
   setOpenAiKey,
   setChatServerUrl,
 } from '../src/chat.js';
@@ -54,6 +57,79 @@ describe('contextCharBudget', () => {
 
   it('still respects a small window even when hosted', () => {
     expect(contextCharBudget(4096, [], true)).toBe(contextCharBudget(4096, [], false));
+  });
+});
+
+describe('chat spend', () => {
+  beforeEach(() => {
+    resetChatSpend();
+  });
+
+  it('starts empty', () => {
+    const s = getChatSpend();
+    expect(s.messages).toBe(0);
+    expect(s.dollars).toBe(0);
+  });
+
+  it('prices input, cached input and output at their different rates', () => {
+    // 1M uncached input ($1) + 1M cached ($0.10) + 1M output ($6)
+    recordSpend({
+      prompt_tokens: 2_000_000,
+      prompt_tokens_details: { cached_tokens: 1_000_000 },
+      completion_tokens: 1_000_000,
+    });
+    const s = getChatSpend();
+    expect(s.input).toBe(1_000_000);
+    expect(s.cachedInput).toBe(1_000_000);
+    expect(s.output).toBe(1_000_000);
+    expect(s.dollars).toBeCloseTo(7.1, 6);
+  });
+
+  it('accumulates across messages', () => {
+    const usage = { prompt_tokens: 1000, completion_tokens: 100 };
+    recordSpend(usage);
+    recordSpend(usage);
+    const s = getChatSpend();
+    expect(s.messages).toBe(2);
+    expect(s.input).toBe(2000);
+  });
+
+  it('treats a reply with no cache details as fully uncached', () => {
+    recordSpend({ prompt_tokens: 1000, completion_tokens: 0 });
+    const s = getChatSpend();
+    expect(s.input).toBe(1000);
+    expect(s.cachedInput).toBe(0);
+  });
+
+  // A cached count larger than the prompt would otherwise push input negative
+  // and quietly refund money that was spent.
+  it('never lets a malformed usage report drive the count below zero', () => {
+    recordSpend({
+      prompt_tokens: 100,
+      prompt_tokens_details: { cached_tokens: 999 },
+      completion_tokens: 0,
+    });
+    expect(getChatSpend().input).toBe(0);
+  });
+
+  it('ignores a reply that reported no usage at all', () => {
+    recordSpend(null);
+    expect(getChatSpend().messages).toBe(0);
+  });
+
+  it('resets when the stored month is not the current one', () => {
+    recordSpend({ prompt_tokens: 5000, completion_tokens: 500 });
+    const stored = JSON.parse(localStorage.getItem('notebook.chatSpend'));
+    localStorage.setItem(
+      'notebook.chatSpend',
+      JSON.stringify({ ...stored, month: '2020-01' })
+    );
+    expect(getChatSpend().messages).toBe(0);
+  });
+
+  it('survives corrupt storage', () => {
+    localStorage.setItem('notebook.chatSpend', 'not json');
+    expect(getChatSpend().dollars).toBe(0);
   });
 });
 
