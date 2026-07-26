@@ -194,6 +194,7 @@ const $ = (sel) => document.querySelector(sel);
 
 let getContext = null; // () => { id, name, pages }, supplied by main.js
 let onSpendChanged = () => {}; // main.js redraws its counter
+let onGoToPage = () => {}; // main.js turns to a cited page
 const histories = new Map(); // notebookId -> [{ role, content, error? }]
 const loaded = new Set(); // notebookIds already read back from IndexedDB
 let streamCtrl = null; // AbortController while a reply is streaming
@@ -442,7 +443,8 @@ export function buildSystemPrompt(name, pages, query, budget = CONTEXT_CHAR_BUDG
   return [
     `You are the reading assistant built into a digital notebook app. The user has open their notebook titled "${name}".`,
     'Below are OCR transcriptions of its handwritten pages, so occasional transcription mistakes are possible.',
-    'Use the notebook as context, not as a limit: when the answer is on its pages, point to them like (p. 3), and feel free to combine that with your general knowledge to explain, expand, or answer beyond it. Just never claim the notebook says something it does not.',
+    'Use the notebook as context, not as a limit: when the answer is on its pages, cite them, and feel free to combine that with your general knowledge to explain, expand, or answer beyond it. Just never claim the notebook says something it does not.',
+    'Write every citation as "(p. 3)" — that exact form, with the English "p.", even when the rest of your answer is in another language. The app turns those into links to the page, and only recognises that spelling. For several pages write (p. 3, 7) or a range (p. 3-5).',
     'If the notebook has nothing on the question, say so briefly and answer it anyway from your general knowledge.',
     'Write in a warm, close, plain-spoken tone — clear and to the point. Reply in the same language the user writes in.',
     '',
@@ -458,14 +460,43 @@ export function buildSystemPrompt(name, pages, query, budget = CONTEXT_CHAR_BUDG
 // bold/italic, inline code, fenced code, lists). Everything is HTML-escaped
 // first, so only the tags emitted here ever reach innerHTML.
 
-function mdInline(s) {
-  return s
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
+// Page citations → buttons that jump there. The system prompt asks for
+// "(p. 3)", but a model writing Spanish will reach for "página 3" often
+// enough that both are worth recognising, along with ranges and lists.
+// Only the numbers become links; the surrounding words are left alone.
+const PAGE_CITATION =
+  /\b(pp?\.|p[áa]gs?\.|p[áa]ginas?|pages?)(\s*)(\d+(?:\s*(?:[-–—,]|y|and|to|a)\s*\d+)*)/gi;
+
+// `pageCount` gates the links: a model can cite a page that doesn't exist,
+// and a link that goes nowhere is worse than plain text.
+function linkPageCitations(s, pageCount) {
+  if (!pageCount) return s;
+  return s.replace(PAGE_CITATION, (match, word, gap, numbers) => {
+    const linked = numbers.replace(/\d+/g, (n) => {
+      const page = Number(n);
+      if (page < 1 || page > pageCount) return n;
+      // The label keeps the number the model wrote; data-page is 0-based.
+      return `<button type="button" class="page-ref" data-page="${page - 1}" title="Go to page ${page}">${n}</button>`;
+    });
+    return `${word}${gap}${linked}`;
+  });
+}
+
+function mdInline(s, pageCount) {
+  // Citations are linked outside `code` spans: a page number inside code is
+  // being quoted, not pointed at. Splitting on the tags the previous step
+  // just inserted keeps that simple.
+  const withCode = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  const linked = withCode
+    .split(/(<code>.*?<\/code>)/g)
+    .map((part) => (part.startsWith('<code>') ? part : linkPageCitations(part, pageCount)))
+    .join('');
+  return linked
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>');
 }
 
-export function renderMarkdown(md) {
+export function renderMarkdown(md, pageCount = 0) {
   const lines = escapeHtml(md).split('\n');
   const out = [];
   let para = []; // pending paragraph lines
@@ -473,7 +504,7 @@ export function renderMarkdown(md) {
   let code = null; // pending code-block lines while inside a ``` fence
 
   const flushPara = () => {
-    if (para.length) out.push(`<p>${para.map(mdInline).join('<br>')}</p>`);
+    if (para.length) out.push(`<p>${para.map((l) => mdInline(l, pageCount)).join('<br>')}</p>`);
     para = [];
   };
   const closeList = () => {
@@ -501,7 +532,7 @@ export function renderMarkdown(md) {
     if (h) {
       flushPara();
       closeList();
-      out.push(`<div class="md-h">${mdInline(h[1])}</div>`);
+      out.push(`<div class="md-h">${mdInline(h[1], pageCount)}</div>`);
       continue;
     }
     const ul = line.match(/^\s*[-*•]\s+(.*)/);
@@ -514,7 +545,7 @@ export function renderMarkdown(md) {
         out.push(`<${want}>`);
         list = want;
       }
-      out.push(`<li>${mdInline((ul || ol)[1])}</li>`);
+      out.push(`<li>${mdInline((ul || ol)[1], pageCount)}</li>`);
       continue;
     }
     if (!line.trim()) {
@@ -536,7 +567,7 @@ function bubble(m) {
   div.className = `chat-msg ${m.role}${m.error ? ' error' : ''}`;
   if (m.role === 'assistant' && !m.error) {
     div.classList.add('md');
-    div.innerHTML = renderMarkdown(m.content);
+    div.innerHTML = renderMarkdown(m.content, getContext().pages.length);
   } else {
     div.textContent = m.content;
   }
@@ -682,7 +713,7 @@ async function send() {
       if (content) {
         reply.content += content;
         div.classList.remove('pending');
-        div.innerHTML = renderMarkdown(reply.content);
+        div.innerHTML = renderMarkdown(reply.content, pages.length);
       } else if (reasoning && !reply.content) {
         thinkingLen += reasoning.length;
         thinkingTail = (thinkingTail + reasoning).slice(-280).trimStart();
@@ -751,6 +782,14 @@ export async function chatNotebookChanged() {
 export function initChat(opts) {
   getContext = opts.getContext;
   if (opts.onSpendChanged) onSpendChanged = opts.onSpendChanged;
+  if (opts.onGoToPage) onGoToPage = opts.onGoToPage;
+
+  // Delegated: reply bubbles are rebuilt on every streamed token, so a
+  // listener bound to the buttons themselves would be discarded immediately.
+  $('#chat-messages').addEventListener('click', (e) => {
+    const ref = e.target.closest('.page-ref');
+    if (ref) onGoToPage(Number(ref.dataset.page));
+  });
 
   $('#chat-btn').addEventListener('click', () =>
     setChatHidden($('#chat').hidden === false)

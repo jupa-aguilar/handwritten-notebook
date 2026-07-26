@@ -282,6 +282,20 @@ async function renderBook() {
   updatePager();
 }
 
+// Jump to a page from anywhere — search hits, bookmarks, thumbnails, chat
+// citations. Whichever reading view is on screen follows: the zoom viewer if
+// it's open, the flipbook otherwise. Out-of-range indices are ignored rather
+// than clamped, so a bad citation does nothing instead of something wrong.
+function goToPage(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= pages.length) return false;
+  if (!$('#viewer').hidden) loadViewerPage(index, { fit: true });
+  if (pageFlip) pageFlip.flip(index);
+  currentPage = index;
+  updatePanel();
+  updatePager();
+  return true;
+}
+
 function updatePager() {
   const indicator = $('#page-indicator');
   if (!indicator) return;
@@ -417,13 +431,7 @@ function refreshSearch() {
           .join('');
 
   results.querySelectorAll('.result').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const idx = Number(btn.dataset.page);
-      if (!$('#viewer').hidden) loadViewerPage(idx, { fit: true });
-      if (pageFlip) pageFlip.flip(idx);
-      currentPage = idx;
-      updatePanel();
-    });
+    btn.addEventListener('click', () => goToPage(Number(btn.dataset.page)));
   });
 
   openPanel();
@@ -931,13 +939,8 @@ function renderBookmarksList() {
 
   ul.querySelectorAll('.bm-jump').forEach((b) =>
     b.addEventListener('click', () => {
-      const idx = Number(b.dataset.index);
       closeBookmarks();
-      if (!$('#viewer').hidden) loadViewerPage(idx, { fit: true });
-      if (pageFlip) pageFlip.flip(idx);
-      currentPage = idx;
-      updatePanel();
-      updatePager();
+      goToPage(Number(b.dataset.index));
     })
   );
   ul.querySelectorAll('.bm-edit-btn').forEach((b) =>
@@ -1433,13 +1436,8 @@ function renderPagesGrid() {
 
   grid.querySelectorAll('.page-thumb').forEach((b) =>
     b.addEventListener('click', () => {
-      const idx = Number(b.dataset.index);
       closePagesOverview();
-      if (!$('#viewer').hidden) loadViewerPage(idx, { fit: true });
-      if (pageFlip) pageFlip.flip(idx);
-      currentPage = idx;
-      updatePanel();
-      updatePager();
+      goToPage(Number(b.dataset.index));
     })
   );
 
@@ -2327,6 +2325,7 @@ function wire() {
       pages,
     }),
     onSpendChanged: updateUsageDisplay,
+    onGoToPage: goToPage,
   });
 
   $('#settings-btn').addEventListener('click', openSettings);

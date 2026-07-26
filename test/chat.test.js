@@ -229,6 +229,73 @@ describe('chatWorksWithoutLocalServer', () => {
   });
 });
 
+// Citations become links to the page. Too eager and stray numbers turn into
+// links that go somewhere wrong; too strict and the feature quietly does
+// nothing, since it depends on how the model chose to phrase itself.
+describe('page citations', () => {
+  const render = (md) => renderMarkdown(md, 10); // a 10-page notebook
+
+  const linkedPages = (html) =>
+    [...html.matchAll(/data-page="(\d+)"/g)].map((m) => Number(m[1]));
+
+  it('links the form the system prompt asks for', () => {
+    expect(linkedPages(render('Lo dice en (p. 3).'))).toEqual([2]); // 0-based
+  });
+
+  it('links the Spanish forms a model actually writes', () => {
+    expect(linkedPages(render('Está en la página 4.'))).toEqual([3]);
+    expect(linkedPages(render('Ver pág. 5'))).toEqual([4]);
+    expect(linkedPages(render('En las páginas 2 y 6'))).toEqual([1, 5]);
+  });
+
+  it('links every page in a range or list', () => {
+    expect(linkedPages(render('(p. 3-5)'))).toEqual([2, 4]);
+    expect(linkedPages(render('pages 1, 4, 9'))).toEqual([0, 3, 8]);
+  });
+
+  it('keeps the number the model wrote as the label', () => {
+    expect(render('(p. 7)')).toContain('>7</button>');
+  });
+
+  it('leaves the surrounding words alone', () => {
+    expect(render('(p. 3)')).toContain('p. ');
+  });
+
+  it('does not link a page the notebook does not have', () => {
+    expect(linkedPages(render('(p. 99)'))).toEqual([]);
+    expect(render('(p. 99)')).toContain('99');
+    expect(linkedPages(render('(p. 0)'))).toEqual([]);
+  });
+
+  it('links nothing when the notebook is empty', () => {
+    expect(linkedPages(renderMarkdown('(p. 3)', 0))).toEqual([]);
+  });
+
+  it('ignores numbers that are not page citations', () => {
+    expect(linkedPages(render('Costó 3 euros en 2026.'))).toEqual([]);
+    expect(linkedPages(render('El capítulo 4 es largo.'))).toEqual([]);
+  });
+
+  it('leaves citations inside code spans as text', () => {
+    expect(linkedPages(render('Escribe `(p. 3)` literalmente'))).toEqual([]);
+  });
+
+  it('leaves citations inside fenced code alone', () => {
+    expect(linkedPages(render('```\nver (p. 3)\n```'))).toEqual([]);
+  });
+
+  it('works inside lists and headings', () => {
+    expect(linkedPages(render('- Ver (p. 2)'))).toEqual([1]);
+    expect(linkedPages(render('## Resumen de (p. 8)'))).toEqual([7]);
+  });
+
+  it('still escapes HTML around a citation', () => {
+    const html = render('<img src=x> en (p. 2)');
+    expect(html).toContain('&lt;img');
+    expect(linkedPages(html)).toEqual([1]);
+  });
+});
+
 describe('renderMarkdown', () => {
   it('escapes HTML before doing anything else', () => {
     const out = renderMarkdown('<img src=x onerror=alert(1)>');
