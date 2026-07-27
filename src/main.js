@@ -31,6 +31,7 @@ import {
 } from './text.js';
 import { buildZip } from './zip.js';
 import { buildPdf } from './pdf.js';
+import { bumpOcr, getTotals, resetOwnUsage } from './usage.js';
 import {
   initChat,
   chatNotebookChanged,
@@ -39,7 +40,6 @@ import {
   getOpenAiKey,
   setOpenAiKey,
   chatWorksWithoutLocalServer,
-  getChatSpend,
 } from './chat.js';
 import {
   syncNow,
@@ -64,7 +64,6 @@ const JPEG_QUALITY = 0.85;
 const KEY_STORAGE = 'notebook.googleVisionKey';
 const CURRENT_KEY = 'notebook.currentId';
 const POSITIONS_KEY = 'notebook.positions'; // { [notebookId]: lastPageIndex }
-const USAGE_KEY = 'notebook.usage';
 const FREE_TIER = 1000; // Google Cloud Vision free pages per month
 
 let pages = [];          // page records for the current notebook, ordered
@@ -705,7 +704,8 @@ async function runOcrQueue() {
         page.words = words;
         page.ocrStatus = 'done';
         page.error = '';
-        bumpUsage();
+        bumpOcr();
+        updateUsageDisplay();
       } catch (err) {
         console.error('OCR failed', err);
         page.ocrStatus = 'error';
@@ -731,63 +731,46 @@ function setOcrStatus(text) {
   $('#ocr-status').textContent = text;
 }
 
-// ---------- monthly usage estimate (local, resets on the 1st) ----------
-
-function currentMonth() {
-  return new Date().toISOString().slice(0, 7); // 'YYYY-MM'
-}
-
-function getUsage() {
-  try {
-    const u = JSON.parse(localStorage.getItem(USAGE_KEY) || '{}');
-    if (u.month === currentMonth() && typeof u.count === 'number') return u;
-  } catch {
-    /* ignore */
-  }
-  return { month: currentMonth(), count: 0 };
-}
-
-function bumpUsage() {
-  const u = getUsage();
-  u.count += 1;
-  localStorage.setItem(USAGE_KEY, JSON.stringify(u));
-  updateUsageDisplay();
-}
-
-// Two meters in one line: pages transcribed against Vision's free tier, and
-// what the hosted chat has cost this month. The chat half only appears once
-// something has actually been spent — no point showing $0.00 to someone
-// running a local model.
 // Both meters, inside the ☁ popover. They're reference figures — how much of
 // the Vision free tier is left, what the chat has cost — so they're a click
 // away instead of holding a permanent slice of the toolbar.
 function updateUsageDisplay() {
   const el = $('#usage');
   if (!el) return;
-  const { count } = getUsage();
-  const spend = getChatSpend();
+  // Totals across devices — both quotas are shared, so a per-device figure
+  // would understate what's actually been used. See usage.js.
+  const t = getTotals();
   const lines = [];
   if (TRANSCRIPTION_ENABLED) {
-    lines.push(`<div>Pages transcribed: <strong>${count}</strong> / ${FREE_TIER}</div>`);
+    lines.push(`<div>Pages transcribed: <strong>${t.ocr}</strong> / ${FREE_TIER}</div>`);
   }
-  if (spend.messages > 0) {
+  if (t.messages > 0) {
     // Below a cent, a rounded figure would read as free; show it as such.
-    const shown = spend.dollars < 0.01 ? '&lt;$0.01' : `$${spend.dollars.toFixed(2)}`;
+    const shown = t.dollars < 0.01 ? '&lt;$0.01' : `$${t.dollars.toFixed(2)}`;
     lines.push(
-      `<div>Chat: <strong>${shown}</strong> over ${spend.messages} message(s)</div>`,
-      `<div class="usage-detail">${spend.input.toLocaleString()} input · ` +
-        `${spend.cachedInput.toLocaleString()} cached · ` +
-        `${spend.output.toLocaleString()} output tokens</div>`
+      `<div>Chat: <strong>${shown}</strong> over ${t.messages} message(s)</div>`,
+      `<div class="usage-detail">${t.input.toLocaleString()} input · ` +
+        `${t.cachedInput.toLocaleString()} cached · ` +
+        `${t.output.toLocaleString()} output tokens</div>`
     );
   } else {
     lines.push('<div class="usage-detail">The chat hasn\'t been used this month.</div>');
   }
+  // Say where the figures come from: without sync they only know this device,
+  // which is exactly the misreading this is meant to prevent.
+  lines.push(
+    t.otherDevices > 0
+      ? `<div class="usage-detail">Across this and ${t.otherDevices} other device(s).</div>`
+      : isSyncConfigured()
+        ? '<div class="usage-detail">This device only until the next sync.</div>'
+        : '<div class="usage-detail">This device only — set up ☁ Sync to combine them.</div>'
+  );
   el.innerHTML = lines.join('');
   el.title = 'Estimated locally from published prices — the bill is what the provider says it is.';
-  el.classList.toggle('over', TRANSCRIPTION_ENABLED && count >= FREE_TIER);
+  el.classList.toggle('over', TRANSCRIPTION_ENABLED && t.ocr >= FREE_TIER);
   el.classList.toggle(
     'warn',
-    TRANSCRIPTION_ENABLED && count >= FREE_TIER * 0.8 && count < FREE_TIER
+    TRANSCRIPTION_ENABLED && t.ocr >= FREE_TIER * 0.8 && t.ocr < FREE_TIER
   );
 }
 
@@ -2637,6 +2620,7 @@ async function init() {
 // Expose a reset for convenience in the console (wipes ALL notebooks).
 window.resetNotebook = async () => {
   await clearAll();
+  resetOwnUsage(); // the meters describe notebooks that no longer exist
   location.reload();
 };
 

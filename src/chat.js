@@ -12,6 +12,7 @@
 import { foldText, escapeHtml } from './text.js';
 import { getChat, saveChat } from './db.js';
 import { latexToUnicode } from './latex.js';
+import { recordSpend } from './usage.js';
 
 const URL_KEY = 'notebook.lmstudio.url';
 const DEFAULT_URL = 'http://localhost:1234';
@@ -24,11 +25,6 @@ const OPENAI_KEY_STORAGE = 'notebook.openaiKey';
 const OPENAI_URL = 'https://api.openai.com';
 const OPENAI_MODEL = 'gpt-5.6-luna';
 const OPENAI_CONTEXT_TOKENS = 1_050_000;
-
-// Per million tokens, as published 2026-07. Cached input is what makes a
-// stable system prompt worth having — see buildSystemPrompt.
-const PRICE_PER_MTOK = { input: 1.0, cachedInput: 0.1, output: 6.0 };
-const SPEND_KEY = 'notebook.chatSpend';
 
 export function getOpenAiKey() {
   return (localStorage.getItem(OPENAI_KEY_STORAGE) || '').trim();
@@ -121,63 +117,6 @@ export function getStoredChatServerUrl() {
 export function setChatServerUrl(url) {
   if (url) localStorage.setItem(URL_KEY, url);
   else localStorage.removeItem(URL_KEY);
-}
-
-// ---------- spend tracking ----------
-//
-// What the hosted chat has cost this month, counted from the usage the API
-// reports on each reply. An estimate, not a bill: it can't know about requests
-// made from another device or browser profile, and prices change. It exists so
-// the cost of a conversation isn't invisible until the statement arrives.
-
-function thisMonth() {
-  return new Date().toISOString().slice(0, 7); // 'YYYY-MM'
-}
-
-const emptySpend = () => ({
-  month: thisMonth(),
-  input: 0,
-  cachedInput: 0,
-  output: 0,
-  messages: 0,
-});
-
-// Resets on the 1st, like the OCR counter it sits next to.
-export function getChatSpend() {
-  let s;
-  try {
-    s = JSON.parse(localStorage.getItem(SPEND_KEY) || 'null');
-  } catch {
-    s = null;
-  }
-  if (!s || s.month !== thisMonth() || typeof s.input !== 'number') s = emptySpend();
-  s.dollars =
-    (s.input * PRICE_PER_MTOK.input +
-      s.cachedInput * PRICE_PER_MTOK.cachedInput +
-      s.output * PRICE_PER_MTOK.output) /
-    1e6;
-  return s;
-}
-
-// `usage` as the API reports it. Cached prompt tokens are counted separately
-// because they cost a tenth; they arrive nested in prompt_tokens_details.
-export function recordSpend(usage) {
-  if (!usage) return;
-  const cached = usage.prompt_tokens_details?.cached_tokens || 0;
-  const prompt = usage.prompt_tokens || 0;
-  const s = getChatSpend();
-  s.input += Math.max(0, prompt - cached);
-  s.cachedInput += cached;
-  s.output += usage.completion_tokens || 0;
-  s.messages += 1;
-  delete s.dollars; // derived on read, never stored
-  localStorage.setItem(SPEND_KEY, JSON.stringify(s));
-  onSpendChanged();
-}
-
-export function resetChatSpend() {
-  localStorage.removeItem(SPEND_KEY);
-  onSpendChanged();
 }
 
 // Can the chat work on a device that isn't the one running LM Studio? True
@@ -329,7 +268,7 @@ async function streamCompletion(model, messages, signal, onDelta, extra = {}) {
   // Recorded on the way out so an aborted reply still bills what it used.
   let usage = null;
   const finish = () => {
-    if (usage) recordSpend(usage);
+    if (usage && recordSpend(usage)) onSpendChanged();
   };
   while (true) {
     const { done, value } = await reader.read();

@@ -35,7 +35,9 @@ import {
   getSyncedState,
   setSyncedState,
 } from './db.js';
+import { applySharedUsage, withOwnContribution } from './usage.js';
 
+const USAGE_FILE = 'usage.json'; // shared quota tally, see usage.js
 const CLIENT_KEY = 'notebook.syncClientId';
 const SECRET_KEY = 'notebook.syncClientSecret';
 const TOKEN_KEY = 'notebook.syncToken';
@@ -448,5 +450,29 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
   onStatus('Saving index…');
   await uploadFile(token, files, 'meta.json', 'application/json', JSON.stringify(meta));
   await setNotebookTombstones(tombs);
+  await syncUsage(token, files);
   return result;
+}
+
+// The shared quota tally. Read, add this device's entry, write back, and keep
+// the sum of everyone else's for display. Deliberately last in the run and
+// deliberately swallowing its own errors: knowing how much of the free tier
+// is left is useful, but not worth failing a notebook sync over.
+async function syncUsage(token, files) {
+  try {
+    let shared = null;
+    const file = files.get(USAGE_FILE);
+    if (file) {
+      try {
+        shared = await downloadFile(token, file.id, 'json');
+      } catch {
+        /* unreadable: start a fresh tally rather than lose the sync */
+      }
+    }
+    const next = withOwnContribution(shared);
+    await uploadFile(token, files, USAGE_FILE, 'application/json', JSON.stringify(next));
+    applySharedUsage(next);
+  } catch (err) {
+    console.error('Could not sync the usage tally', err);
+  }
 }
