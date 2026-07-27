@@ -283,6 +283,119 @@ async function renderBook() {
   updatePager();
 }
 
+// ---------- the floating reading bar ----------
+
+const READING_BAR_KEY = 'notebook.readingBarPos';
+
+// Keep it on screen: a bar dragged to the edge and left there would be
+// unreachable after the window is resized smaller, with no way back.
+function clampBarPosition(x, y, bar) {
+  const { width, height } = bar.getBoundingClientRect();
+  const margin = 8;
+  return {
+    x: Math.max(margin, Math.min(window.innerWidth - width - margin, x)),
+    y: Math.max(margin, Math.min(window.innerHeight - height - margin, y)),
+  };
+}
+
+function placeReadingBar(x, y, { save = true } = {}) {
+  const bar = $('#reading-bar');
+  const at = clampBarPosition(x, y, bar);
+  bar.classList.add('placed');
+  bar.style.left = `${at.x}px`;
+  bar.style.top = `${at.y}px`;
+  if (save) localStorage.setItem(READING_BAR_KEY, JSON.stringify(at));
+}
+
+function recentreReadingBar() {
+  const bar = $('#reading-bar');
+  bar.classList.remove('placed');
+  bar.style.left = '';
+  bar.style.top = '';
+  localStorage.removeItem(READING_BAR_KEY);
+}
+
+// Drag by the grip, like the tool palettes in iPad drawing apps: while it
+// moves it collapses to the last tool used, so it covers as little of the
+// page as possible and reads as one thing being carried.
+function makeReadingBarDraggable() {
+  const bar = $('#reading-bar');
+  const grip = bar.querySelector('.read-grip');
+  let drag = null;
+
+  // Remember which tool was used last; that's the face the collapsed bar
+  // shows. Defaults to the first button until something is clicked.
+  const buttons = [...bar.querySelectorAll('.read-btn')];
+  buttons[0]?.classList.add('last-used');
+  bar.addEventListener('click', (e) => {
+    const btn = e.target.closest('.read-btn');
+    if (!btn || btn.classList.contains('read-btn-more')) return;
+    buttons.forEach((b) => b.classList.toggle('last-used', b === btn));
+  });
+
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    const rect = bar.getBoundingClientRect();
+    drag = {
+      // Where the pointer sits inside the bar, so it doesn't jump on grab.
+      dx: e.clientX - rect.left,
+      dy: e.clientY - rect.top,
+      moved: false,
+    };
+    grip.setPointerCapture(e.pointerId);
+  });
+
+  grip.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      // Collapsing changes the width, so re-anchor the grab point to the
+      // middle of what's left — otherwise the bar leaps out from the cursor.
+      bar.classList.add('dragging');
+      const collapsed = bar.getBoundingClientRect();
+      drag.dx = Math.min(drag.dx, collapsed.width / 2);
+      drag.dy = collapsed.height / 2;
+    }
+    placeReadingBar(e.clientX - drag.dx, e.clientY - drag.dy, { save: false });
+  });
+
+  const endDrag = (e) => {
+    if (!drag) return;
+    const wasDragged = drag.moved;
+    drag = null;
+    bar.classList.remove('dragging');
+    if (wasDragged) {
+      // Re-measure expanded: the collapsed pill may have been sitting where
+      // the full bar wouldn't fit.
+      const rect = bar.getBoundingClientRect();
+      placeReadingBar(rect.left, rect.top);
+    }
+    if (e.pointerId != null && grip.hasPointerCapture?.(e.pointerId)) {
+      grip.releasePointerCapture(e.pointerId);
+    }
+  };
+  grip.addEventListener('pointerup', endDrag);
+  grip.addEventListener('pointercancel', endDrag);
+
+  // Double-click the grip to put it back where it started.
+  grip.addEventListener('dblclick', recentreReadingBar);
+
+  // Restore last position, and keep it in view when the window changes size.
+  try {
+    const saved = JSON.parse(localStorage.getItem(READING_BAR_KEY) || 'null');
+    if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+      placeReadingBar(saved.x, saved.y, { save: false });
+    }
+  } catch {
+    /* ignore a corrupt position and stay centred */
+  }
+  window.addEventListener('resize', () => {
+    if (!bar.classList.contains('placed')) return;
+    const rect = bar.getBoundingClientRect();
+    placeReadingBar(rect.left, rect.top, { save: false });
+  });
+}
+
 // Jump to a page from anywhere — search hits, bookmarks, thumbnails, chat
 // citations. Whichever reading view is on screen follows: the zoom viewer if
 // it's open, the flipbook otherwise. Out-of-range indices are ignored rather
@@ -2212,6 +2325,7 @@ function wireViewer() {
 
 function wire() {
   wireViewer();
+  if (!IS_MOBILE) makeReadingBarDraggable(); // docked to the bottom on phones
   $('#file-input').addEventListener('change', (e) => {
     handleFiles(e.target.files);
     e.target.value = '';
