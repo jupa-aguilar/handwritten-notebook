@@ -37,17 +37,24 @@ body {
 
 /* ---------- toolbar ---------- */
 
+/* Top bar: identity and app-level actions only. The reading tools moved to
+   .reading-bar so the notebook's name stops competing with them for width —
+   a long title used to push the counters off the end of the row. */
 .toolbar {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   /* env() insets keep the toolbar clear of the iPhone notch in PWA mode. */
   padding: calc(10px + env(safe-area-inset-top, 0px))
     calc(16px + env(safe-area-inset-right, 0px)) 10px
     calc(16px + env(safe-area-inset-left, 0px));
   background: rgba(0, 0, 0, 0.25);
   border-bottom: 1px solid var(--line);
-  flex-wrap: wrap;
+}
+.toolbar-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .brand {
@@ -124,30 +131,28 @@ body {
   min-width: 5em;
 }
 
-/* Flexible zone between the search box and the action buttons. The status
-   texts live here and get truncated when the window runs out of room, so the
-   buttons on the right never move. */
-.toolbar-status {
+/* Transcription progress: transient by nature, so it takes the slack in the
+   row and truncates rather than pushing anything aside. */
+.ocr-status {
   flex: 1 1 0;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-}
-.toolbar-status > span {
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: right;
 }
 
-/* Action buttons form one rigid block anchored at the right edge; on a narrow
-   window the whole block drops to the next row instead of breaking apart.
-   The auto margin keeps it hugging the right edge on its own row too. */
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   margin-left: auto;
+}
+/* "Add pages" keeps its words where there's room and drops to a bare ＋ when
+   there isn't — it's the one primary action up here. */
+@media (max-width: 720px) {
+  .btn-label {
+    display: none;
+  }
 }
 
 /* The sync emoji changes state (☁/⏳/✓/⚠) and each glyph has a different
@@ -164,17 +169,107 @@ body {
   padding-right: 8px;
 }
 
+/* The meters — pages transcribed, chat spend — are reference figures, not
+   things to watch while reading, so they live behind the ☁ button instead of
+   holding a permanent slice of the row they used to get truncated in. */
+.sync-wrap {
+  position: relative;
+}
+.usage-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  min-width: 220px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--panel-ink);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.usage-pop[hidden] {
+  display: none;
+}
+.usage-pop-head {
+  font-family: Georgia, serif;
+  font-size: 0.95rem;
+}
 .usage {
-  font-size: 0.78rem;
-  color: var(--muted);
-  white-space: nowrap;
+  font-size: 0.82rem;
+  color: #6c6256;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.usage-detail {
+  color: #8a8073;
+  font-size: 0.76rem;
 }
 .usage.warn {
-  color: #e0a23c;
+  color: #b07a1e;
 }
 .usage.over {
-  color: #d9663a;
+  color: #c0392b;
   font-weight: 600;
+}
+
+/* ---------- reading tools ---------- */
+
+/* Floats over the page, centred, out of the way of the text but always in
+   reach. Kept clear of the pager, which sits below it. */
+.reading-bar {
+  position: absolute;
+  bottom: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(28, 24, 20, 0.82);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.read-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 58px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 0.7rem;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.read-btn:hover,
+.read-btn:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+}
+.read-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+.read-icon {
+  font-size: 1.05rem;
+  line-height: 1.1;
+}
+/* The bookmark list caret: same height, no label, hugging its sibling. */
+.read-btn-more {
+  min-width: 22px;
+  padding: 6px 2px;
+  justify-content: center;
+  font-size: 0.85rem;
 }
 
 /* ---------- bookmarks ---------- */
@@ -1222,6 +1317,49 @@ body.is-mobile .nav,
 body.is-mobile #zoom-btn,
 body.is-mobile #fullscreen-btn,
 body.is-mobile #viewer-close {
+  display: none;
+}
+
+/* On a phone the reading bar stops floating and docks to the bottom edge,
+   full width — the reachable end of the screen, and where a phone user
+   expects it. Its height is pinned to a variable so the panels and the viewer
+   can end exactly where it begins; hard-coding the number in both places had
+   them disagreeing by the few pixels of the safe-area inset. */
+body.is-mobile {
+  --read-bar-h: calc(60px + env(safe-area-inset-bottom, 0px));
+}
+body.is-mobile .reading-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  transform: none;
+  z-index: 45;
+  height: var(--read-bar-h);
+  box-sizing: border-box;
+  justify-content: space-around;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+}
+body.is-mobile .read-btn {
+  min-width: 0;
+  flex: 1 1 0;
+}
+/* Panels and the viewer end where the bar begins, not underneath it. The
+   panel is a flex item rather than positioned, so it yields the space with a
+   margin instead of an offset. */
+body.is-mobile .panel {
+  margin-bottom: var(--read-bar-h);
+}
+body.is-mobile .viewer {
+  inset: 0 0 var(--read-bar-h) 0;
+}
+/* Immersive mode hides it along with the toolbars. */
+body.is-mobile.immersive .reading-bar {
   display: none;
 }
 /* The chat is hidden only where it couldn't work anyway — a phone pointed at

@@ -764,6 +764,9 @@ async function send() {
 async function setChatHidden(hidden) {
   $('#chat').hidden = hidden;
   if (!hidden) $('#panel').hidden = true; // one side panel at a time
+  // Keep the reading bar's lit button in step with which panel is open.
+  $('#chat-btn').classList.toggle('active', !hidden);
+  $('#panel-toggle').classList.toggle('active', !$('#panel').hidden);
   // The book shares the row with this panel; StPageFlip refits on 'resize'.
   window.dispatchEvent(new Event('resize'));
   if (!hidden) {

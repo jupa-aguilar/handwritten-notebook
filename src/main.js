@@ -603,31 +603,43 @@ function bumpUsage() {
 // what the hosted chat has cost this month. The chat half only appears once
 // something has actually been spent — no point showing $0.00 to someone
 // running a local model.
+// Both meters, inside the ☁ popover. They're reference figures — how much of
+// the Vision free tier is left, what the chat has cost — so they're a click
+// away instead of holding a permanent slice of the toolbar.
 function updateUsageDisplay() {
   const el = $('#usage');
   if (!el) return;
-  const parts = [];
   const { count } = getUsage();
-  if (TRANSCRIPTION_ENABLED) parts.push(`OCR: ${count} / ${FREE_TIER} this month`);
   const spend = getChatSpend();
+  const lines = [];
+  if (TRANSCRIPTION_ENABLED) {
+    lines.push(`<div>Pages transcribed: <strong>${count}</strong> / ${FREE_TIER}</div>`);
+  }
   if (spend.messages > 0) {
     // Below a cent, a rounded figure would read as free; show it as such.
-    const shown = spend.dollars < 0.01 ? '<$0.01' : `$${spend.dollars.toFixed(2)}`;
-    parts.push(`Chat: ${shown}`);
+    const shown = spend.dollars < 0.01 ? '&lt;$0.01' : `$${spend.dollars.toFixed(2)}`;
+    lines.push(
+      `<div>Chat: <strong>${shown}</strong> over ${spend.messages} message(s)</div>`,
+      `<div class="usage-detail">${spend.input.toLocaleString()} input · ` +
+        `${spend.cachedInput.toLocaleString()} cached · ` +
+        `${spend.output.toLocaleString()} output tokens</div>`
+    );
+  } else {
+    lines.push('<div class="usage-detail">The chat hasn\'t been used this month.</div>');
   }
-  el.textContent = parts.join(' · ');
-  el.title = spend.messages
-    ? `${spend.messages} chat message(s) this month — ` +
-      `${spend.input.toLocaleString()} input tokens, ` +
-      `${spend.cachedInput.toLocaleString()} cached, ` +
-      `${spend.output.toLocaleString()} output. Estimated from the prices ` +
-      `published for gpt-5.6-luna; the bill is what OpenAI says it is.`
-    : 'Google Cloud Vision free tier: 1,000 pages per month (local estimate)';
+  el.innerHTML = lines.join('');
+  el.title = 'Estimated locally from published prices — the bill is what the provider says it is.';
   el.classList.toggle('over', TRANSCRIPTION_ENABLED && count >= FREE_TIER);
   el.classList.toggle(
     'warn',
     TRANSCRIPTION_ENABLED && count >= FREE_TIER * 0.8 && count < FREE_TIER
   );
+}
+
+function toggleUsagePop() {
+  const pop = $('#usage-pop');
+  if (pop.hidden) updateUsageDisplay();
+  pop.hidden = !pop.hidden;
 }
 
 // ---------- uploads ----------
@@ -816,6 +828,10 @@ function setPanelHidden(hidden) {
     $('#chat').hidden = true; // one side panel at a time — two would squeeze the book
     updatePanel();
   }
+  // The reading bar shows which view you're in, so an open panel is visible
+  // even when the panel itself is off to the side.
+  $('#panel-toggle').classList.toggle('active', !hidden);
+  $('#chat-btn').classList.toggle('active', !$('#chat').hidden);
   window.dispatchEvent(new Event('resize'));
 }
 
@@ -2384,7 +2400,19 @@ function wire() {
   $('#settings-btn').addEventListener('click', openSettings);
   $('#settings-save').addEventListener('click', saveSettings);
   $('#settings-cancel').addEventListener('click', closeSettings);
-  $('#sync-btn').addEventListener('click', () => doSync(true));
+  // ☁ opens the meters; syncing is the button inside, so a stray click on the
+  // cloud can't kick off a network round-trip you didn't ask for.
+  $('#sync-btn').addEventListener('click', toggleUsagePop);
+  $('#sync-now').addEventListener('click', () => {
+    $('#usage-pop').hidden = true;
+    doSync(true);
+  });
+  document.addEventListener('pointerdown', (e) => {
+    const pop = $('#usage-pop');
+    if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('.sync-wrap')) {
+      pop.hidden = true;
+    }
+  });
 
   $('#notebooks-btn').addEventListener('click', openNotebooks);
   $('#notebooks-close').addEventListener('click', () => ($('#notebooks').hidden = true));
