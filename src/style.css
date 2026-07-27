@@ -259,23 +259,19 @@ body {
   background-size: 5px 6px;
   background-position: center;
 }
-.reading-bar.dragging .read-grip {
-  cursor: grabbing;
+/* Collapsed: shrunk to the tool last used. Entered by dragging — so it stops
+   covering the page you're aiming at — and stays that way once dropped, a
+   small pill parked where you left it. Clicking it opens the bar again. */
+.reading-bar.collapsed {
+  cursor: grab;
 }
-
-/* While being dragged it shrinks to the tool last used, so it stops covering
-   the page you're trying to place it against and reads as one object you're
-   carrying rather than a whole bar being shoved around. */
-.reading-bar.dragging {
-  transition: none;
-  cursor: grabbing;
-}
-.reading-bar.dragging .read-btn:not(.last-used),
-.reading-bar.dragging .read-grip {
+.reading-bar.collapsed .read-btn:not(.last-used),
+.reading-bar.collapsed .read-grip {
   display: none;
 }
-.reading-bar.dragging .read-btn.last-used {
-  background: rgba(255, 255, 255, 0.12);
+.reading-bar.collapsed .read-btn.last-used {
+  background: rgba(255, 255, 255, 0.1);
+  pointer-events: none; /* the pill is one target: press it to open */
 }
 .read-btn {
   display: flex;

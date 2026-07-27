@@ -287,14 +287,17 @@ async function renderBook() {
 
 const READING_BAR_KEY = 'notebook.readingBarPos';
 
-// Keep it on screen: a bar dragged to the edge and left there would be
-// unreachable after the window is resized smaller, with no way back.
+// Keep it reachable. Off the screen edges, obviously — a bar left in a corner
+// would be lost the moment the window shrank — but also below the top bar:
+// dropped up there it slid under the search row and became a thing you could
+// see the edge of and not click.
 function clampBarPosition(x, y, bar) {
   const { width, height } = bar.getBoundingClientRect();
   const margin = 8;
+  const ceiling = ($('.toolbar')?.getBoundingClientRect().bottom || 0) + margin;
   return {
     x: Math.max(margin, Math.min(window.innerWidth - width - margin, x)),
-    y: Math.max(margin, Math.min(window.innerHeight - height - margin, y)),
+    y: Math.max(ceiling, Math.min(window.innerHeight - height - margin, y)),
   };
 }
 
@@ -315,16 +318,28 @@ function recentreReadingBar() {
   localStorage.removeItem(READING_BAR_KEY);
 }
 
-// Drag by the grip, like the tool palettes in iPad drawing apps: while it
-// moves it collapses to the last tool used, so it covers as little of the
-// page as possible and reads as one thing being carried.
+const READING_BAR_COLLAPSED_KEY = 'notebook.readingBarCollapsed';
+
+// Drag by the grip, like the tool palettes in iPad drawing apps: moving it
+// collapses it to the tool last used, and it *stays* that way once dropped —
+// a small pill parked wherever you left it. Click the pill to open it again.
 function makeReadingBarDraggable() {
   const bar = $('#reading-bar');
-  const grip = bar.querySelector('.read-grip');
   let drag = null;
+  let suppressClick = false;
 
-  // Remember which tool was used last; that's the face the collapsed bar
-  // shows. Defaults to the first button until something is clicked.
+  const isCollapsed = () => bar.classList.contains('collapsed');
+  function setCollapsed(on) {
+    bar.classList.toggle('collapsed', on);
+    localStorage.setItem(READING_BAR_COLLAPSED_KEY, on ? '1' : '0');
+    // Expanding needs more room than the pill did, so re-fit it on screen.
+    if (bar.classList.contains('placed')) {
+      const r = bar.getBoundingClientRect();
+      placeReadingBar(r.left, r.top);
+    }
+  }
+
+  // Which tool the pill shows. Defaults to the first until something is used.
   const buttons = [...bar.querySelectorAll('.read-btn')];
   buttons[0]?.classList.add('last-used');
   bar.addEventListener('click', (e) => {
@@ -333,54 +348,81 @@ function makeReadingBarDraggable() {
     buttons.forEach((b) => b.classList.toggle('last-used', b === btn));
   });
 
-  grip.addEventListener('pointerdown', (e) => {
+  // A click that ends a drag, or that opens the pill, must not also fire the
+  // tool underneath it. Caught in the capture phase, before the button sees it.
+  bar.addEventListener(
+    'click',
+    (e) => {
+      if (!suppressClick) return;
+      suppressClick = false;
+      e.stopPropagation();
+      e.preventDefault();
+    },
+    true
+  );
+
+  // Expanded, only the grip drags. Collapsed, the whole pill does — there is
+  // no grip to aim at, and a press that doesn't move opens it instead.
+  bar.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    if (!isCollapsed() && !e.target.closest('.read-grip')) return;
     e.preventDefault();
     const rect = bar.getBoundingClientRect();
-    drag = {
-      // Where the pointer sits inside the bar, so it doesn't jump on grab.
-      dx: e.clientX - rect.left,
-      dy: e.clientY - rect.top,
-      moved: false,
-    };
-    grip.setPointerCapture(e.pointerId);
+    drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top, moved: false };
+    // Capture on the bar, never on the grip: collapsing hides the grip, and a
+    // hidden element loses pointer capture — which stranded the bar mid-drag,
+    // stuck collapsed and deaf to the mouse.
+    bar.setPointerCapture(e.pointerId);
   });
 
-  grip.addEventListener('pointermove', (e) => {
+  bar.addEventListener('pointermove', (e) => {
     if (!drag) return;
+    // A few pixels of slack so a slightly shaky click on the pill still reads
+    // as a click rather than a drag.
+    if (!drag.moved && Math.hypot(e.clientX - drag.dx - bar.getBoundingClientRect().left,
+                                  e.clientY - drag.dy - bar.getBoundingClientRect().top) < 3) {
+      return;
+    }
     if (!drag.moved) {
       drag.moved = true;
-      // Collapsing changes the width, so re-anchor the grab point to the
-      // middle of what's left — otherwise the bar leaps out from the cursor.
-      bar.classList.add('dragging');
-      const collapsed = bar.getBoundingClientRect();
-      drag.dx = Math.min(drag.dx, collapsed.width / 2);
-      drag.dy = collapsed.height / 2;
+      if (!isCollapsed()) {
+        // Collapsing changes the width, so re-anchor the grab point to the
+        // middle of what's left — otherwise the bar leaps out of the cursor.
+        bar.classList.add('collapsed');
+        const pill = bar.getBoundingClientRect();
+        drag.dx = Math.min(drag.dx, pill.width / 2);
+        drag.dy = pill.height / 2;
+      }
     }
     placeReadingBar(e.clientX - drag.dx, e.clientY - drag.dy, { save: false });
   });
 
   const endDrag = (e) => {
     if (!drag) return;
-    const wasDragged = drag.moved;
+    const { moved } = drag;
     drag = null;
-    bar.classList.remove('dragging');
-    if (wasDragged) {
-      // Re-measure expanded: the collapsed pill may have been sitting where
-      // the full bar wouldn't fit.
-      const rect = bar.getBoundingClientRect();
-      placeReadingBar(rect.left, rect.top);
-    }
-    if (e.pointerId != null && grip.hasPointerCapture?.(e.pointerId)) {
-      grip.releasePointerCapture(e.pointerId);
+    if (bar.hasPointerCapture?.(e.pointerId)) bar.releasePointerCapture(e.pointerId);
+    if (moved) {
+      suppressClick = true; // don't fire the tool we happened to let go over
+      setCollapsed(true); // dropped where you put it, and it stays small
+    } else if (isCollapsed()) {
+      suppressClick = true;
+      setCollapsed(false); // a plain click on the pill opens it back up
     }
   };
-  grip.addEventListener('pointerup', endDrag);
-  grip.addEventListener('pointercancel', endDrag);
+  bar.addEventListener('pointerup', endDrag);
+  bar.addEventListener('pointercancel', endDrag);
 
-  // Double-click the grip to put it back where it started.
-  grip.addEventListener('dblclick', recentreReadingBar);
+  // Double-click the grip to put it back in the middle, expanded.
+  bar.querySelector('.read-grip').addEventListener('dblclick', () => {
+    setCollapsed(false);
+    recentreReadingBar();
+  });
 
-  // Restore last position, and keep it in view when the window changes size.
+  // Restore where and how it was left.
+  if (localStorage.getItem(READING_BAR_COLLAPSED_KEY) === '1') {
+    bar.classList.add('collapsed');
+  }
   try {
     const saved = JSON.parse(localStorage.getItem(READING_BAR_KEY) || 'null');
     if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
