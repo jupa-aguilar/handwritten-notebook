@@ -793,8 +793,18 @@ function updateUsageDisplay() {
 
 function toggleUsagePop() {
   const pop = $('#usage-pop');
-  if (pop.hidden) updateUsageDisplay();
-  pop.hidden = !pop.hidden;
+  if (!pop.hidden) {
+    pop.hidden = true;
+    return;
+  }
+  updateUsageDisplay();
+  pop.hidden = false;
+  // Narrow screens position it across the window (see the media query), so
+  // it needs a top: the toolbar's height varies with how the title wraps.
+  pop.style.top =
+    window.innerWidth <= 600
+      ? `${Math.round($('.toolbar').getBoundingClientRect().bottom + 8)}px`
+      : '';
 }
 
 // ---------- uploads ----------

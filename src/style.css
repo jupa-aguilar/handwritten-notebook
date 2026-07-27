@@ -193,6 +193,19 @@ body {
 .usage-pop[hidden] {
   display: none;
 }
+/* On a phone, anchoring a 220px card to the right edge of a 40px button
+   leaves it at the mercy of whatever else is in the row. Pin it across the
+   window instead, under the toolbar — JS sets `top`, since the toolbar's
+   height depends on how the title wraps. */
+@media (max-width: 600px) {
+  .usage-pop {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    min-width: 0;
+    font-size: 0.95rem;
+  }
+}
 .usage-pop-head {
   font-family: Georgia, serif;
   font-size: 0.95rem;
