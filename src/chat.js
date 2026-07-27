@@ -11,6 +11,7 @@
 
 import { foldText, escapeHtml } from './text.js';
 import { getChat, saveChat } from './db.js';
+import { latexToUnicode } from './latex.js';
 
 const URL_KEY = 'notebook.lmstudio.url';
 const DEFAULT_URL = 'http://localhost:1234';
@@ -447,6 +448,7 @@ export function buildSystemPrompt(name, pages, query, budget = CONTEXT_CHAR_BUDG
     'Write every citation as "(p. 3)" — that exact form, with the English "p.", even when the rest of your answer is in another language. The app turns those into links to the page, and only recognises that spelling. For several pages write (p. 3, 7) or a range (p. 3-5).',
     'If the notebook has nothing on the question, say so briefly and answer it anyway from your general knowledge.',
     'Write in a warm, close, plain-spoken tone — clear and to the point. Reply in the same language the user writes in.',
+    'Write maths and logic as plain text with Unicode symbols — ∧ ∨ ¬ ⊕ ≤ ≥ ≠ → ∀ ∃ ∈ ∑ √ π, subscripts like x₁, superscripts like x². Never use LaTeX: no \\( \\), no \\[ \\], no $…$, no \\land or \\frac. This chat shows plain text, so LaTeX reaches the reader as backslashes.',
     '',
     notes.join(' '),
     '',
@@ -497,7 +499,14 @@ function mdInline(s, pageCount) {
 }
 
 export function renderMarkdown(md, pageCount = 0) {
-  const lines = escapeHtml(md).split('\n');
+  // LaTeX → Unicode before anything else, so \land becomes ∧ rather than
+  // reaching the reader as backslashes. Code spans and fenced blocks are
+  // held out: there, the LaTeX source is the point.
+  const unlatexed = md
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+    .map((part) => (part.startsWith('`') ? part : latexToUnicode(part)))
+    .join('');
+  const lines = escapeHtml(unlatexed).split('\n');
   const out = [];
   let para = []; // pending paragraph lines
   let list = null; // 'ul' | 'ol' while inside a list
