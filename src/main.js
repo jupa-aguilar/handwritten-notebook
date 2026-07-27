@@ -30,6 +30,7 @@ import {
   highlight,
 } from './text.js';
 import { buildZip } from './zip.js';
+import { buildPdf } from './pdf.js';
 import {
   initChat,
   chatNotebookChanged,
@@ -1536,6 +1537,10 @@ function renderPagesGrid() {
 // current selection.
 function updatePagesSelectionUI() {
   const n = selectedPageIds.size;
+  // PDF is the one action that works on the whole notebook when nothing is
+  // ticked, so it says which of the two it's about to do.
+  const pdf = $('#pages-pdf');
+  if (!pdf.disabled) pdf.textContent = n ? `📄 PDF (${n})` : '📄 PDF';
   const dl = $('#pages-download-selected');
   dl.hidden = n === 0;
   if (!dl.disabled) dl.textContent = `⬇ Download selected (${n})`;
@@ -1609,6 +1614,53 @@ async function downloadSelectedPages() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
   setOcrStatus(`Downloaded ${selected.length === 1 ? '1 page' : downloadName}`);
+}
+
+// Save pages as a PDF. The transcriptions ride along as an invisible text
+// layer, so the file is searchable in any reader while showing the original
+// handwriting — the one thing this export does that the ZIP of images can't.
+//
+// PDF can only carry JPEG directly, so anything stored in another format is
+// re-encoded first. That's the only reason a page is ever recompressed here.
+async function downloadPdf() {
+  const chosen = selectedPageIds.size
+    ? pages.filter((p) => selectedPageIds.has(p.id))
+    : pages;
+  if (chosen.length === 0) return;
+
+  const btn = $('#pages-pdf');
+  btn.disabled = true;
+  const label = btn.textContent;
+  try {
+    const built = [];
+    for (const [i, p] of chosen.entries()) {
+      btn.textContent = `⏳ ${i + 1} / ${chosen.length}…`;
+      // Yield now and then so the count paints; setTimeout rather than rAF,
+      // which never fires in a backgrounded tab.
+      if (i % 5 === 0) await new Promise((r) => setTimeout(r));
+      let { blob, width, height } = p;
+      if (p.mediaType !== 'image/jpeg') {
+        const jpeg = await processImage(new File([blob], p.name || 'page'));
+        ({ blob, width, height } = jpeg);
+      }
+      built.push({
+        jpeg: new Uint8Array(await blob.arrayBuffer()),
+        width,
+        height,
+        words: p.words,
+        text: p.text,
+      });
+    }
+    const nbName = ($('#current-notebook').textContent || 'notebook').replace(/[/\\:]/g, '-');
+    downloadBlob(buildPdf(built), `${nbName}.pdf`);
+    setOcrStatus(`Saved ${chosen.length} page(s) as PDF`);
+  } catch (err) {
+    console.error('PDF export failed', err);
+    setOcrStatus(`PDF export failed: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
 }
 
 // Swap one page's image for an edited file. The page keeps its slot,
@@ -2284,6 +2336,7 @@ function wire() {
     setAllPagesSelected(e.target.checked)
   );
   $('#pages-delete-selected').addEventListener('click', deleteSelectedPages);
+  $('#pages-pdf').addEventListener('click', downloadPdf);
   $('#pages-download-selected').addEventListener('click', downloadSelectedPages);
   // Bulk replace: replaceTargetId === null tells the change handler that the
   // picked files belong to the selection, not to a single card's 🔁.
