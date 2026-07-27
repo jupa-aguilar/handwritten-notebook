@@ -1253,31 +1253,24 @@ kbd {
     width: 100%;
     max-width: none;
   }
-  /* Phone: dissolve the button block so buttons flow (and wrap) one by one —
-     a rigid block would overflow the narrow screen. */
-  .toolbar-actions {
-    display: contents;
-  }
-  /* No room to squeeze status text between buttons here: give it a full row
-     of its own, but only when there is something to say (.usage is already
-     hidden on phones, so only the OCR/sync status counts). */
-  .toolbar-status {
-    order: 9;
-    flex: 1 1 100%;
-    justify-content: flex-start;
-  }
-  .toolbar-status:not(:has(> .ocr-status:not(:empty))) {
-    display: none;
-  }
   .book-area {
     padding: 12px;
   }
   .current-notebook {
     max-width: 38vw;
   }
-  /* Secondary status text is noise on a phone-sized toolbar. */
-  .usage {
-    display: none;
+  /* Transcription progress gets a line of its own rather than being squeezed
+     to an ellipsis between the title and the buttons. */
+  .toolbar-main {
+    flex-wrap: wrap;
+  }
+  .ocr-status {
+    order: 9;
+    flex: 1 1 100%;
+    text-align: left;
+  }
+  .ocr-status:empty {
+    display: none; /* no empty row when there's nothing being transcribed */
   }
 }
 
