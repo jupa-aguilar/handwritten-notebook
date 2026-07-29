@@ -71,6 +71,7 @@ let currentNotebookId = null;
 let objectUrls = [];     // live object URLs to revoke on re-render
 let gridUrls = [];       // thumbnail object URLs for the pages overview
 let selectedPageIds = new Set(); // page ids ticked in the pages overview
+let selectionAnchorId = null; // last page ticked — the far end of a range select
 let dragSrcIndex = null;  // index of the page being dragged in the overview
 let replaceTargetId = null; // page whose 🔁 button opened the file picker
 let dragBlockIds = null;  // ids moving together when a selected card is dragged
@@ -1534,6 +1535,7 @@ async function importNotebookFromFile(file) {
 
 function openPagesOverview() {
   selectedPageIds.clear();
+  selectionAnchorId = null;
   $('#pages-overview').hidden = false;
   renderPagesGrid();
   // Land on the page being read, not at the top — with hundreds of pages the
@@ -1558,6 +1560,9 @@ function renderPagesGrid() {
   for (const id of [...selectedPageIds]) {
     if (!alive.has(id)) selectedPageIds.delete(id);
   }
+  if (selectionAnchorId != null && !alive.has(selectionAnchorId)) {
+    selectionAnchorId = null;
+  }
 
   const grid = $('#pages-grid');
   if (pages.length === 0) {
@@ -1572,7 +1577,7 @@ function renderPagesGrid() {
       gridUrls.push(u);
       const selected = selectedPageIds.has(p.id);
       return `<figure class="page-card${selected ? ' selected' : ''}${p.bookmarked ? ' bookmarked' : ''}${i === currentPage ? ' current' : ''}" draggable="true" data-index="${i}">
-          <label class="page-select" title="Select page ${i + 1}">
+          <label class="page-select" title="Select page ${i + 1} — shift-click (or hold, on touch) to select up to here">
             <input type="checkbox" data-id="${p.id}"${selected ? ' checked' : ''} />
           </label>
           <span class="card-ribbon" aria-hidden="true"></span>
@@ -1589,15 +1594,65 @@ function renderPagesGrid() {
     })
     .join('');
 
-  grid.querySelectorAll('.page-select input').forEach((box) =>
-    box.addEventListener('change', () => {
-      const id = Number(box.dataset.id);
-      if (box.checked) selectedPageIds.add(id);
-      else selectedPageIds.delete(id);
-      box.closest('.page-card').classList.toggle('selected', box.checked);
+  // Ticking runs off `click`, not `change`, because that's the only event that
+  // carries shiftKey — and it already sees the box's new checked state.
+  grid.querySelectorAll('.page-select input').forEach((box) => {
+    const id = Number(box.dataset.id);
+    let holdTimer = null;
+    let holdStart = null;
+    let heldRange = false;
+
+    box.addEventListener('click', (e) => {
+      // A long press already picked the range; undo the toggle this click
+      // would otherwise apply on top of it.
+      if (heldRange) {
+        heldRange = false;
+        setPageSelected(id, selectedPageIds.has(id));
+        return;
+      }
+      if (!(e.shiftKey && selectPageRange(selectionAnchorId, id, box.checked))) {
+        setPageSelected(id, box.checked);
+      }
+      selectionAnchorId = id;
       updatePagesSelectionUI();
-    })
-  );
+    });
+
+    // Touch has no shift key, so press and hold extends the selection instead.
+    const cancelHold = () => {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+      holdStart = null;
+    };
+    box.addEventListener('pointerdown', (e) => {
+      // Clear here rather than trusting the click after a hold to arrive: some
+      // touch browsers swallow it, and a stale latch would eat the next tick.
+      heldRange = false;
+      cancelHold();
+      if (e.pointerType === 'mouse' || selectionAnchorId == null) return;
+      holdStart = { x: e.clientX, y: e.clientY };
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        // Follow the anchor: holding from a ticked page selects the run,
+        // holding from an unticked one clears it.
+        const on = selectedPageIds.has(selectionAnchorId);
+        if (!selectPageRange(selectionAnchorId, id, on)) return;
+        heldRange = true;
+        selectionAnchorId = id;
+        updatePagesSelectionUI();
+        navigator.vibrate?.(15); // the only feedback that the hold registered
+      }, 450);
+    });
+    box.addEventListener('pointermove', (e) => {
+      // Finger jitter shouldn't kill the hold; a real drag should.
+      if (!holdStart) return;
+      const moved =
+        Math.abs(e.clientX - holdStart.x) + Math.abs(e.clientY - holdStart.y);
+      if (moved > 12) cancelHold();
+    });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) =>
+      box.addEventListener(ev, cancelHold)
+    );
+  });
 
   grid.querySelectorAll('.page-thumb').forEach((b) =>
     b.addEventListener('click', () => {
@@ -1720,8 +1775,36 @@ function updatePagesSelectionUI() {
   all.indeterminate = n > 0 && n < pages.length;
 }
 
+// Tick or untick one page, keeping the Set, the checkbox and the card's
+// highlight in step — the grid is not re-rendered, so all three must move
+// together by hand.
+function setPageSelected(id, on) {
+  if (on) selectedPageIds.add(id);
+  else selectedPageIds.delete(id);
+  const box = $('#pages-grid').querySelector(`.page-select input[data-id="${id}"]`);
+  if (box) {
+    box.checked = on;
+    box.closest('.page-card').classList.toggle('selected', on);
+  }
+}
+
+// Apply `on` to every page between the two ids, inclusive. Returns false when
+// there is no usable range (no anchor yet, or it points at a deleted page), so
+// the caller can fall back to a plain single toggle.
+function selectPageRange(fromId, toId, on) {
+  if (fromId == null) return false;
+  const a = pages.findIndex((p) => p.id === fromId);
+  const b = pages.findIndex((p) => p.id === toId);
+  if (a < 0 || b < 0) return false;
+  for (let i = Math.min(a, b); i <= Math.max(a, b); i++) {
+    setPageSelected(pages[i].id, on);
+  }
+  return true;
+}
+
 function setAllPagesSelected(selected) {
   selectedPageIds = selected ? new Set(pages.map((p) => p.id)) : new Set();
+  selectionAnchorId = null;
   $('#pages-grid')
     .querySelectorAll('.page-select input')
     .forEach((box) => {
