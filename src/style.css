@@ -1463,9 +1463,16 @@ body.is-mobile .panel {
 body.is-mobile .viewer {
   inset: 0 0 var(--read-bar-h) 0;
 }
-/* Immersive mode hides it along with the toolbars. */
+/* Immersive mode hides it along with the toolbars — and with the bar gone,
+   nothing should keep holding a bar-shaped strip at the bottom of the screen:
+   the viewer and the panels stop short of the edge and the page background
+   shows through as a dead block. */
 body.is-mobile.immersive .reading-bar {
   display: none;
+}
+body.is-mobile.immersive .viewer,
+body.is-mobile.immersive .panel {
+  bottom: 0;
 }
 /* The chat is hidden only where it couldn't work anyway — a phone pointed at
    an LM Studio on localhost, which on a phone means the phone itself. With a
