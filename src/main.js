@@ -2454,6 +2454,24 @@ function wire() {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(refreshSearch, 150);
   });
+  // Escape drops the search: the text, the result list and the word boxes on
+  // the page. Handled here rather than left to the browser's native clearing
+  // of type="search", which doesn't fire `input` and so leaves the highlights
+  // behind. Once the box is already empty, Escape gives the keyboard back to
+  // the reading shortcuts; it never reaches the global handler, so it can't
+  // close a modal on the way.
+  $('#search').addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if ($('#search').value === '') {
+      $('#search').blur();
+      return;
+    }
+    clearTimeout(searchTimer);
+    $('#search').value = '';
+    refreshSearch();
+  });
 
   $('#prev').addEventListener('click', () => pageFlip && pageFlip.flipPrev());
   $('#next').addEventListener('click', () => pageFlip && pageFlip.flipNext());
