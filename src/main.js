@@ -19,6 +19,7 @@ import {
   touchNotebook,
   recordPageTombstone,
   recordNotebookTombstone,
+  getSyncedState,
 } from './db.js';
 import { transcribeImage } from './ocr.js';
 import {
@@ -66,6 +67,22 @@ const KEY_STORAGE = 'notebook.googleVisionKey';
 const CURRENT_KEY = 'notebook.currentId';
 const POSITIONS_KEY = 'notebook.positions'; // { [notebookId]: lastPageIndex }
 const FREE_TIER = 1000; // Google Cloud Vision free pages per month
+
+// Both automations are opt-in, and default to off for the same reason: a batch
+// of freshly added pages is exactly when you discover the scan came out wrong,
+// and both of them act before you can look. Transcription is the expensive one
+// — Vision bills per page, immediately — while sync merely publishes pages
+// you're about to delete. Off, they wait for ＋Transcribe and ☁ Sync now.
+const AUTO_SYNC_KEY = 'notebook.autoSync';
+const AUTO_OCR_KEY = 'notebook.autoTranscribe';
+
+function isAutoSyncOn() {
+  return localStorage.getItem(AUTO_SYNC_KEY) === '1';
+}
+
+function isAutoTranscribeOn() {
+  return localStorage.getItem(AUTO_OCR_KEY) === '1';
+}
 
 let pages = [];          // page records for the current notebook, ordered
 let currentNotebookId = null;
@@ -685,10 +702,20 @@ function updateHighlights() {
 
 // ---------- OCR queue ----------
 
-async function runOcrQueue() {
+// Transcribe every page still marked pending. Vision bills per page and the
+// pages are gone the moment they're read, so unless the user turned automatic
+// transcription on, this only runs when they ask for it — every automatic
+// caller (adding, replacing, importing, startup, saving a key) leaves the
+// pages queued and lets the ＋Transcribe button offer the work instead.
+async function runOcrQueue({ manual = false } = {}) {
   if (!TRANSCRIPTION_ENABLED) return;
+  if (!manual && !isAutoTranscribeOn()) {
+    updateOcrCue();
+    return;
+  }
   if (ocrRunning) return;
   ocrRunning = true;
+  updateOcrCue();
   try {
     while (true) {
       const page = pages.find((p) => p.ocrStatus === 'pending');
@@ -730,9 +757,27 @@ async function runOcrQueue() {
     ocrRunning = false;
     const pending = pages.filter((p) => p.ocrStatus === 'pending').length;
     setOcrStatus(pending ? `${pending} page(s) waiting` : '');
+    updateOcrCue();
     // Push the fresh transcriptions to other devices.
-    if (!pending && isSyncConfigured()) doSync(false);
+    if (!pending && isSyncConfigured() && isAutoSyncOn()) doSync(false);
+    else scheduleSync(); // …or just light the dot
   }
+}
+
+// The ＋Transcribe button: shown whenever pages are queued, so the work is one
+// click away right after adding them — which is when you're looking at the
+// scans and deciding whether they're worth transcribing at all.
+function updateOcrCue() {
+  const btn = $('#transcribe-now');
+  if (!btn) return;
+  const pending = TRANSCRIPTION_ENABLED
+    ? pages.filter((p) => p.ocrStatus === 'pending').length
+    : 0;
+  btn.hidden = pending === 0 || ocrRunning;
+  btn.textContent = `Transcribe ${pending} page${pending === 1 ? '' : 's'}`;
+  btn.title = getApiKey()
+    ? `Send ${pending} page(s) to Google Cloud Vision`
+    : 'Add a Vision API key in ⚙ Settings first';
 }
 
 function setOcrStatus(text) {
@@ -865,10 +910,43 @@ let syncTimer = null;
 
 // Push local edits ~30s after the last change, batching bursts of edits into
 // one upload. Silent: if sign-in expired, doSync leaves the ⚠ Sync cue.
+//
+// With automatic sync off this is where every mutation still lands, so it is
+// also where the "there is something to push" dot gets refreshed: nothing goes
+// to Drive, but the ☁ button stops looking idle.
 function scheduleSync() {
   if (!isSyncConfigured()) return;
+  if (!isAutoSyncOn()) {
+    updateSyncCue();
+    return;
+  }
   clearTimeout(syncTimer);
   syncTimer = setTimeout(() => doSync(false), 30_000);
+}
+
+// Does any notebook carry edits made since this device last synced it? Derived
+// from the syncState record rather than tracked in a flag of its own, so it
+// survives a reload and can't drift out of step with what sync actually did.
+// A whole notebook deleted since the last sync doesn't light the dot — that
+// lives in a tombstone, not in an updatedAt.
+async function hasUnsyncedChanges() {
+  if (!isSyncConfigured()) return false;
+  for (const nb of await listNotebooks()) {
+    if (!nb.uuid) return true; // never synced, so never pushed
+    const st = await getSyncedState(nb.uuid);
+    if (!st || (nb.updatedAt || 0) > (st.localAt || 0)) return true;
+  }
+  return false;
+}
+
+async function updateSyncCue() {
+  const btn = $('#sync-btn');
+  if (!btn || syncRunning) return;
+  const pending = !isAutoSyncOn() && (await hasUnsyncedChanges());
+  btn.classList.toggle('pending', pending);
+  btn.title = pending
+    ? 'Changes not synced yet — open ☁ and press Sync now'
+    : 'Sync notebooks across devices via your Google Drive';
 }
 
 async function doSync(interactive) {
@@ -901,6 +979,7 @@ async function doSync(interactive) {
     }
     setOcrStatus('');
     icon.textContent = '✓';
+    btn.classList.remove('pending'); // everything local is on Drive now
     setTimeout(() => {
       if (icon.textContent === '✓') icon.textContent = '☁';
     }, 4000);
@@ -918,6 +997,7 @@ async function doSync(interactive) {
   } finally {
     syncRunning = false;
     btn.disabled = false;
+    updateSyncCue();
   }
 }
 
@@ -925,8 +1005,10 @@ async function doSync(interactive) {
 
 function openSettings() {
   $('#api-key').value = getApiKey();
+  $('#auto-transcribe').checked = isAutoTranscribeOn();
   $('#sync-client-id').value = getSyncClientId();
   $('#sync-client-secret').value = getSyncClientSecret();
+  $('#auto-sync').checked = isAutoSyncOn();
   $('#openai-key').value = getOpenAiKey();
   $('#lmstudio-url').value = getStoredChatServerUrl();
   $('#settings').hidden = false;
@@ -941,6 +1023,8 @@ function saveSettings() {
   const key = $('#api-key').value.trim();
   if (key) localStorage.setItem(KEY_STORAGE, key);
   else localStorage.removeItem(KEY_STORAGE);
+  setAutoPref(AUTO_OCR_KEY, $('#auto-transcribe').checked);
+  setAutoPref(AUTO_SYNC_KEY, $('#auto-sync').checked);
   const hadSync = isSyncConfigured();
   const secretChanged = $('#sync-client-secret').value.trim() !== getSyncClientSecret();
   setSyncClientId($('#sync-client-id').value.trim());
@@ -949,11 +1033,20 @@ function saveSettings() {
   setChatServerUrl($('#lmstudio-url').value.trim());
   updateChatAvailability();
   closeSettings();
-  runOcrQueue(); // resume any pending transcriptions now that a key exists
+  // Resume pending transcriptions now that a key exists — but only if that was
+  // asked for; otherwise just re-label the ＋Transcribe button.
+  runOcrQueue();
+  updateOcrCue();
+  updateSyncCue();
   // First-time setup or a new secret: sign in now. A new secret needs one
   // interactive sign-in to mint the refresh token that keeps the Mac app
   // signed in from then on.
   if ((!hadSync || secretChanged) && isSyncConfigured()) doSync(true);
+}
+
+function setAutoPref(key, on) {
+  if (on) localStorage.setItem(key, '1');
+  else localStorage.removeItem(key);
 }
 
 // ---------- panel ----------
@@ -1187,6 +1280,7 @@ async function loadCurrentNotebook() {
   renderBook();
   refreshSearch();
   chatNotebookChanged();
+  updateOcrCue(); // pages waiting are counted per notebook
 }
 
 // Pick the current notebook on startup, creating a default one if none exist.
@@ -2659,6 +2753,16 @@ function wire() {
     onGoToPage: goToPage,
   });
 
+  // The manual transcription trigger. Without a key there is nothing to run,
+  // so send the user where the key goes instead of failing quietly.
+  $('#transcribe-now').addEventListener('click', () => {
+    if (!getApiKey()) {
+      openSettings();
+      return;
+    }
+    runOcrQueue({ manual: true });
+  });
+
   $('#settings-btn').addEventListener('click', openSettings);
   $('#settings-save').addEventListener('click', saveSettings);
   $('#settings-cancel').addEventListener('click', closeSettings);
@@ -2721,13 +2825,17 @@ async function init() {
     if (!getApiKey()) {
       setOcrStatus('Add an API key to transcribe pages →');
     }
-    // Resume transcription for any pages left pending from a previous session.
+    // Resume transcription for any pages left pending from a previous session
+    // — or, with automatic transcription off, just offer it on the button.
     if (pages.some((p) => p.ocrStatus === 'pending')) runOcrQueue();
+    updateOcrCue();
   }
 
   // Pull/push changes on startup (silent: if sign-in is needed, the ☁ Sync
-  // button does it interactively).
-  if (isSyncConfigured() && navigator.onLine) doSync(false);
+  // button does it interactively). Skipped entirely when automatic sync is
+  // off: opening the app is not the user asking to publish anything.
+  if (isSyncConfigured() && navigator.onLine && isAutoSyncOn()) doSync(false);
+  else updateSyncCue();
 }
 
 // Expose a reset for convenience in the console (wipes ALL notebooks).

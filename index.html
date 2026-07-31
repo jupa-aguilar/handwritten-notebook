@@ -21,6 +21,7 @@
         <span id="current-notebook" class="current-notebook"></span>
 
         <span id="ocr-status" class="ocr-status"></span>
+        <button id="transcribe-now" class="btn small" hidden>Transcribe pages</button>
 
         <div class="toolbar-actions">
           <label class="btn" for="file-input" title="Add pages">＋<span class="btn-label"> Add pages</span></label>
@@ -201,6 +202,16 @@
           pages/month are free.
         </p>
         <input id="api-key" type="password" placeholder="AIza…" autocomplete="off" />
+        <label class="settings-check">
+          <input id="auto-transcribe" type="checkbox" />
+          <span>
+            Transcribe new pages automatically
+            <em>Off by default: Vision is billed per page and reads them the moment
+            they're added, before you've seen how the scan came out. Left off, pages
+            wait and the ＋Transcribe button in the toolbar sends them when you say
+            so.</em>
+          </span>
+        </label>
 
         <h3 class="settings-subtitle">Sync across devices (optional)</h3>
         <p class="hint">
@@ -217,6 +228,15 @@
         </p>
         <input id="sync-client-id" type="text" placeholder="1234…apps.googleusercontent.com" autocomplete="off" />
         <input id="sync-client-secret" type="password" placeholder="GOCSPX-… (client secret — Mac app only)" autocomplete="off" />
+        <label class="settings-check">
+          <input id="auto-sync" type="checkbox" />
+          <span>
+            Sync automatically
+            <em>Off by default: pages you're about to delete would be published to
+            Drive first. Left off, nothing reaches Drive until you press ☁ Sync now
+            — the ☁ button carries a dot while there's something waiting.</em>
+          </span>
+        </label>
 
         <h3 class="settings-subtitle">Chat (optional)</h3>
         <p class="hint">

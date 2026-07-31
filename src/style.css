@@ -162,6 +162,24 @@ body {
   width: 1.3em;
   text-align: center;
 }
+/* With automatic sync off, the ☁ button is the only thing standing between an
+   edit and losing track of whether it ever reached Drive — so it carries a dot
+   while something is waiting to be pushed. Drawn on the corner rather than
+   swapping the glyph, which would fight with the ⏳/✓/⚠ states. */
+#sync-btn.pending::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent, #c87f3a);
+}
+#sync-btn {
+  position: relative;
+}
+
 /* Same idea for the fullscreen toggle's ⛶/⤡ glyphs. */
 #fullscreen-btn {
   min-width: 44px;
@@ -1026,6 +1044,28 @@ kbd {
   margin: 18px 0 4px;
   font-family: Georgia, serif;
   font-size: 1.02rem;
+}
+/* Opt-in switches for the two things that used to happen on their own. The
+   explanation sits inside the label, in the same register as the .hint blocks
+   around it, because "why is this off?" is the whole point of the setting. */
+.settings-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 10px 0 4px;
+  cursor: pointer;
+}
+.settings-check input {
+  margin-top: 3px;
+  flex: none;
+}
+.settings-check em {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: 0.85rem;
+  opacity: 0.75;
+  line-height: 1.45;
 }
 .modal-actions {
   display: flex;
