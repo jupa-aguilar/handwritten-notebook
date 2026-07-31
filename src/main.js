@@ -567,6 +567,7 @@ function refreshSearch() {
     count.textContent = '';
     results.hidden = true;
     results.innerHTML = '';
+    $('#panel').classList.remove('searching');
     updatePanel();
     updateHighlights(); // redraw without word boxes; bookmark ribbons stay
     renderViewerHighlights();
@@ -614,6 +615,11 @@ function refreshSearch() {
     btn.addEventListener('click', () => goToPage(Number(btn.dataset.page)));
   });
 
+  // Marks the panel as showing search results rather than just the page text.
+  // On a phone that turns it into a half-height sheet: opened full-screen for
+  // a search it covered the page being searched, so there was nothing left to
+  // swipe and no way to see the hits in context.
+  $('#panel').classList.add('searching');
   openPanel();
   updatePanel();
   updateHighlights();

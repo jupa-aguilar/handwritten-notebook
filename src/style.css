@@ -1569,6 +1569,30 @@ body.is-mobile .panel {
   width: 100%;
   border-left: none;
 }
+/* Searching is different from reading the transcript: the page you're
+   searching has to stay on screen. Full height, the panel covered it whole —
+   the hits had no context and the page underneath couldn't be swiped, since
+   every touch landed on the panel. As a half sheet the page stays visible
+   above it and keeps turning. */
+body.is-mobile .panel.searching {
+  top: auto;
+  height: 55%;
+  border-top: 1px solid rgba(0, 0, 0, 0.25);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+}
+/* …and the hits come first. Below the page transcript they sat under a whole
+   screenful of text, which is the one thing you didn't ask to see. */
+body.is-mobile .panel.searching #results {
+  order: -1;
+  border-top: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  max-height: 60%;
+}
+/* The header owns the top edge of the sheet, or reordering the hits above it
+   would strand its ✕ in the middle of the panel. */
+body.is-mobile .panel.searching .panel-head {
+  order: -2;
+}
 
 /* Immersive reading: floating ⛶ toggle hides both toolbars (iOS has no real
    Fullscreen API, so this is plain CSS). */
