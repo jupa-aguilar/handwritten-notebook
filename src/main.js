@@ -1163,11 +1163,26 @@ function openBookmarks() {
   renderBookmarksList();
   const pop = $('#bookmarks-pop');
   pop.hidden = false;
+  // On a phone it's a full-screen sheet placed entirely by CSS: the reading
+  // bar is docked to the bottom edge, so anchoring under its ▾ button put the
+  // list off the screen. Clear any anchoring left over from a desktop layout.
+  if (IS_MOBILE) {
+    pop.style.top = '';
+    pop.style.left = '';
+    return;
+  }
   // Anchor under the ▾ button, right-aligned, clamped into the viewport.
   const r = $('#bookmarks-btn').getBoundingClientRect();
-  pop.style.top = `${r.bottom + 6}px`;
   const w = pop.offsetWidth;
   pop.style.left = `${Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))}px`;
+  // …and flipped above the button when there isn't room below it, which is
+  // what happens once the reading bar has been dragged near the bottom edge.
+  const h = pop.offsetHeight;
+  const below = r.bottom + 6;
+  pop.style.top =
+    below + h > window.innerHeight - 8
+      ? `${Math.max(8, r.top - 6 - h)}px`
+      : `${below}px`;
 }
 
 function closeBookmarks() {
@@ -2583,6 +2598,7 @@ function wire() {
 
   $('#bookmark-toggle').addEventListener('click', () => toggleBookmark());
   $('#bookmarks-btn').addEventListener('click', toggleBookmarksPop);
+  $('#bm-close').addEventListener('click', closeBookmarks);
   // Any press outside the popover (or its toolbar buttons, which manage it
   // themselves) closes it, like a menu.
   document.addEventListener('pointerdown', (e) => {

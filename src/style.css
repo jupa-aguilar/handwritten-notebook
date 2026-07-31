@@ -388,9 +388,18 @@ body {
   padding: 10px;
 }
 .bm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 0.75rem;
   color: #8a7d6c;
   padding: 2px 6px 8px;
+}
+/* On a desktop the list closes by clicking away or pressing Escape, so the
+   button would be clutter; the phone sheet has neither and needs it. */
+#bm-close {
+  display: none;
 }
 .bm-list {
   list-style: none;
@@ -434,7 +443,10 @@ body {
   color: #8a7d6c;
   font-style: italic;
 }
-.bm-item .btn.ghost {
+/* The popover is a light panel, but .btn.ghost is coloured for the dark
+   toolbar — left alone, these read as nearly invisible against it. */
+.bm-item .btn.ghost,
+#bm-close {
   color: var(--panel-ink);
   border-color: rgba(0, 0, 0, 0.2);
   flex: 0 0 auto;
@@ -1481,6 +1493,31 @@ body.is-mobile {
     margin-right: 0;
   }
 }
+/* The bookmarks list hangs under its ▾ button. On a phone that button is in
+   the bar docked to the bottom edge, so "under it" is off the screen: all you
+   saw was the top sliver, the rest cut off below the fold. Here it becomes a
+   sheet over the stage, like the transcript panel and the chat — which also
+   means there is no "outside" left to click, hence the ✕ above. */
+body.is-mobile .bookmarks-pop {
+  inset: 0 0 var(--read-bar-h) 0;
+  width: auto;
+  max-height: none;
+  border-radius: 0;
+  padding: 12px calc(12px + env(safe-area-inset-right, 0px)) 12px
+    calc(12px + env(safe-area-inset-left, 0px));
+}
+body.is-mobile #bm-close {
+  display: inline-flex;
+}
+body.is-mobile .bm-head {
+  font-size: 0.9rem;
+  padding-bottom: 10px;
+}
+/* Full-width rows are easier to hit than a 340px popover's were. */
+body.is-mobile .bm-item {
+  padding: 2px 0;
+}
+
 /* Docked, so there is nowhere to drag it to. */
 body.is-mobile .read-grip {
   display: none;

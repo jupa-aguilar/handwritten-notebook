@@ -146,9 +146,13 @@
       </div>
     </main>
 
-    <!-- Bookmarks quick list (anchored under the ▾ toolbar button) -->
+    <!-- Bookmarks quick list (anchored under the ▾ toolbar button; a full-screen
+         sheet on phones, where that button sits in the bottom-docked bar) -->
     <div id="bookmarks-pop" class="bookmarks-pop" hidden>
-      <div class="bm-head">Bookmarks</div>
+      <div class="bm-head">
+        <span>Bookmarks</span>
+        <button id="bm-close" class="btn ghost small" title="Close" aria-label="Close bookmarks">✕</button>
+      </div>
       <ul id="bm-list" class="bm-list"></ul>
     </div>
 
