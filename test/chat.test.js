@@ -4,6 +4,7 @@ import {
   renderMarkdown,
   chatWorksWithoutLocalServer,
   buildSystemPrompt,
+  focusNote,
   setOpenAiKey,
   setChatServerUrl,
 } from '../src/chat.js';
@@ -103,6 +104,56 @@ describe('buildSystemPrompt', () => {
     const prompt = buildSystemPrompt('Cuaderno', mixed, 'x', 100000);
     expect(prompt).toContain('The notebook has 3 page(s); 1 of them are transcribed.');
     expect(prompt.match(/--- Page/g)).toHaveLength(1);
+  });
+
+  // Same cache bargain as above, now against the page the reader has open:
+  // marking it in the dump, or reordering the dump around it, would re-bill the
+  // whole notebook at full price on every page turn. The position travels in
+  // the tail instead (focusNote).
+  it('is identical whatever page is on screen when the whole notebook fits', () => {
+    const none = buildSystemPrompt('Cuaderno', notebook, 'pan', 100000);
+    const first = buildSystemPrompt('Cuaderno', notebook, 'pan', 100000, [0]);
+    const spread = buildSystemPrompt('Cuaderno', notebook, 'pan', 100000, [1, 2]);
+    expect(first).toBe(none);
+    expect(spread).toBe(none);
+  });
+
+  it('keeps the page on screen when the notebook overflows', () => {
+    const tight = 60; // room for roughly one page
+    // Nothing on page 1 matches the question, so relevance alone would drop it.
+    const prompt = buildSystemPrompt('Cuaderno', notebook, 'PCIe', tight, [0]);
+    expect(prompt).toContain('canción de mañana');
+    expect(prompt).not.toContain('Notas sobre PCIe');
+  });
+});
+
+// The reading position rides in the tail of the outgoing message, so it is
+// this string — not the system prompt — that has to name the pages correctly.
+describe('focusNote', () => {
+  const notebook = pagesOf('primera', 'segunda', 'tercera');
+
+  it('is empty without a reading position', () => {
+    expect(focusNote(notebook, [])).toBe('');
+    expect(focusNote(notebook)).toBe('');
+  });
+
+  it('names both sheets of a spread, 1-based like the app', () => {
+    const note = focusNote(notebook, [1, 2]);
+    expect(note).toContain('pages 2 and 3');
+    expect(note).toContain('those pages');
+    expect(focusNote(notebook, [0])).toContain('page 1');
+  });
+
+  it('ignores pages that no longer exist', () => {
+    expect(focusNote(notebook, [2, 3])).toContain('page 3');
+    expect(focusNote(notebook, [7])).toBe('');
+  });
+
+  // An untranscribed page is on screen but unreadable — left unsaid, that is an
+  // invitation to invent what it says.
+  it('flags a page it cannot read instead of letting the model guess', () => {
+    const note = focusNote([{ text: 'primera' }, { text: '' }], [0, 1]);
+    expect(note).toContain('No transcription yet for page 2');
   });
 });
 

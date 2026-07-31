@@ -35,6 +35,7 @@ import { bumpOcr, getTotals, resetOwnUsage } from './usage.js';
 import {
   initChat,
   chatNotebookChanged,
+  chatFocusChanged,
   getStoredChatServerUrl,
   setChatServerUrl,
   getOpenAiKey,
@@ -455,7 +456,12 @@ function goToPage(index) {
 function updatePager() {
   const indicator = $('#page-indicator');
   if (!indicator) return;
-  indicator.textContent = pages.length ? `${currentPage + 1} / ${pages.length}` : '';
+  // A landscape spread shows two sheets, so name both: "7–8 / 57". Saying just
+  // "7" left the right-hand page unnamed anywhere on screen — and the chat
+  // anchors to what's visible, so it has to be visible what that is.
+  const shown = visiblePages().map((p) => pages.indexOf(p) + 1);
+  const where = shown.length > 1 ? `${shown[0]}–${shown[shown.length - 1]}` : shown[0];
+  indicator.textContent = pages.length ? `${where} / ${pages.length}` : '';
   $('#first').disabled = currentPage <= 0;
   $('#last').disabled = currentPage >= pages.length - 1;
 }
@@ -487,6 +493,7 @@ async function removePage(id) {
 
 function updatePanel() {
   updateBookmarkButtons(); // every page change funnels through here
+  chatFocusChanged(); // …including the chat's "reading p. 7–8" anchor
   const body = $('#panel-body');
   const page = pages[currentPage];
   if (!page) {
@@ -994,7 +1001,10 @@ function togglePanel() {
 // ---------- bookmarks ----------
 
 // The page(s) on screen: both halves of a landscape spread in the flipbook,
-// otherwise just the current page (portrait, phones, zoom viewer).
+// otherwise just the current page (portrait, phones, zoom viewer). The spread
+// is derived from `currentPage`, not from the flipbook's own index: the two
+// agree, but `currentPage` is set first (the 'flip' handler assigns it before
+// anything reads back), so it can't lag by a turn.
 function visiblePages() {
   if (
     pageFlip &&
@@ -1002,8 +1012,7 @@ function visiblePages() {
     pages.length > 0 &&
     pageFlip.getOrientation() !== 'portrait'
   ) {
-    const idx = pageFlip.getCurrentPageIndex();
-    const left = idx - (idx % 2);
+    const left = currentPage - (currentPage % 2);
     return [pages[left], pages[left + 1]].filter(Boolean);
   }
   return pages[currentPage] ? [pages[currentPage]] : [];
@@ -2642,6 +2651,9 @@ function wire() {
       id: currentNotebookId,
       name: $('#current-notebook').textContent,
       pages,
+      // What's on screen right now, so a question that names no page ("explain
+      // this") is answered about what the reader is actually looking at.
+      focus: visiblePages().map((p) => pages.indexOf(p)),
     }),
     onSpendChanged: updateUsageDisplay,
     onGoToPage: goToPage,

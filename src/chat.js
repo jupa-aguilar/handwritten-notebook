@@ -339,8 +339,15 @@ function scorePage(foldedText, terms) {
 // nothing here depends on the query — which is what lets the hosted backend
 // serve it from its prompt cache at a tenth of the input price. That property
 // is load-bearing, not incidental: test/chat.test.js pins it.
-export function buildSystemPrompt(name, pages, query, budget = CONTEXT_CHAR_BUDGET) {
+export function buildSystemPrompt(
+  name,
+  pages,
+  query,
+  budget = CONTEXT_CHAR_BUDGET,
+  focus = []
+) {
   const terms = queryTerms(query);
+  const onScreen = new Set(focus);
   const entries = [];
   let withText = 0;
   pages.forEach((p, i) => {
@@ -359,9 +366,21 @@ export function buildSystemPrompt(name, pages, query, budget = CONTEXT_CHAR_BUDG
   // When everything fits, every page is kept whatever the ranking said, so the
   // result is the same prompt for every question — the cacheable case. Ranking
   // only starts to matter, and to vary the prompt, once the notebook overflows.
+  //
+  // What's on screen goes in first: an unanchored question ("explain this")
+  // usually means the open pages, and those must not be the ones truncation
+  // drops. Which page is on screen is deliberately NOT marked in the chunks —
+  // the prompt cache keys on a byte-identical prefix, so a mark that moved with
+  // every page turn would cost a full-price re-read of the whole notebook. The
+  // reading position travels in the tail instead (see focusNote).
   const kept = new Set();
   let used = 0;
-  for (const e of [...entries].sort((a, b) => b.score - a.score || a.i - b.i)) {
+  const byRelevance = (a, b) => b.score - a.score || a.i - b.i;
+  const order = [
+    ...entries.filter((e) => onScreen.has(e.i)).sort(byRelevance),
+    ...entries.filter((e) => !onScreen.has(e.i)).sort(byRelevance),
+  ];
+  for (const e of order) {
     if (used + e.chunk.length + 2 > budget) continue;
     kept.add(e.i);
     used += e.chunk.length + 2;
@@ -393,6 +412,38 @@ export function buildSystemPrompt(name, pages, query, budget = CONTEXT_CHAR_BUDG
     '',
     chunks.join('\n\n'),
   ].join('\n');
+}
+
+// Where the reader is, phrased for the model. This rides in the tail of the
+// outgoing message rather than in the system prompt on purpose: it changes
+// with every page turn, and the hosted backend only bills cached input for a
+// byte-identical *prefix*, so anything that moves has to come last.
+//
+// `focus` is the on-screen page indexes (both halves of a landscape spread),
+// 0-based like the array; the model is told them 1-based like the app's own
+// page numbers. A page with no transcription is named as such — it is on
+// screen, the model just can't read it, and left unsaid that's an invitation
+// to invent what's on it.
+export function focusNote(pages, focus = []) {
+  const shown = focus.filter((i) => pages[i]);
+  if (shown.length === 0) return '';
+  const list = shown.map((i) => i + 1);
+  const where =
+    list.length > 1
+      ? `pages ${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`
+      : `page ${list[0]}`;
+  const blank = shown.filter((i) => !(pages[i].text || '').trim()).map((i) => i + 1);
+  const caveat = blank.length
+    ? ` No transcription yet for ${
+        blank.length > 1 ? `pages ${blank.join(', ')}` : `page ${blank[0]}`
+      }, so say you can't read ${blank.length > 1 ? 'them' : 'it'} rather than guessing.`
+    : '';
+  return (
+    `\n\n[Reading position, from the app — not part of the question: the reader has ` +
+    `${where} open on screen. If the question doesn't name a page or a topic, answer about ` +
+    `${list.length > 1 ? 'those pages' : 'that page'} first and cite which one you used. ` +
+    `If it names another page or topic, follow the question.${caveat}]`
+  );
 }
 
 // ---------- rendering ----------
@@ -523,15 +574,21 @@ function bubble(m) {
 }
 
 function updateContextLine() {
-  const { pages } = getContext();
+  const { pages, focus = [] } = getContext();
   const withText = pages.filter((p) => (p.text || '').trim()).length;
   // Name the backend: with a key configured every message is billed and the
   // pages leave this machine, which the reader should not have to guess.
   const where = backend().hosted ? `${OPENAI_MODEL} · billed` : 'local model';
+  // Say which pages an unanchored question will be answered about, so the
+  // anchor is visible rather than something to deduce from the answers.
+  const shown = focus.filter((i) => pages[i]).map((i) => i + 1);
+  const reading = shown.length
+    ? ` · reading p. ${shown.length > 1 ? `${shown[0]}–${shown[shown.length - 1]}` : shown[0]}`
+    : '';
   $('#chat-context').textContent = pages.length
     ? `Context: ${withText} of ${pages.length} page${
         pages.length === 1 ? '' : 's'
-      } transcribed · ${where}`
+      } transcribed${reading} · ${where}`
     : 'This notebook has no pages yet.';
 }
 
@@ -597,7 +654,7 @@ async function send() {
   const input = $('#chat-input');
   const text = input.value.trim();
   if (!text || streamCtrl || !serverOk) return;
-  const { name, pages } = getContext();
+  const { name, pages, focus = [] } = getContext();
   const msgs = history();
 
   msgs.push({ role: 'user', content: text });
@@ -631,10 +688,13 @@ async function send() {
     // up by the very next message. Its context length sizes how much notebook
     // text we can attach without overflowing the model's window.
     const { id: model, contextLength } = await resolveModel();
-    // With thinking off, tag only the outgoing copy of this turn's message —
-    // the stored history stays clean, so every turn follows the toggle.
+    // Both of these tag only the outgoing copy of this turn's message — the
+    // stored history stays clean, so the reading position never piles up turn
+    // after turn and every turn follows the current thinking toggle.
     const outgoing = priorMsgs.map((m) => ({ ...m }));
     const last = outgoing[outgoing.length - 1];
+    if (last?.role === 'user') last.content += focusNote(pages, focus);
+    // Qwen's soft switch has to stay at the very end of the message.
     if (!isThinkingOn() && /qwen/i.test(model) && last?.role === 'user') {
       last.content += ' /no_think';
     }
@@ -645,7 +705,8 @@ async function send() {
           name,
           pages,
           text,
-          contextCharBudget(contextLength, priorMsgs, backend().hosted)
+          contextCharBudget(contextLength, priorMsgs, backend().hosted),
+          focus
         ),
       },
       ...outgoing,
@@ -719,6 +780,14 @@ async function setChatHidden(hidden) {
 function autosize(ta) {
   ta.style.height = 'auto';
   ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+}
+
+// Called by main.js on every page change, so the open chat keeps showing which
+// pages an unanchored question would be answered about. Cheap and idempotent:
+// it only rewrites one line of text.
+export function chatFocusChanged() {
+  if (!getContext || $('#chat').hidden) return;
+  updateContextLine();
 }
 
 // Called by main.js whenever another notebook is loaded, so an open chat
