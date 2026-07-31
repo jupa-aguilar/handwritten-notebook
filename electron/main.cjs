@@ -5,7 +5,7 @@
 // from file://) and it means all devices run the same deployed code. If the
 // network is down on first launch, it falls back to the bundled static build
 // (fully functional except sync/OCR).
-const { app, BrowserWindow, shell, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, Menu, shell, ipcMain, safeStorage } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -249,11 +249,17 @@ function browserSignIn(clientId, clientSecret) {
 }
 
 function createWindow() {
+  // Cascade off the front window so a second one doesn't land exactly on top
+  // of the first and look like nothing happened.
+  const front = BrowserWindow.getFocusedWindow();
+  const offset = front ? front.getPosition() : null;
+
   const win = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 700,
     minHeight: 500,
+    ...(offset ? { x: offset[0] + 32, y: offset[1] + 32 } : {}),
     backgroundColor: '#2b2622', // matches the app's --bg to avoid a white flash
     title: 'My Notebook',
     webPreferences: {
@@ -289,7 +295,46 @@ function createWindow() {
   }
 }
 
+// Reading two notebooks at once means a second window, not a second copy of
+// the app: two Chromium instances can't share one profile (see the dev-profile
+// note at the top), while windows of the same instance each get their own
+// renderer — and with it their own `pages`/`currentNotebookId`, so each shows
+// whatever notebook you left it on.
+//
+// They do share storage, though, and nothing tells one window that the other
+// just wrote: opening the SAME notebook in both leaves each with its own stale
+// copy of the pages, where the last write wins. Different notebooks, which is
+// the point of this, are unaffected.
+//
+// There is no custom menu otherwise, so the template rebuilds the standard
+// roles it would have lost — Edit above all, or copy/paste would stop working
+// in every text field in the app.
+function buildMenu() {
+  const isMac = process.platform === 'darwin';
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      ...(isMac ? [{ role: 'appMenu' }] : []),
+      {
+        label: 'File',
+        submenu: [
+          {
+            label: 'New Window',
+            accelerator: 'CmdOrCtrl+N',
+            click: () => createWindow(),
+          },
+          { type: 'separator' },
+          isMac ? { role: 'close' } : { role: 'quit' },
+        ],
+      },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+    ])
+  );
+}
+
 app.whenReady().then(() => {
+  buildMenu();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
