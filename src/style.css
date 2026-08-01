@@ -1020,6 +1020,26 @@ kbd {
 }
 .pages-actions {
   align-items: center;
+  flex-wrap: wrap;
+}
+/* What the overview has to report, said inside the dialog — the toolbar's
+   status line is behind it and might as well not exist. It rides in the
+   pinned action bar, on its own full-width row above the buttons: below the
+   grid it was just as invisible, scrolled off the bottom of a long notebook. */
+.pages-status {
+  flex: 1 0 100%;
+  order: -1;
+  margin: 0 0 4px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  text-align: left;
+}
+.pages-status.error {
+  background: rgba(180, 40, 30, 0.12);
+  color: #8c2b22;
 }
 .select-all {
   display: flex;

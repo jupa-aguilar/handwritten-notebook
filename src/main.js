@@ -1660,6 +1660,7 @@ async function importNotebookFromFile(file) {
 function openPagesOverview() {
   selectedPageIds.clear();
   selectionAnchorId = null;
+  setPagesStatus(''); // last visit's outcome isn't news any more
   $('#pages-overview').hidden = false;
   renderPagesGrid();
   // Land on the page being read, not at the top — with hundreds of pages the
@@ -2060,16 +2061,34 @@ async function swapPageImage(page, file) {
   await putPage(page);
 }
 
+// Anything the pages overview needs to say. The toolbar's own status line is
+// behind the dialog, which is why a failed bulk replace used to look like
+// nothing had happened at all.
+function setPagesStatus(text, isError = false) {
+  const el = $('#pages-status');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('error', isError);
+  el.hidden = !text;
+}
+
 // Replace a batch of pages ([{ page, file }] pairs), then refresh everything
 // once: reading view, search, overview grid, OCR queue and sync.
-async function replacePages(pairs) {
+//
+// `extras` are files left over when more were picked than there were pages
+// selected — a re-captured section that came back longer. They're added as new
+// pages and slotted in directly after the last page replaced, so the section
+// stays in one piece instead of landing at the end of the notebook.
+async function replacePages(pairs, extras = []) {
   // Re-encoding images takes real time; tick the progress off in the bulk
   // button (the toolbar status is dimmed behind the dialog).
   const btn = $('#pages-replace-selected');
-  const showProgress = pairs.length > 1;
+  const showProgress = pairs.length + extras.length > 1;
   if (showProgress) btn.disabled = true;
   let done = 0;
+  let added = 0;
   const errors = [];
+  setPagesStatus('');
   try {
     for (const [k, { page, file }] of pairs.entries()) {
       if (showProgress) btn.textContent = `⏳ Replacing ${k + 1} / ${pairs.length}…`;
@@ -2081,13 +2100,60 @@ async function replacePages(pairs) {
         errors.push(`${file.name}: ${err.message}`);
       }
     }
+
+    // The surplus becomes new pages, then the whole notebook is re-ordered so
+    // they follow the last page that was replaced.
+    if (extras.length) {
+      const created = [];
+      for (const [k, file] of extras.entries()) {
+        if (showProgress) btn.textContent = `⏳ Adding ${k + 1} / ${extras.length}…`;
+        try {
+          const { blob, mediaType, width, height } = await processImage(file);
+          const record = {
+            uuid: crypto.randomUUID(),
+            notebookId: currentNotebookId,
+            order: await nextOrder(currentNotebookId),
+            name: file.name,
+            blob,
+            mediaType,
+            width,
+            height,
+            text: '',
+            words: [],
+            ocrStatus: TRANSCRIPTION_ENABLED ? 'pending' : 'skipped',
+            bookmarked: false,
+            bookmarkLabel: '',
+            createdAt: Date.now(),
+          };
+          record.id = await addPage(record);
+          created.push(record.id);
+          added++;
+        } catch (err) {
+          console.error('Could not add page', file.name, err);
+          errors.push(`${file.name}: ${err.message}`);
+        }
+      }
+      const anchor = pairs.length ? pairs[pairs.length - 1].page.id : null;
+      if (created.length && anchor != null) {
+        const fresh = await getPages(currentNotebookId);
+        const isNew = new Set(created);
+        const rest = fresh.filter((p) => !isNew.has(p.id));
+        const at = rest.findIndex((p) => p.id === anchor);
+        const ordered = [
+          ...rest.slice(0, at + 1),
+          ...created.map((id) => fresh.find((p) => p.id === id)),
+          ...rest.slice(at + 1),
+        ];
+        await reorderPages(ordered.map((p) => p.id));
+      }
+    }
   } finally {
     if (showProgress) {
       btn.disabled = false;
       updatePagesSelectionUI();
     }
   }
-  if (done > 0) {
+  if (done > 0 || added > 0) {
     await touchNotebook(currentNotebookId);
     scheduleSync();
     pages = await getPages(currentNotebookId);
@@ -2096,10 +2162,15 @@ async function replacePages(pairs) {
     if (!$('#pages-overview').hidden) renderPagesGrid();
     runOcrQueue();
   }
+  const summary =
+    `Replaced ${done} page${done === 1 ? '' : 's'}` +
+    (added ? `, inserted ${added} more after them` : '');
   setOcrStatus(
-    errors.length
-      ? `Replaced ${done}, failed ${errors.length}: ${errors.join('; ')}`
-      : `Replaced ${done} page${done === 1 ? '' : 's'}`
+    errors.length ? `${summary}; ${errors.length} failed: ${errors.join('; ')}` : summary
+  );
+  setPagesStatus(
+    errors.length ? `${summary} — ${errors.length} failed: ${errors.join('; ')}` : summary,
+    errors.length > 0
   );
 }
 
@@ -2749,14 +2820,21 @@ function wire() {
     // Pair the picked files with the selected pages, both in order: pages by
     // notebook position, files by natural name order (p02 before p10).
     const targets = pages.filter((p) => selectedPageIds.has(p.id));
-    if (files.length !== targets.length) {
-      setOcrStatus(
-        `${targets.length} page(s) selected but ${files.length} file(s) picked — nothing replaced`
+    // Fewer files than pages would mean deleting the leftovers, which nobody
+    // asked for; more is the ordinary case of a re-captured section that grew,
+    // so the surplus is inserted after the pages it extends.
+    if (files.length < targets.length) {
+      setPagesStatus(
+        `${targets.length} pages selected but only ${files.length} file(s) picked — nothing replaced. Pick at least one file per selected page.`,
+        true
       );
       return;
     }
     files.sort((a, b) => naturalCompare(a.name, b.name));
-    replacePages(targets.map((page, k) => ({ page, file: files[k] })));
+    replacePages(
+      targets.map((page, k) => ({ page, file: files[k] })),
+      files.slice(targets.length)
+    );
   });
 
   $('#panel-toggle').addEventListener('click', togglePanel);
