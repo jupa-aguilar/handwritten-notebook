@@ -2916,6 +2916,8 @@ function wire() {
 async function init() {
   document.body.classList.toggle('is-mobile', IS_MOBILE);
   updateChatAvailability();
+  showBuildStamp();
+  watchForUpdates();
   wire();
   await ensureNotebook();
   await loadCurrentNotebook();
@@ -2936,6 +2938,44 @@ async function init() {
   // off: opening the app is not the user asking to publish anything.
   if (isSyncConfigured() && navigator.onLine && isAutoSyncOn()) doSync(false);
   else updateSyncCue();
+}
+
+// Which build is on screen, in the ☁ popover next to the meters. The service
+// worker hands out the previous version until the new one takes over, so
+// without this there is no way to tell a change that hasn't shipped from one
+// that shipped and is being served from cache.
+function showBuildStamp() {
+  const el = $('#build-stamp');
+  if (!el) return;
+  const when = new Date(__BUILD_TIME__);
+  el.textContent = `build ${__BUILD_SHA__} · ${when.toLocaleDateString([], {
+    day: 'numeric',
+    month: 'short',
+  })} ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  el.title = `Built ${when.toLocaleString()}`;
+}
+
+// The service worker claims the page as soon as it installs a new version
+// (skipWaiting + clientsClaim), but the code already running stays the old
+// one — which is why a deploy used to need two reloads, the first one silently
+// fetching what the second one showed. `controllerchange` is that moment, so
+// offer the reload instead of doing it underfoot: a forced refresh mid-page
+// would throw away whatever was half-typed in the chat.
+function watchForUpdates() {
+  const btn = $('#update-btn');
+  if (!btn || !('serviceWorker' in navigator)) return;
+  btn.addEventListener('click', () => location.reload());
+  // No controller yet means this is the first visit: the claim that follows is
+  // the app installing itself, not an update to announce.
+  if (!navigator.serviceWorker.controller) return;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    btn.hidden = false;
+    setOcrStatus('A new version is ready — press ⟳ Update');
+  });
+  // A window left open for days would otherwise never ask.
+  navigator.serviceWorker.ready
+    .then((reg) => setInterval(() => reg.update().catch(() => {}), 30 * 60_000))
+    .catch(() => {});
 }
 
 // Expose a reset for convenience in the console (wipes ALL notebooks).

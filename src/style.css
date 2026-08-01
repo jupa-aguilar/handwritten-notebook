@@ -193,6 +193,15 @@ body {
 .sync-wrap {
   position: relative;
 }
+/* Which build is running, under the meters. Deliberately quiet: it only
+   matters on the day you're waiting for a change to land. */
+.build-stamp {
+  font-size: 0.68rem;
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  padding-top: 2px;
+}
 .usage-pop {
   position: absolute;
   top: calc(100% + 8px);
