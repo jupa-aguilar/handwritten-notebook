@@ -1478,12 +1478,35 @@ body.is-mobile .read-btn {
    pushing the bar wider than the screen — and a fixed bar wider than the
    window is what put a horizontal scrollbar on the whole app. */
 body.is-mobile .bm-wrap {
-  flex: 1 1 0;
+  flex: 1.5 1 0;
   min-width: 0;
+}
+/* …but the pair must not split that share evenly: 🔖 and ▾ do different
+   things and sit flush against each other, so at ~30px the ▾ was a coin toss
+   between opening the list and toggling the ribbon. */
+body.is-mobile #bookmarks-btn {
+  flex: 0 0 44px;
 }
 /* Nothing on a phone has any business scrolling sideways. */
 body.is-mobile {
   overflow-x: hidden;
+}
+/* iOS zooms the page in when a text field smaller than 16px takes focus, and
+   a zoomed page pans — so tapping the chat box or the search field widened
+   everything and left the screen adrift, with no way back but pinching. The
+   threshold is exactly 16px; 0.9rem (14.4px) was under it. Chromium doesn't
+   do this, which is why it only ever showed up on the phone.
+   The fields carrying an id are spelled out because a selector with an id in
+   it outweighs any number of classes — the blanket rule alone loses to them,
+   silently. */
+body.is-mobile input,
+body.is-mobile textarea,
+body.is-mobile select,
+body.is-mobile #search,
+body.is-mobile #chat-input,
+body.is-mobile #settings input[type='text'],
+body.is-mobile #settings input[type='password'] {
+  font-size: 16px;
 }
 
 /* Modals fill the screen on a phone. A centred card with margins is a
@@ -1500,7 +1523,10 @@ body.is-mobile {
     max-height: none;
     height: 100%;
     border-radius: 0;
-    padding: 16px calc(16px + env(safe-area-inset-right, 0px))
+    /* Edge to edge, so all four insets apply — the top one included, or the
+       card's title starts underneath the status bar. */
+    padding: calc(16px + env(safe-area-inset-top, 0px))
+      calc(16px + env(safe-area-inset-right, 0px))
       calc(16px + env(safe-area-inset-bottom, 0px))
       calc(16px + env(safe-area-inset-left, 0px));
   }
@@ -1524,17 +1550,9 @@ body.is-mobile {
 }
 /* The bookmarks list hangs under its ▾ button. On a phone that button is in
    the bar docked to the bottom edge, so "under it" is off the screen: all you
-   saw was the top sliver, the rest cut off below the fold. Here it becomes a
-   sheet over the stage, like the transcript panel and the chat — which also
-   means there is no "outside" left to click, hence the ✕ above. */
-body.is-mobile .bookmarks-pop {
-  inset: 0 0 var(--read-bar-h) 0;
-  width: auto;
-  max-height: none;
-  border-radius: 0;
-  padding: 12px calc(12px + env(safe-area-inset-right, 0px)) 12px
-    calc(12px + env(safe-area-inset-left, 0px));
-}
+   saw was the top sliver, the rest cut off below the fold. It opens as a
+   screen instead (see the shared rule below) — which also means there is no
+   "outside" left to click, hence the ✕ in its header. */
 body.is-mobile #bm-close {
   display: inline-flex;
 }
@@ -1556,15 +1574,29 @@ body.is-mobile .reading-bar.placed {
   left: 0;
   top: auto;
 }
-/* Panels overlay the stage rather than sharing the row with the book. As a
-   flex item a full-width panel sat *beside* a full-width book area — two
-   screenfuls side by side — which is the other half of the sideways scroll.
-   Absolute takes it out of the flow, so it covers the page instead. */
-body.is-mobile .panel {
-  position: absolute;
-  inset: 0 0 var(--read-bar-h) 0;
+/* On a phone these are not panels beside the page, they are screens of their
+   own: the transcript, the chat and the bookmarks list each take the whole
+   viewport and are dismissed by the ✕ in their own header.
+   Fixed rather than absolute is the point — a panel in the layout is a panel
+   that can add width to it. As a flex item a full-width panel sat *beside* a
+   full-width book area (two screenfuls in a row, hence the sideways scroll);
+   absolute stopped that but still measured against .stage, and anything left
+   showing around the edges kept taking the touches meant for the sheet. */
+body.is-mobile .panel,
+body.is-mobile .bookmarks-pop {
+  position: fixed;
+  inset: 0;
   width: auto;
+  max-width: none;
+  max-height: none;
   margin: 0;
+  border: none;
+  border-radius: 0;
+  z-index: 48; /* over the docked reading bar (45), under the modals (50) */
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden; /* the list inside scrolls, not the screen itself */
 }
 body.is-mobile .viewer {
   inset: 0 0 var(--read-bar-h) 0;
@@ -1591,12 +1623,41 @@ body.chat-unavailable #chat {
 body.is-mobile .viewer-toolbar .viewer-sep:last-of-type {
   display: none;
 }
-body.is-mobile .panel {
-  z-index: 40; /* text/search and chat panels overlay the viewer */
-  /* Full width on a phone: the desktop 340px would leave a sliver of viewer
-     showing that is too narrow to read and too wide to ignore. */
-  width: 100%;
-  border-left: none;
+/* The head is the screen's title bar now, so it owns the top inset. Without
+   it the ✕ sits behind the status bar / Dynamic Island in standalone mode —
+   visible, but at coordinates no touch can reach. Everything else in the app
+   already pays this toll (see .toolbar); these sheets were the ones that
+   didn't, which is why they could be opened and not closed. */
+body.is-mobile .panel-head,
+body.is-mobile .bm-head {
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  padding-right: calc(14px + env(safe-area-inset-right, 0px));
+  padding-left: calc(14px + env(safe-area-inset-left, 0px));
+  flex: 0 0 auto;
+}
+/* A thumb needs the whole 44px; these were ~29px squares. */
+body.is-mobile .panel-head .btn,
+body.is-mobile #bm-close {
+  min-width: 44px;
+  min-height: 44px;
+  justify-content: center;
+}
+/* Only the list scrolls, so the header stays put while it does. */
+body.is-mobile .panel-body,
+body.is-mobile .bm-list {
+  flex: 1;
+  overflow: auto;
+}
+body.is-mobile .bm-list {
+  padding: 4px calc(12px + env(safe-area-inset-right, 0px))
+    calc(12px + env(safe-area-inset-bottom, 0px))
+    calc(12px + env(safe-area-inset-left, 0px));
+}
+body.is-mobile .panel-body {
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+}
+body.is-mobile .chat-form {
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
 }
 /* Searching is different from reading the transcript: the page you're
    searching has to stay on screen. Full height, the panel covered it whole —
@@ -1605,9 +1666,16 @@ body.is-mobile .panel {
    above it and keeps turning. */
 body.is-mobile .panel.searching {
   top: auto;
+  /* Stops above the docked bar: the full-screen rule above ends at the very
+     bottom edge, which here would bury the reading tools under the sheet. */
+  bottom: var(--read-bar-h);
   height: 55%;
   border-top: 1px solid rgba(0, 0, 0, 0.25);
   box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+}
+/* Half a screen down the page, the top inset is someone else's problem. */
+body.is-mobile .panel.searching .panel-head {
+  padding-top: 12px;
 }
 /* …and the hits come first. Below the page transcript they sat under a whole
    screenful of text, which is the one thing you didn't ask to see. */
