@@ -279,7 +279,13 @@ function createWindow() {
   // Single-page app: block in-window navigation (also stops an image dropped
   // outside the book area from replacing the page). Programmatic loadURL/
   // loadFile calls don't emit this event.
-  win.webContents.on('will-navigate', (e) => e.preventDefault());
+  //
+  // A reload does, though, and it arrives here as a navigation to the URL we
+  // are already on — so let that one through, or the ⟳ Update button (a plain
+  // `location.reload()`) does nothing in the app while working in the browser.
+  win.webContents.on('will-navigate', (e, url) => {
+    if (url !== win.webContents.getURL()) e.preventDefault();
+  });
 
   // macOS three-finger swipe (needs the "swipe between pages" trackpad
   // setting); the renderer maps it to page turns.
