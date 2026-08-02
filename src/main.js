@@ -470,6 +470,17 @@ function goToPage(index) {
   return true;
 }
 
+// One page forward or back in whichever reading view is on screen. Shared by
+// the arrow keys wherever they are pressed, so the flipbook and the zoom
+// viewer can't drift apart on what "next page" means.
+function turnPage(delta) {
+  if (!$('#viewer').hidden) loadViewerPage(viewerPage + delta);
+  else if (pageFlip) {
+    if (delta > 0) pageFlip.flipNext();
+    else pageFlip.flipPrev();
+  }
+}
+
 function updatePager() {
   const indicator = $('#page-indicator');
   if (!indicator) return;
@@ -2649,13 +2660,45 @@ function wire() {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(refreshSearch, 150);
   });
-  // Escape drops the search: the text, the result list and the word boxes on
-  // the page. Handled here rather than left to the browser's native clearing
-  // of type="search", which doesn't fire `input` and so leaves the highlights
-  // behind. Once the box is already empty, Escape gives the keyboard back to
-  // the reading shortcuts; it never reaches the global handler, so it can't
-  // close a modal on the way.
+  // Typing a query leaves the box holding the keyboard, so the reading
+  // shortcuts are answered by the field instead of the book — Enter and the
+  // arrows below are the two ways back out of it.
   $('#search').addEventListener('keydown', (e) => {
+    const box = $('#search');
+
+    // Enter commits the query and hands the keyboard back to the reading view
+    // with the hits still on screen (and drops the on-screen keyboard on a
+    // phone).
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(searchTimer);
+      refreshSearch();
+      box.blur();
+      return;
+    }
+
+    // ← and → still move through the query, but once the caret has nowhere
+    // left to go they turn the page rather than doing nothing — so the arrows
+    // keep working with a search on screen, without waiting for Enter. A
+    // selection or a modifier means the press is about the text: leave it.
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      const caret = box.selectionStart;
+      const collapsed = caret !== null && caret === box.selectionEnd;
+      const stuck =
+        e.key === 'ArrowLeft' ? caret === 0 : caret === box.value.length;
+      if (collapsed && stuck && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        turnPage(e.key === 'ArrowLeft' ? -1 : 1);
+      }
+      return;
+    }
+
+    // Escape drops the search: the text, the result list and the word boxes on
+    // the page. Handled here rather than left to the browser's native clearing
+    // of type="search", which doesn't fire `input` and so leaves the highlights
+    // behind. Once the box is already empty, Escape gives the keyboard back to
+    // the reading shortcuts; it never reaches the global handler, so it can't
+    // close a modal on the way.
     if (e.key !== 'Escape') return;
     e.preventDefault();
     e.stopPropagation();
@@ -2756,8 +2799,8 @@ function wire() {
     // When the zoom viewer is open it captures the keyboard.
     if (!$('#viewer').hidden) {
       if (e.key === 'Escape') closeViewer();
-      else if (e.key === 'ArrowLeft') loadViewerPage(viewerPage - 1);
-      else if (e.key === 'ArrowRight') loadViewerPage(viewerPage + 1);
+      else if (e.key === 'ArrowLeft') turnPage(-1);
+      else if (e.key === 'ArrowRight') turnPage(1);
       else if (e.key === '+' || e.key === '=') zoomViewerBy(1.25);
       else if (e.key === '-' || e.key === '_') zoomViewerBy(1 / 1.25);
       else if (e.key === '0') fitViewer();
@@ -2765,8 +2808,8 @@ function wire() {
       return;
     }
 
-    if (e.key === 'ArrowLeft') pageFlip && pageFlip.flipPrev();
-    if (e.key === 'ArrowRight') pageFlip && pageFlip.flipNext();
+    if (e.key === 'ArrowLeft') turnPage(-1);
+    if (e.key === 'ArrowRight') turnPage(1);
     if (e.key === 'Home') goFirst();
     if (e.key === 'End') goLast();
     if (e.key === 'f' || e.key === 'F') toggleFullscreen();
