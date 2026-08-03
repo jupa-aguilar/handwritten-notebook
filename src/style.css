@@ -90,6 +90,12 @@ body {
 .btn.small {
   padding: 4px 8px;
 }
+/* The toolbar is one row of buttons, so they have to stand the same height. A
+   ghost carries a 1px border and a solid one doesn't, which alone left the
+   solid buttons 2px shorter than the ⚙ and ☁ they sit between. */
+.toolbar .btn:not(.ghost) {
+  border: 1px solid transparent;
+}
 
 .current-notebook {
   font-family: Georgia, "Times New Roman", serif;
