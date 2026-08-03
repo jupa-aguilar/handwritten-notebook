@@ -470,6 +470,18 @@ function goToPage(index) {
   return true;
 }
 
+// A citation clicked in the chat. Turning to the page is half the answer —
+// which lines on it were meant is the other half, so when the citation quoted
+// a passage those words are boxed on the scan the way a search hit would be.
+// Short words are dropped: boxing every "de" on the page points at nothing.
+function goToCitedPage(index, terms = '') {
+  const tokens = searchTokens(terms).filter((t) => t.length >= 3);
+  citedPassage = tokens.length ? { index, tokens } : null;
+  if (!goToPage(index)) return;
+  updateHighlights();
+  renderViewerHighlights();
+}
+
 // One page forward or back in whichever reading view is on screen. Shared by
 // the arrow keys wherever they are pressed, so the flipbook and the zoom
 // viewer can't drift apart on what "next page" means.
@@ -573,6 +585,9 @@ function refreshSearch() {
   const query = $('#search').value.trim();
   const results = $('#results');
   const count = $('#search-count');
+  // Typing a query takes the overlay over from any chat citation for good, so
+  // that clearing the box later doesn't bring a stale passage back.
+  if (query) citedPassage = null;
 
   if (!query) {
     count.textContent = '';
@@ -639,6 +654,27 @@ function refreshSearch() {
 
 // ---------- highlight boxes over the page image ----------
 
+// The passage a chat citation pointed at: the page, and the words to box on
+// it. Kept apart from the search box because it answers a different question
+// — the search asks where something is in the notebook, a citation says where
+// on this page to read — and because a search has to be able to take the
+// overlay over without the two fighting for it.
+let citedPassage = null; // { index, tokens }
+
+// Which words to box on a page, and how strictly. The search wins while it is
+// running; a citation only shows on the page it was about.
+function highlightPlan(index) {
+  const search = searchTokens($('#search').value.trim());
+  if (search.length) return { tokens: search, requireAll: true, cited: false };
+  if (citedPassage?.index === index && citedPassage.tokens.length) {
+    // A quote is matched word by word rather than all-or-nothing: it reaches
+    // us from a model reading an OCR transcript, so one mistranscribed word
+    // must not silence the whole passage.
+    return { tokens: citedPassage.tokens, requireAll: false, cited: true };
+  }
+  return { tokens: [], requireAll: true, cited: false };
+}
+
 function clearHighlights() {
   const layer = $('#highlights');
   if (layer) layer.replaceChildren();
@@ -655,7 +691,6 @@ function updateHighlights() {
   layer.replaceChildren();
 
   if (!pageFlip || pages.length === 0) return;
-  const tokens = searchTokens($('#search').value.trim());
 
   const canvas = $('#book').querySelector('canvas');
   const rect = pageFlip.getRender().getRect(); // { left, top, height, pageWidth }
@@ -693,12 +728,13 @@ function updateHighlights() {
       rib.style.height = `${rw * 1.8}px`;
       frag.appendChild(rib);
     }
+    const { tokens, requireAll, cited } = highlightPlan(i);
     if (
       tokens.length === 0 ||
       !page.words?.length ||
       !page.width ||
       !page.height ||
-      !pageHasAllTokens(page, tokens)
+      (requireAll && !pageHasAllTokens(page, tokens))
     )
       continue;
     const sx = rect.pageWidth / page.width;
@@ -706,7 +742,7 @@ function updateHighlights() {
     for (const w of page.words) {
       if (!tokens.some((t) => foldText(w.t).includes(t))) continue;
       const box = document.createElement('div');
-      box.className = 'hl-box';
+      box.className = cited ? 'hl-box cited' : 'hl-box';
       box.style.left = `${pageLeft + w.x * sx}px`;
       box.style.top = `${pageTop + w.y * sy}px`;
       box.style.width = `${w.w * sx}px`;
@@ -1308,6 +1344,7 @@ function updateCurrentName(notebooks) {
 async function loadCurrentNotebook() {
   pages = await getPages(currentNotebookId);
   currentPage = getSavedPage(currentNotebookId);
+  citedPassage = null; // it pointed at a page in the notebook we just left
   $('#search').value = '';
   renderBook();
   refreshSearch();
@@ -2399,12 +2436,16 @@ function renderViewerHighlights() {
     frag.appendChild(rib);
   }
 
-  const tokens = searchTokens($('#search').value.trim());
-  if (tokens.length && page.words?.length && pageHasAllTokens(page, tokens)) {
+  const { tokens, requireAll, cited } = highlightPlan(viewerPage);
+  if (
+    tokens.length &&
+    page.words?.length &&
+    (!requireAll || pageHasAllTokens(page, tokens))
+  ) {
     for (const w of page.words) {
       if (!tokens.some((t) => foldText(w.t).includes(t))) continue;
       const box = document.createElement('div');
-      box.className = 'vhl-box';
+      box.className = cited ? 'vhl-box cited' : 'vhl-box';
       box.style.left = `${w.x}px`;
       box.style.top = `${w.y}px`;
       box.style.width = `${w.w}px`;
@@ -2893,7 +2934,7 @@ function wire() {
       focus: visiblePages().map((p) => pages.indexOf(p)),
     }),
     onSpendChanged: updateUsageDisplay,
-    onGoToPage: goToPage,
+    onGoToPage: goToCitedPage,
   });
 
   // The manual transcription trigger. Without a key there is nothing to run,

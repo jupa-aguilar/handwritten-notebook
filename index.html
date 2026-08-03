@@ -100,9 +100,21 @@
       <aside id="chat" class="panel chat-panel" hidden>
         <div class="panel-head chat-head">
           <strong>💬 Chat</strong>
+          <button id="chat-marks-btn" class="btn ghost small" title="No marked messages yet" aria-label="Marked messages" aria-expanded="false">🔖</button>
           <button id="chat-think" class="btn ghost small" aria-label="Model thinking" aria-pressed="false">🧠</button>
           <button id="chat-clear" class="btn ghost small" title="Clear this conversation" aria-label="Clear this conversation">🧹</button>
           <button id="chat-close" class="btn ghost small" title="Close" aria-label="Close chat">✕</button>
+        </div>
+
+        <!-- Marked messages, so a long conversation can be walked back to the
+             one you want without scrolling for it. Hangs inside the chat
+             panel, which is the whole screen on a phone. -->
+        <div id="chat-marks" class="chat-marks" hidden>
+          <div class="cm-head">
+            <span>Marked messages</span>
+            <button id="chat-marks-close" class="btn ghost small" title="Close" aria-label="Close marked messages">✕</button>
+          </div>
+          <ul id="chat-marks-list" class="cm-list"></ul>
         </div>
         <div id="chat-context" class="chat-context"></div>
         <div id="chat-messages" class="chat-messages"></div>

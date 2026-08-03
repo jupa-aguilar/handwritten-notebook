@@ -271,6 +271,60 @@ describe('page citations', () => {
   });
 });
 
+// The words a citation carries are what the reading view boxes on the scan,
+// so what ends up in data-terms decides whether the reader lands on the right
+// lines or on a page lit up at random.
+describe('cited passages', () => {
+  const render = (md) => renderMarkdown(md, 10);
+  const terms = (html) => [...html.matchAll(/data-terms="([^"]*)"/g)].map((m) => m[1]);
+
+  it('carries the quoted passage', () => {
+    expect(terms(render('Lo explica en (p. 3: "las tres leyes de Newton")'))).toEqual([
+      'las tres leyes de Newton',
+    ]);
+  });
+
+  it('keeps the quote visible in the sentence', () => {
+    expect(render('(p. 3: "las tres leyes")')).toContain('las tres leyes');
+  });
+
+  it('accepts the curly quotes a model may type instead', () => {
+    expect(terms(render('(p. 3: “las tres leyes”)'))).toEqual(['las tres leyes']);
+  });
+
+  it('falls back to the line when no passage is quoted', () => {
+    // Old conversations have no quotes at all, so a citation has to make do
+    // with the sentence around it — minus the words that point at nothing.
+    const out = terms(render('El teorema de Bayes aparece en (p. 4).'))[0];
+    expect(out).toContain('teorema');
+    expect(out).toContain('bayes');
+    expect(out).not.toContain('el ');
+  });
+
+  it('keeps escaped markup out of the fallback terms', () => {
+    // The text is HTML-escaped by this point, so a quote elsewhere in the line
+    // arrives as &quot; — read naively that becomes the "word" quot, boxed on
+    // the page as if it were something the reader should look for.
+    const out = terms(render('Las leyes de (p. 2: "Newton") y la fuerza en (p. 3).'))[1];
+    expect(out).not.toContain('quot');
+    expect(out).toContain('newton');
+  });
+
+  it('gives every page of a range the same passage', () => {
+    expect(terms(render('(p. 3-4: "la segunda ley")'))).toEqual([
+      'la segunda ley',
+      'la segunda ley',
+    ]);
+  });
+
+  it('cannot break out of the attribute', () => {
+    // The quote pattern excludes " and &, so nothing that reaches the
+    // attribute can close it early.
+    const html = render('(p. 2: "a\\" onmouseover=alert(1) x=\\"")');
+    expect(html).not.toMatch(/data-terms="[^"]*"[^>]*onmouseover/);
+  });
+});
+
 describe('renderMarkdown', () => {
   it('escapes HTML before doing anything else', () => {
     const out = renderMarkdown('<img src=x onerror=alert(1)>');

@@ -135,7 +135,7 @@ const $ = (sel) => document.querySelector(sel);
 let getContext = null; // () => { id, name, pages }, supplied by main.js
 let onSpendChanged = () => {}; // main.js redraws its counter
 let onGoToPage = () => {}; // main.js turns to a cited page
-const histories = new Map(); // notebookId -> [{ role, content, error? }]
+const histories = new Map(); // notebookId -> [{ id, role, content, error?, marked? }]
 const loaded = new Set(); // notebookIds already read back from IndexedDB
 let streamCtrl = null; // AbortController while a reply is streaming
 let serverOk = false;
@@ -154,8 +154,17 @@ async function loadHistory(notebookId) {
   loaded.add(notebookId);
   const stored = await getChat(notebookId);
   if (stored.length && !histories.get(notebookId)?.length) {
-    histories.set(notebookId, stored);
+    histories.set(notebookId, stored.map(withId));
   }
+}
+
+// A handle for the marks list to point at, stable across re-renders and
+// reloads. Conversations stored before marks existed have none, so they get
+// one on the way in — the array index would have done until the day a message
+// is ever removed from the middle.
+function withId(m) {
+  if (!m.id) m.id = crypto.randomUUID();
+  return m;
 }
 
 // Conversations cost money to produce, so they outlive a reload. Writes are
@@ -404,6 +413,7 @@ export function buildSystemPrompt(
     'Below are OCR transcriptions of its handwritten pages, so occasional transcription mistakes are possible.',
     'Use the notebook as context, not as a limit: when the answer is on its pages, cite them, and feel free to combine that with your general knowledge to explain, expand, or answer beyond it. Just never claim the notebook says something it does not.',
     'Write every citation as "(p. 3)" — that exact form, with the English "p.", even when the rest of your answer is in another language. The app turns those into links to the page, and only recognises that spelling. For several pages write (p. 3, 7) or a range (p. 3-5).',
+    'When you mean a particular passage rather than the whole page, add a short quote of it: (p. 3: "las tres leyes"). Copy the page\'s own words — five or six of them, exactly as transcribed above, not your paraphrase — because the app searches the scan for them and draws a box around them so the reader lands on the right lines.',
     'If the notebook has nothing on the question, say so briefly and answer it anyway from your general knowledge.',
     'Write in a warm, close, plain-spoken tone — clear and to the point. Reply in the same language the user writes in.',
     'Write maths and logic as plain text with Unicode symbols — ∧ ∨ ¬ ⊕ ≤ ≥ ≠ → ∀ ∃ ∈ ∑ √ π, subscripts like x₁, superscripts like x². Never use LaTeX: no \\( \\), no \\[ \\], no $…$, no \\land or \\frac. This chat shows plain text, so LaTeX reaches the reader as backslashes.',
@@ -456,21 +466,49 @@ export function focusNote(pages, focus = []) {
 // "(p. 3)", but a model writing Spanish will reach for "página 3" often
 // enough that both are worth recognising, along with ranges and lists.
 // Only the numbers become links; the surrounding words are left alone.
+//
+// A citation may carry the passage it means — (p. 3: "las tres leyes") — and
+// that quote rides along on the link, so opening the page can box those words
+// on the scan instead of leaving a whole page to scan by eye. The text is
+// already HTML-escaped by the time this runs, which is why the straight
+// double quote is matched as &quot;.
 const PAGE_CITATION =
-  /\b(pp?\.|p[áa]gs?\.|p[áa]ginas?|pages?)(\s*)(\d+(?:\s*(?:[-–—,]|y|and|to|a)\s*\d+)*)/gi;
+  /\b(pp?\.|p[áa]gs?\.|p[áa]ginas?|pages?)(\s*)(\d+(?:\s*(?:[-–—,]|y|and|to|a)\s*\d+)*)(\s*[:,]?\s*(?:&quot;|[“"])([^&“”"]{2,120})(?:&quot;|[”"]))?/gi;
 
 // `pageCount` gates the links: a model can cite a page that doesn't exist,
 // and a link that goes nowhere is worse than plain text.
 function linkPageCitations(s, pageCount) {
   if (!pageCount) return s;
-  return s.replace(PAGE_CITATION, (match, word, gap, numbers) => {
+  // Without a quote of its own a citation falls back to the meaningful words
+  // of the line it sits in. Rougher than a quote, but it is what makes this
+  // work on the conversations that already exist, written before the model
+  // was ever asked for one.
+  let fallback = null;
+  const lineTerms = () => {
+    if (fallback === null) {
+      // Tags and entities both have to go: this text is already escaped, so a
+      // stray &quot; left in would be read as the word "quot" and boxed as if
+      // the page were supposed to contain it.
+      const plain = s.replace(/<[^>]*>/g, ' ').replace(/&(?:[a-z]+|#\d+);/gi, ' ');
+      fallback = queryTerms(plain).slice(0, 6).join(' ');
+    }
+    return fallback;
+  };
+  return s.replace(PAGE_CITATION, (match, word, gap, numbers, quotePart, quote) => {
+    // Safe to drop into the attribute as-is: the quote's own pattern excludes
+    // " and &, and queryTerms only ever yields [a-z0-9] words.
+    const terms = (quote || lineTerms()).trim();
     const linked = numbers.replace(/\d+/g, (n) => {
       const page = Number(n);
       if (page < 1 || page > pageCount) return n;
       // The label keeps the number the model wrote; data-page is 0-based.
-      return `<button type="button" class="page-ref" data-page="${page - 1}" title="Go to page ${page}">${n}</button>`;
+      const attr = terms ? ` data-terms="${terms}"` : '';
+      const what = terms ? `Go to page ${page} and mark that passage` : `Go to page ${page}`;
+      return `<button type="button" class="page-ref" data-page="${page - 1}"${attr} title="${what}">${n}</button>`;
     });
-    return `${word}${gap}${linked}`;
+    // The quote stays in the sentence: it is the reader's summary of what to
+    // expect there, not markup.
+    return `${word}${gap}${linked}${quotePart || ''}`;
   });
 }
 
@@ -564,13 +602,103 @@ export function renderMarkdown(md, pageCount = 0) {
 function bubble(m) {
   const div = document.createElement('div');
   div.className = `chat-msg ${m.role}${m.error ? ' error' : ''}`;
+  if (m.id) div.dataset.id = m.id;
   if (m.role === 'assistant' && !m.error) {
     div.classList.add('md');
     div.innerHTML = renderMarkdown(m.content, getContext().pages.length);
   } else {
     div.textContent = m.content;
   }
+  attachMark(div, m);
   return div;
+}
+
+// The 🔖 in the bubble's corner. Added first so the markdown rules that key
+// on the last child still find the message's own last block, and re-addable
+// because a streaming reply rewrites the bubble's innerHTML on every delta —
+// which throws this away until the turn ends.
+function attachMark(div, m) {
+  if (!m.id || div.querySelector(':scope > .chat-mark')) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'chat-mark';
+  btn.dataset.id = m.id;
+  setMarkState(btn, m.marked);
+  div.prepend(btn);
+}
+
+function setMarkState(btn, on) {
+  btn.classList.toggle('on', !!on);
+  btn.textContent = on ? '🔖' : '🏷';
+  btn.title = on ? 'Unmark this message' : 'Mark this message';
+  btn.setAttribute('aria-pressed', String(!!on));
+}
+
+function toggleMark(id) {
+  const m = history().find((x) => x.id === id);
+  if (!m) return;
+  m.marked = !m.marked;
+  const btn = $(`#chat-messages .chat-msg[data-id="${id}"] .chat-mark`);
+  if (btn) setMarkState(btn, m.marked);
+  persist(getContext().id);
+  renderMarks();
+}
+
+// ---------- marked messages ----------
+
+function markedMessages() {
+  return history().filter((m) => m.marked);
+}
+
+// The count on the header button doubles as the hint that marking exists —
+// silent at zero, so it costs nothing in a conversation that never uses it.
+function updateMarksButton() {
+  const btn = $('#chat-marks-btn');
+  if (!btn) return;
+  const n = markedMessages().length;
+  btn.textContent = n ? `🔖 ${n}` : '🔖';
+  btn.title = n ? `${n} marked message${n === 1 ? '' : 's'}` : 'No marked messages yet';
+}
+
+function renderMarks() {
+  updateMarksButton();
+  const ul = $('#chat-marks-list');
+  if (!ul) return;
+  const marked = markedMessages();
+  if (marked.length === 0) {
+    ul.innerHTML =
+      '<li class="cm-empty">Nothing marked yet — tap the 🏷 on a message to keep it here.</li>';
+    return;
+  }
+  ul.innerHTML = marked
+    .map((m) => {
+      const gist = m.content.trim().replace(/\s+/g, ' ').slice(0, 70);
+      return `<li><button type="button" class="cm-jump" data-id="${m.id}">
+        <span class="cm-who">${m.role === 'user' ? 'You' : 'Reply'}</span>
+        <span class="cm-gist">${escapeHtml(gist)}</span>
+      </button></li>`;
+    })
+    .join('');
+}
+
+// Walk back to a marked message. Scrolling alone leaves you guessing which
+// one it was in a wall of text, so it also lights up for a moment.
+function jumpToMessage(id) {
+  const el = $(`#chat-messages .chat-msg[data-id="${id}"]`);
+  if (!el) return;
+  setMarksOpen(false);
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.classList.remove('flash');
+  void el.offsetWidth; // restart the animation if it is already running
+  el.classList.add('flash');
+}
+
+function setMarksOpen(open) {
+  const pop = $('#chat-marks');
+  if (!pop) return;
+  if (open) renderMarks();
+  pop.hidden = !open;
+  $('#chat-marks-btn')?.setAttribute('aria-expanded', String(open));
 }
 
 function updateContextLine() {
@@ -594,6 +722,7 @@ function updateContextLine() {
 
 function render() {
   updateContextLine();
+  updateMarksButton();
   const box = $('#chat-messages');
   box.replaceChildren();
   const msgs = history();
@@ -657,7 +786,7 @@ async function send() {
   const { name, pages, focus = [] } = getContext();
   const msgs = history();
 
-  msgs.push({ role: 'user', content: text });
+  msgs.push(withId({ role: 'user', content: text }));
   input.value = '';
   autosize(input);
   render();
@@ -669,7 +798,7 @@ async function send() {
     .slice(-HISTORY_SENT)
     .map(({ role, content }) => ({ role, content }));
 
-  const reply = { role: 'assistant', content: '' };
+  const reply = withId({ role: 'assistant', content: '' });
   msgs.push(reply);
   const box = $('#chat-messages');
   const div = bubble(reply);
@@ -750,6 +879,8 @@ async function send() {
     if (!reply.content) {
       msgs.pop();
       div.remove();
+    } else {
+      attachMark(div, reply); // the stream's innerHTML writes ate the first one
     }
     streamCtrl = null;
     setSendStopping(false);
@@ -794,6 +925,7 @@ export function chatFocusChanged() {
 // switches to that notebook's conversation and context.
 export async function chatNotebookChanged() {
   if (!getContext || $('#chat').hidden) return;
+  setMarksOpen(false); // another notebook, another set of marked messages
   render();
   await loadHistory(getContext().id);
   render();
@@ -808,7 +940,25 @@ export function initChat(opts) {
   // listener bound to the buttons themselves would be discarded immediately.
   $('#chat-messages').addEventListener('click', (e) => {
     const ref = e.target.closest('.page-ref');
-    if (ref) onGoToPage(Number(ref.dataset.page));
+    if (ref) {
+      // On a phone the chat is the whole screen, not a panel beside the page,
+      // so following a citation has to step out of it — otherwise the page
+      // turns and the passage lights up behind a screen still covering both.
+      if (document.body.classList.contains('is-mobile')) setChatHidden(true);
+      onGoToPage(Number(ref.dataset.page), ref.dataset.terms || '');
+      return;
+    }
+    const mark = e.target.closest('.chat-mark');
+    if (mark) toggleMark(mark.dataset.id);
+  });
+
+  $('#chat-marks-btn').addEventListener('click', () =>
+    setMarksOpen($('#chat-marks').hidden)
+  );
+  $('#chat-marks-close').addEventListener('click', () => setMarksOpen(false));
+  $('#chat-marks-list').addEventListener('click', (e) => {
+    const jump = e.target.closest('.cm-jump');
+    if (jump) jumpToMessage(jump.dataset.id);
   });
 
   $('#chat-btn').addEventListener('click', () =>
@@ -836,6 +986,7 @@ export function initChat(opts) {
     const { id } = getContext();
     histories.set(id, []);
     persist(id); // an empty thread deletes the stored row
+    setMarksOpen(false); // its entries point at messages that no longer exist
     render();
   });
   $('#chat-form').addEventListener('submit', (e) => {
