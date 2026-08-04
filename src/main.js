@@ -2959,6 +2959,13 @@ function wire() {
 
     if (e.target.matches('input, textarea')) return;
 
+    // Everything below is a bare letter, so anything held down means the
+    // keystroke belongs to the system, not to us: ⌘C over a selected chat
+    // message was toggling the chat shut, and closing it took the selection
+    // with it — the copy went through with nothing to copy. The two
+    // combinations the app does claim (⌘F, ⌘⌥G) were answered further up.
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
     // When the zoom viewer is open it captures the keyboard.
     if (!$('#viewer').hidden) {
       // Escape peels off one layer at a time: the chat floating over the
