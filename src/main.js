@@ -472,6 +472,45 @@ function goToPage(index) {
   return true;
 }
 
+// Preview's ⌘⌥G, for the reason Preview has it: in a notebook of a hundred
+// pages, reaching page 85 means turning eighty times or hunting through the
+// overview. window.prompt() would be the whole feature, but it doesn't exist
+// in Electron — so this is a real dialog, kept to one field.
+function openGoto() {
+  if (pages.length === 0) return;
+  $('#goto-range').textContent = `of ${pages.length}`;
+  const input = $('#goto-input');
+  input.classList.remove('invalid');
+  input.value = String(currentPage + 1);
+  $('#goto').hidden = false;
+  input.focus();
+  input.select(); // typing replaces the current page rather than appending to it
+}
+
+function closeGoto() {
+  $('#goto').hidden = true;
+  const input = $('#goto-input');
+  input.classList.remove('invalid');
+  // Hiding the dialog doesn't take the focus off its field — it stays on an
+  // element nobody can see, and the global handler steps aside for text fields,
+  // so every reading shortcut afterwards (←, →, G) was being swallowed. Hand
+  // the keyboard back to the book explicitly.
+  input.blur();
+}
+
+// A number outside the notebook (or no number at all) leaves the dialog open
+// and says so with the field: closing on a jump that never happened would look
+// exactly like a jump that did.
+function submitGoto() {
+  const input = $('#goto-input');
+  if (!goToPage(Number(input.value.trim()) - 1)) {
+    input.classList.add('invalid');
+    input.select();
+    return;
+  }
+  closeGoto();
+}
+
 // A citation clicked in the chat. Turning to the page is half the answer —
 // which lines on it were meant is the other half, so when the citation quoted
 // a passage those words are boxed on the scan the way a search hit would be.
@@ -2825,12 +2864,31 @@ function wire() {
   // Every modal also closes on Escape or a click on the backdrop, behaving
   // like its Close/Cancel button — i.e. #settings discards, never saves.
   const modals = [
+    // First, so Escape peels it before whatever it was opened over.
+    { el: $('#goto'), close: closeGoto },
     { el: $('#notebooks'), close: () => ($('#notebooks').hidden = true) },
     { el: $('#pages-overview'), close: closePagesOverview },
     { el: $('#settings'), close: closeSettings },
     { el: $('#shortcuts'), close: () => ($('#shortcuts').hidden = true) },
   ];
   $('#shortcuts-close').addEventListener('click', () => ($('#shortcuts').hidden = true));
+
+  // Both page counters double as the way in — the shortcut has no discoverable
+  // face otherwise, and the one in the zoom viewer is the only one reachable
+  // from there.
+  $('#page-indicator').addEventListener('click', openGoto);
+  $('#viewer-indicator').addEventListener('click', openGoto);
+  $('#goto-go').addEventListener('click', submitGoto);
+  $('#goto-cancel').addEventListener('click', closeGoto);
+  $('#goto-input').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    submitGoto();
+  });
+  // Any edit clears the complaint, so the red border tracks what's typed now.
+  $('#goto-input').addEventListener('input', (e) =>
+    e.target.classList.remove('invalid')
+  );
   for (const { el, close } of modals) {
     // Track where the press started: a drag that merely *ends* on the
     // backdrop (e.g. selecting text in an input) must not close the modal.
@@ -2874,6 +2932,16 @@ function wire() {
       return;
     }
 
+    // Preview's shortcut for the same dialog, and like ⌘F it answers from
+    // anywhere — including the search box and the zoom viewer, which it leaves
+    // open. Matched on e.code: with Option held, macOS reports e.key as the
+    // character the combination types ('©'), not the letter on the key.
+    if ((e.metaKey || e.ctrlKey) && e.altKey && e.code === 'KeyG') {
+      e.preventDefault();
+      openGoto();
+      return;
+    }
+
     // Escape closes any open modal — checked before the input guard so it
     // also works while typing in a modal's field. The bookmarks popover
     // behaves the same, and closes first.
@@ -2905,6 +2973,7 @@ function wire() {
       else if (e.key === '0') fitViewer();
       else if (e.key === 'b' || e.key === 'B') toggleBookmark();
       else if (e.key === 'c' || e.key === 'C') toggleChatShortcut();
+      else if (e.key === 'g' || e.key === 'G') openGoto();
       return;
     }
 
@@ -2916,6 +2985,7 @@ function wire() {
     if (e.key === 'z' || e.key === 'Z') openViewer();
     if (e.key === 'b' || e.key === 'B') toggleBookmark();
     if (e.key === 'c' || e.key === 'C') toggleChatShortcut();
+    if (e.key === 'g' || e.key === 'G') openGoto();
     if (e.key === '?') $('#shortcuts').hidden = !$('#shortcuts').hidden;
   });
 

@@ -80,7 +80,7 @@
 
         <div id="pager" class="pager" hidden>
           <button id="first" class="pager-btn" title="First page (Home)" aria-label="First page">⏮</button>
-          <span id="page-indicator" class="page-indicator">1 / 1</span>
+          <button id="page-indicator" class="page-indicator" title="Go to page… (⌘⌥G)">1 / 1</button>
           <button id="last" class="pager-btn" title="Last page (End)" aria-label="Last page">⏭</button>
         </div>
       </div>
@@ -152,7 +152,7 @@
         </div>
         <div class="viewer-toolbar">
           <button id="viewer-prev" class="btn ghost small" title="Previous page (←)" aria-label="Previous page">‹</button>
-          <span id="viewer-indicator" class="viewer-indicator">1 / 1</span>
+          <button id="viewer-indicator" class="viewer-indicator" title="Go to page… (⌘⌥G)">1 / 1</button>
           <button id="viewer-next" class="btn ghost small" title="Next page (→)" aria-label="Next page">›</button>
           <span class="viewer-sep"></span>
           <button id="viewer-bookmark" class="btn ghost small" title="Bookmark this page (B)" aria-label="Bookmark this page" aria-pressed="false">🔖</button>
@@ -293,6 +293,22 @@
       </div>
     </div>
 
+    <!-- Go to page. Deliberately the smallest dialog here: it opens on a
+         keystroke, takes one number and gets out of the way. -->
+    <div id="goto" class="modal goto-modal" hidden>
+      <div class="modal-card goto-card">
+        <div class="goto-row">
+          <label for="goto-input">Go to page:</label>
+          <input id="goto-input" type="text" inputmode="numeric" autocomplete="off" />
+          <span id="goto-range" class="goto-range"></span>
+        </div>
+        <div class="modal-actions">
+          <button id="goto-cancel" class="btn ghost">Cancel</button>
+          <button id="goto-go" class="btn">Go</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Keyboard shortcuts cheatsheet (press ?) -->
     <div id="shortcuts" class="modal" hidden>
       <div class="modal-card">
@@ -301,6 +317,7 @@
         <dl class="shortcut-list">
           <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Turn page</dd>
           <dt><kbd>Home</kbd><kbd>End</kbd></dt><dd>First / last page</dd>
+          <dt><kbd>G</kbd></dt><dd>Go to page…</dd>
           <dt><kbd>B</kbd></dt><dd>Bookmark this page</dd>
           <dt><kbd>C</kbd></dt><dd>Show / hide the chat</dd>
           <dt><kbd>Z</kbd></dt><dd>Zoom in to read</dd>
@@ -311,12 +328,14 @@
           <dt><kbd>＋</kbd><kbd>−</kbd></dt><dd>Zoom in / out</dd>
           <dt><kbd>0</kbd></dt><dd>Fit to screen</dd>
           <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Previous / next page</dd>
+          <dt><kbd>G</kbd></dt><dd>Go to page… (stays in the zoom view)</dd>
           <dt><kbd>C</kbd></dt><dd>Ask about this page without leaving the view</dd>
           <dt><kbd>Esc</kbd></dt><dd>Close the chat, then the viewer</dd>
         </dl>
         <h3 class="settings-subtitle">Anywhere</h3>
         <dl class="shortcut-list">
           <dt><kbd>⌘F</kbd> / <kbd>Ctrl+F</kbd></dt><dd>Search all pages</dd>
+          <dt><kbd>⌘⌥G</kbd> / <kbd>Ctrl+Alt+G</kbd></dt><dd>Go to page…</dd>
           <dt><kbd>Enter</kbd></dt><dd>Leave the search box, keep the results</dd>
           <dt><kbd>Esc</kbd></dt><dd>Close dialogs</dd>
           <dt><kbd>?</kbd></dt><dd>Show this list</dd>

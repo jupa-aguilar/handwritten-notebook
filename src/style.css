@@ -527,12 +527,23 @@ body {
   opacity: 0.35;
   cursor: default;
 }
+/* "7–8 / 57" is also the way in to the go-to-page dialog, so it's a button —
+   the only mouse-reachable door to it, since the keyboard's ⌘⌥G isn't one. */
 .page-indicator {
   color: var(--ink);
   font-size: 0.85rem;
   min-width: 56px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  border-radius: 6px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.page-indicator:hover {
+  background: rgba(0, 0, 0, 0.08);
 }
 .book-area.drag {
   outline: 3px dashed var(--accent);
@@ -735,6 +746,47 @@ mark {
 }
 .modal-card a {
   color: var(--accent);
+}
+
+/* ---------- go to page ---------- */
+
+/* Above everything, unlike the other modals: it is reachable from the zoom
+   viewer (60) and from the chat floating over it (65), and jumping to a page
+   from in there must not mean losing the view you asked from. */
+.goto-modal {
+  z-index: 75;
+}
+.goto-card {
+  width: min(320px, 92vw);
+  padding: 20px;
+}
+.goto-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.goto-row label {
+  white-space: nowrap;
+}
+#goto-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+#goto-input.invalid {
+  border-color: #b4442f;
+  box-shadow: 0 0 0 2px rgba(180, 68, 47, 0.2);
+}
+.goto-range {
+  font-size: 0.85rem;
+  color: #6c6256;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 /* ---------- notebooks manager ---------- */
 
@@ -1555,6 +1607,19 @@ kbd {
   min-width: 52px;
   text-align: center;
 }
+.viewer-indicator {
+  background: none;
+  border: none;
+  /* Sized to stand as tall as the ‹ › it sits between: it's a button now, and
+     on a phone this is the only way in to the go-to-page dialog. */
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.viewer-indicator:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
 .viewer-sep {
   width: 1px;
   height: 20px;
@@ -1638,6 +1703,7 @@ body.is-mobile textarea,
 body.is-mobile select,
 body.is-mobile #search,
 body.is-mobile #chat-input,
+body.is-mobile #goto-input,
 body.is-mobile #settings input[type='text'],
 body.is-mobile #settings input[type='password'] {
   font-size: 16px;
@@ -1663,6 +1729,23 @@ body.is-mobile #settings input[type='password'] {
       calc(16px + env(safe-area-inset-right, 0px))
       calc(16px + env(safe-area-inset-bottom, 0px))
       calc(16px + env(safe-area-inset-left, 0px));
+  }
+  /* …every dialog but this one: the go-to-page prompt is a single field, and
+     a whole screen for it would hide the page you're jumping from. */
+  .goto-modal {
+    align-items: center;
+    justify-content: center;
+  }
+  .goto-card {
+    width: min(320px, 88vw);
+    height: auto;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .goto-modal .modal-actions {
+    margin: 12px 0 0;
+    padding: 12px 0 0;
+    bottom: auto;
   }
   .modal-actions {
     /* Match the card's smaller padding, and let the buttons wrap rather than
