@@ -35,6 +35,7 @@ import { buildPdf } from './pdf.js';
 import { bumpOcr, getTotals, resetOwnUsage } from './usage.js';
 import {
   initChat,
+  openChat,
   chatNotebookChanged,
   chatFocusChanged,
   getStoredChatServerUrl,
@@ -1111,6 +1112,7 @@ function updateChatAvailability() {
   const unavailable = IS_MOBILE && !chatWorksWithoutLocalServer();
   document.body.classList.toggle('chat-unavailable', unavailable);
   if (unavailable) $('#chat').hidden = true;
+  syncViewerChatTab(); // its tab has nothing to open when the chat is off
 }
 
 function toggleFullscreen() {
@@ -2279,12 +2281,31 @@ async function movePagesTo(ids, targetId, after) {
 function openViewer(index = currentPage) {
   if (pages.length === 0) return;
   $('#viewer').hidden = false;
+  setViewing(true);
   loadViewerPage(index, { fit: true });
+}
+
+// The viewer covers the whole window, so anything that has to stay reachable
+// while it is open — the chat — is lifted above it by this class rather than
+// by a z-index war between two panels that are siblings the rest of the time.
+function setViewing(on) {
+  document.body.classList.toggle('viewing', on && !IS_MOBILE);
+  syncViewerChatTab();
+}
+
+// The tab is the chat's collapsed state: showing while the viewer is open and
+// the panel isn't, so the two are never both asking to be clicked.
+function syncViewerChatTab() {
+  const tab = $('#viewer-chat-tab');
+  if (!tab) return;
+  const canChat = !document.body.classList.contains('chat-unavailable');
+  tab.hidden = !document.body.classList.contains('viewing') || !canChat || !$('#chat').hidden;
 }
 
 function closeViewer() {
   if (IS_MOBILE) return; // on phones the viewer IS the reading view
   $('#viewer').hidden = true;
+  setViewing(false);
   if (viewerUrl) {
     URL.revokeObjectURL(viewerUrl);
     viewerUrl = null;
@@ -2839,7 +2860,11 @@ function wire() {
 
     // When the zoom viewer is open it captures the keyboard.
     if (!$('#viewer').hidden) {
-      if (e.key === 'Escape') closeViewer();
+      // Escape peels off one layer at a time: the chat floating over the
+      // viewer first, the viewer only once nothing is left on top of it.
+      if (e.key === 'Escape' && document.body.classList.contains('viewing') && !$('#chat').hidden) {
+        $('#chat-close').click();
+      } else if (e.key === 'Escape') closeViewer();
       else if (e.key === 'ArrowLeft') turnPage(-1);
       else if (e.key === 'ArrowRight') turnPage(1);
       else if (e.key === '+' || e.key === '=') zoomViewerBy(1.25);
@@ -2935,7 +2960,10 @@ function wire() {
     }),
     onSpendChanged: updateUsageDisplay,
     onGoToPage: goToCitedPage,
+    onVisibilityChanged: syncViewerChatTab,
   });
+
+  $('#viewer-chat-tab').addEventListener('click', () => openChat());
 
   // The manual transcription trigger. Without a key there is nothing to run,
   // so send the user where the key goes instead of failing quietly.

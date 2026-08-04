@@ -137,6 +137,13 @@
            below the toolbar and becomes the one and only reading view. -->
       <div id="viewer" class="viewer" hidden>
         <button id="immersive-btn" class="immersive-btn" title="Full screen" aria-label="Full screen">⛶</button>
+
+        <!-- The chat, collapsed to a tab against the right edge. Asking about
+             the page you are reading shouldn't cost leaving the zoom view,
+             coming back, and hunting for your place again. -->
+        <button id="viewer-chat-tab" class="viewer-chat-tab" title="Ask about this page" aria-label="Open chat" aria-expanded="false">
+          <span class="vct-icon">💬</span><span class="vct-label">Chat</span>
+        </button>
         <div id="viewer-stage" class="viewer-stage">
           <div id="viewer-content" class="viewer-content">
             <img id="viewer-img" class="viewer-img" alt="" draggable="false" />

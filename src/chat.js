@@ -135,6 +135,7 @@ const $ = (sel) => document.querySelector(sel);
 let getContext = null; // () => { id, name, pages }, supplied by main.js
 let onSpendChanged = () => {}; // main.js redraws its counter
 let onGoToPage = () => {}; // main.js turns to a cited page
+let onVisibilityChanged = () => {}; // main.js keeps the viewer's chat tab in step
 const histories = new Map(); // notebookId -> [{ id, role, content, error?, marked? }]
 const loaded = new Set(); // notebookIds already read back from IndexedDB
 let streamCtrl = null; // AbortController while a reply is streaming
@@ -898,7 +899,10 @@ async function setChatHidden(hidden) {
   // Keep the reading bar's lit button in step with which panel is open.
   $('#chat-btn').classList.toggle('active', !hidden);
   $('#panel-toggle').classList.toggle('active', !$('#panel').hidden);
+  onVisibilityChanged(hidden);
   // The book shares the row with this panel; StPageFlip refits on 'resize'.
+  // Harmless over the viewer, which re-fits to a stage this panel doesn't
+  // resize — it floats above it rather than taking room from it.
   window.dispatchEvent(new Event('resize'));
   if (!hidden) {
     render(); // draw immediately; the stored thread arrives a tick later
@@ -911,6 +915,12 @@ async function setChatHidden(hidden) {
 function autosize(ta) {
   ta.style.height = 'auto';
   ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+}
+
+// Opened from outside the chat's own buttons — the tab the viewer shows when
+// it is covering the reading bar this would normally be reached from.
+export function openChat() {
+  return setChatHidden(false);
 }
 
 // Called by main.js on every page change, so the open chat keeps showing which
@@ -935,6 +945,7 @@ export function initChat(opts) {
   getContext = opts.getContext;
   if (opts.onSpendChanged) onSpendChanged = opts.onSpendChanged;
   if (opts.onGoToPage) onGoToPage = opts.onGoToPage;
+  if (opts.onVisibilityChanged) onVisibilityChanged = opts.onVisibilityChanged;
 
   // Delegated: reply bubbles are rebuilt on every streamed token, so a
   // listener bound to the buttons themselves would be discarded immediately.

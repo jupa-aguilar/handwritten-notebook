@@ -1825,6 +1825,64 @@ body.is-mobile .panel.searching .panel-head {
   order: -2;
 }
 
+/* ---------- the chat, over the zoom viewer ----------
+   Reading a page and wanting to ask about it used to mean leaving the zoom
+   view, opening the chat, asking, and then finding your place again. Here the
+   panel floats over the viewer instead, docked to the right edge and full
+   height.
+
+   Two things it must not do. It must not take room from the stage: it is
+   fixed, so the stage never changes size and the page underneath neither
+   re-fits nor shifts. And it must not ride the zoom: it lives outside
+   #viewer-content, the element the scale transform is applied to, so panning
+   and zooming leave it exactly where it is. */
+body.viewing #chat {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(380px, 34vw);
+  z-index: 65; /* over the viewer's 60 — as everything reachable from here is */
+  border-left: 1px solid rgba(0, 0, 0, 0.35);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.4);
+}
+
+/* The chat's collapsed state: a tab against the same edge it opens from. */
+.viewer-chat-tab {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 64;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  background: rgba(43, 38, 34, 0.92);
+  color: var(--ink);
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 0.15s, padding-right 0.15s;
+}
+.viewer-chat-tab:hover {
+  background: var(--accent);
+  padding-right: 12px;
+}
+.vct-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+/* Reads down the tab, the way a spine does. */
+.vct-label {
+  writing-mode: vertical-rl;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 /* Immersive reading: floating ⛶ toggle hides both toolbars (iOS has no real
    Fullscreen API, so this is plain CSS). */
 .immersive-btn {
