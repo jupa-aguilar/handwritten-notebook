@@ -923,6 +923,11 @@ export function openChat() {
   return setChatHidden(false);
 }
 
+// The keyboard has no idea which of the two states the panel is in.
+export function toggleChat() {
+  return setChatHidden($('#chat').hidden === false);
+}
+
 // Called by main.js on every page change, so the open chat keeps showing which
 // pages an unanchored question would be answered about. Cheap and idempotent:
 // it only rewrites one line of text.

@@ -36,6 +36,7 @@ import { bumpOcr, getTotals, resetOwnUsage } from './usage.js';
 import {
   initChat,
   openChat,
+  toggleChat,
   chatNotebookChanged,
   chatFocusChanged,
   getStoredChatServerUrl,
@@ -1131,6 +1132,14 @@ function updateChatAvailability() {
   document.body.classList.toggle('chat-unavailable', unavailable);
   if (unavailable) $('#chat').hidden = true;
   syncViewerChatTab(); // its tab has nothing to open when the chat is off
+}
+
+// C, from the book or from inside the zoom view. Guarded on availability so
+// the key isn't a no-op that opens a panel the CSS is keeping hidden anyway
+// (a phone with no backend the chat could reach).
+function toggleChatShortcut() {
+  if (document.body.classList.contains('chat-unavailable')) return;
+  toggleChat();
 }
 
 function toggleFullscreen() {
@@ -2895,6 +2904,7 @@ function wire() {
       else if (e.key === '-' || e.key === '_') zoomViewerBy(1 / 1.25);
       else if (e.key === '0') fitViewer();
       else if (e.key === 'b' || e.key === 'B') toggleBookmark();
+      else if (e.key === 'c' || e.key === 'C') toggleChatShortcut();
       return;
     }
 
@@ -2905,6 +2915,7 @@ function wire() {
     if (e.key === 'f' || e.key === 'F') toggleFullscreen();
     if (e.key === 'z' || e.key === 'Z') openViewer();
     if (e.key === 'b' || e.key === 'B') toggleBookmark();
+    if (e.key === 'c' || e.key === 'C') toggleChatShortcut();
     if (e.key === '?') $('#shortcuts').hidden = !$('#shortcuts').hidden;
   });
 
