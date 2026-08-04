@@ -1017,6 +1017,17 @@ export function initChat(opts) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       $('#chat-form').requestSubmit();
+      return;
     }
+    // Opening the chat puts the caret in here, which leaves no key able to
+    // close it again: the global handler steps aside for text fields, so both
+    // C and Escape were being typed rather than acted on. Escape is the one
+    // that belongs to the panel — C is a letter people write. Same bargain the
+    // search box makes, and it peels the same way: the marks drawer first.
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation(); // never let it reach the viewer and close that too
+    if (!$('#chat-marks').hidden) setMarksOpen(false);
+    else setChatHidden(true);
   });
 }
