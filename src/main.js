@@ -483,6 +483,24 @@ function goToCitedPage(index, terms = '') {
   renderViewerHighlights();
 }
 
+// Which page of the spread a point on screen falls on. The flipbook shows two
+// at once, so "zoom in on this" has to mean the sheet under the pointer, not
+// whichever of the pair the app last called current — with 93 and 94 open, a
+// gesture over 94 was opening 93. Geometry comes from StPageFlip's own render
+// rect, the same source the highlight overlays are placed against.
+function pageAtPoint(clientX) {
+  if (!pageFlip || pages.length === 0) return currentPage;
+  const canvas = $('#book').querySelector('canvas');
+  const rect = pageFlip.getRender().getRect();
+  if (!canvas || !rect) return currentPage;
+  const idx = pageFlip.getCurrentPageIndex();
+  if (pageFlip.getOrientation() === 'portrait') return idx; // one sheet, no question
+  const left = idx - (idx % 2);
+  const spineX = canvas.getBoundingClientRect().left + rect.left + rect.pageWidth;
+  const onRight = clientX >= spineX && left + 1 < pages.length;
+  return onRight ? left + 1 : left;
+}
+
 // One page forward or back in whichever reading view is on screen. Shared by
 // the arrow keys wherever they are pressed, so the flipbook and the zoom
 // viewer can't drift apart on what "next page" means.
@@ -2490,8 +2508,9 @@ function wireViewer() {
   $('#viewer-reset').addEventListener('click', fitViewer);
   $('#viewer-bookmark').addEventListener('click', () => toggleBookmark());
 
-  // Double-click the book to jump straight into the zoom viewer.
-  $('.book-area').addEventListener('dblclick', () => openViewer(currentPage));
+  // Double-click the book to jump straight into the zoom viewer — on the page
+  // that was double-clicked, for the same reason the pinch below does.
+  $('.book-area').addEventListener('dblclick', (e) => openViewer(pageAtPoint(e.clientX)));
 
   // Trackpad: a pinch arrives as a ctrl+wheel event in Chromium, so plain
   // two-finger scrolling is free to pan the zoomed page (with macOS momentum
@@ -2558,19 +2577,24 @@ function wireViewer() {
     else zoomViewer(vFit * 2.5, e.clientX - rect.left, e.clientY - rect.top);
   });
 
-  // Pinch-out on the flipbook zooms straight into the viewer.
+  // Pinch-out on the flipbook zooms straight into the viewer — on the page the
+  // fingers are over, which in a two-page spread is the whole question.
   let bookPinch = 0;
   let bookPinchT = 0;
   $('.book-area').addEventListener('wheel', (e) => {
     if (!e.ctrlKey) return;
     e.preventDefault(); // keep Chromium from zooming the whole page
     const now = Date.now();
-    if (e.deltaY > 0 || now - bookPinchT > 300) bookPinch = 0;
+    // Only a pause starts the gesture over. A pinch is not a clean monotonic
+    // stream — macOS mixes in the odd opposite-sign delta as the fingers
+    // settle, and zeroing the total on the first of those is what made this
+    // need two or three tries before it caught.
+    if (now - bookPinchT > 300) bookPinch = 0;
     bookPinchT = now;
-    bookPinch += -e.deltaY;
+    bookPinch = Math.max(0, bookPinch - e.deltaY); // pinch-out reads negative
     if (bookPinch > 30 && $('#viewer').hidden) {
       bookPinch = 0;
-      openViewer(currentPage);
+      openViewer(pageAtPoint(e.clientX));
     }
   }, { passive: false });
 
