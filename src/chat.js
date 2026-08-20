@@ -308,6 +308,52 @@ async function streamCompletion(model, messages, signal, onDelta, extra = {}) {
   }
 }
 
+// One non-streaming completion on whichever backend is configured. The review
+// cards need a single JSON answer rather than a conversation, but they must go
+// through the same key, the same model and the same spend counter — so this is
+// exported instead of letting cards.js learn how to reach a model on its own.
+export async function complete(messages, { signal, model, ...extra } = {}) {
+  const be = backend();
+  const id = model || (await resolveChatModel()).id;
+  const resp = await fetch(`${be.url}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...be.headers },
+    body: JSON.stringify({
+      model: id,
+      messages,
+      stream: false,
+      temperature: 0.3, // reading facts back off a page, not writing prose
+      ...(isThinkingOn() ? {} : { reasoning_effort: 'none' }),
+      ...extra,
+    }),
+    signal,
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    const who = be.hosted ? 'OpenAI' : 'LM Studio';
+    throw new Error(`${who} ${resp.status}: ${body.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  if (data.usage && recordSpend(data.usage)) onSpendChanged();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+// Which model a batch of requests should use, phrased for a caller that has
+// no panel of its own to explain itself in. The card generator asks once
+// before a long run — so a missing key fails on the first click rather than
+// halfway through the notebook — and then passes the id to every completion,
+// which saves a probe per page.
+export async function resolveChatModel() {
+  const be = backend();
+  try {
+    return await resolveModel();
+  } catch (err) {
+    throw new Error(
+      be.hosted ? `OpenAI ${err.message}` : `Can't reach LM Studio at ${be.url} — ${err.message}`
+    );
+  }
+}
+
 // ---------- notebook context ----------
 
 // Meaningful terms from the question, used to pull the pages that actually

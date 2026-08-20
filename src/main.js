@@ -33,6 +33,7 @@ import {
 import { buildZip } from './zip.js';
 import { buildPdf } from './pdf.js';
 import { bumpOcr, getTotals, resetOwnUsage } from './usage.js';
+import { formatDueCount } from './srs.js';
 import {
   initChat,
   openChat,
@@ -45,6 +46,13 @@ import {
   setOpenAiKey,
   chatWorksWithoutLocalServer,
 } from './chat.js';
+import {
+  initReview,
+  openReview,
+  closeReview,
+  reviewNotebookChanged,
+  refreshDueCount,
+} from './review.js';
 import {
   syncNow,
   isSyncConfigured,
@@ -587,6 +595,7 @@ async function removePage(id) {
   currentPage = Math.max(0, Math.min(currentPage, pages.length - 1));
   renderBook();
   refreshSearch();
+  refreshDueCount(); // its cards went with it
   setOcrStatus('Page deleted');
 }
 
@@ -709,6 +718,15 @@ function refreshSearch() {
   updatePanel();
   updateHighlights();
   renderViewerHighlights();
+}
+
+// How many cards are waiting, painted on the Review button. Hidden at zero:
+// a badge reading 0 is a chore that isn't one.
+function paintDueBadge(n) {
+  const badge = $('#review-badge');
+  if (!badge) return;
+  badge.textContent = formatDueCount(n);
+  badge.hidden = !n;
 }
 
 // ---------- highlight boxes over the page image ----------
@@ -1417,6 +1435,7 @@ async function loadCurrentNotebook() {
   renderBook();
   refreshSearch();
   chatNotebookChanged();
+  reviewNotebookChanged(); // its cards are a different deck
   updateOcrCue(); // pages waiting are counted per notebook
 }
 
@@ -2308,6 +2327,7 @@ async function deleteSelectedPages() {
   currentPage = Math.max(0, Math.min(targetIndex, pages.length - 1));
   renderBook();
   refreshSearch();
+  refreshDueCount(); // their cards went with them
   setOcrStatus(`Deleted ${ids.size} page${ids.size === 1 ? '' : 's'}`);
   if (pages.length === 0) closePagesOverview();
   else renderPagesGrid();
@@ -2868,6 +2888,7 @@ function wire() {
     { el: $('#goto'), close: closeGoto },
     { el: $('#notebooks'), close: () => ($('#notebooks').hidden = true) },
     { el: $('#pages-overview'), close: closePagesOverview },
+    { el: $('#review'), close: closeReview },
     { el: $('#settings'), close: closeSettings },
     { el: $('#shortcuts'), close: () => ($('#shortcuts').hidden = true) },
   ];
@@ -2990,6 +3011,7 @@ function wire() {
     if (e.key === 'End') goLast();
     if (e.key === 'f' || e.key === 'F') toggleFullscreen();
     if (e.key === 'z' || e.key === 'Z') openViewer();
+    if (e.key === 'r' || e.key === 'R') openReview();
     if (e.key === 'b' || e.key === 'B') toggleBookmark();
     if (e.key === 'c' || e.key === 'C') toggleChatShortcut();
     if (e.key === 'g' || e.key === 'G') openGoto();
@@ -3073,6 +3095,13 @@ function wire() {
     onSpendChanged: updateUsageDisplay,
     onGoToPage: goToCitedPage,
     onVisibilityChanged: syncViewerChatTab,
+  });
+
+  initReview({
+    getContext: () => ({ id: currentNotebookId, name: $('#current-notebook').textContent, pages }),
+    onGoToPage: goToPage,
+    onDueCount: paintDueBadge,
+    currentPageIndex: () => currentPage,
   });
 
   $('#viewer-chat-tab').addEventListener('click', () => openChat());

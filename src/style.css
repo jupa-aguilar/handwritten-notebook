@@ -1992,3 +1992,136 @@ body.is-mobile.immersive .toolbar,
 body.is-mobile.immersive .viewer-toolbar {
   display: none;
 }
+
+/* ---------- review ---------- */
+
+/* The due count rides on the reading bar's own button: the deck is only worth
+   opening when something is waiting in it, and this is the only place that
+   says so without opening it. */
+.read-btn {
+  position: relative;
+}
+.read-badge {
+  position: absolute;
+  top: 1px;
+  right: 4px;
+  min-width: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
+
+.review-stats {
+  margin: 14px 0 4px;
+  font-size: 0.95rem;
+  color: var(--panel-ink);
+}
+
+.review-remaining {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(44, 38, 32, 0.55);
+}
+.review-q {
+  margin: 10px 0 18px;
+  font-size: 1.3rem;
+  line-height: 1.35;
+  font-weight: 600;
+}
+.review-show {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+.review-show small {
+  margin-left: 8px;
+  opacity: 0.6;
+}
+
+.review-answer {
+  border-top: 1px solid rgba(44, 38, 32, 0.15);
+  padding-top: 14px;
+}
+.review-answer-text {
+  font-size: 1.05rem;
+  line-height: 1.45;
+}
+/* The page itself. Left ragged rather than stretched: it is a piece of paper,
+   and scaling it to fill the card would be the one thing that made it look
+   like stock art. */
+.review-crop {
+  margin: 14px 0 0;
+}
+.review-crop img {
+  display: block;
+  max-width: 100%;
+  max-height: 34vh;
+  border-radius: 6px;
+  border: 1px solid rgba(44, 38, 32, 0.18);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  background: #fff;
+}
+.review-crop figcaption,
+.review-crop-note {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: rgba(44, 38, 32, 0.55);
+}
+
+.review-grades {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 18px;
+}
+.review-grade {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 4px;
+  justify-content: center;
+}
+/* Each grade shows the interval it buys, in smaller type under its name. */
+.review-grade small {
+  font-size: 0.68rem;
+  opacity: 0.75;
+}
+.review-grade.grade-again {
+  background: #a8452f;
+}
+.review-grade.grade-hard {
+  background: #8a6a34;
+}
+.review-grade.grade-easy {
+  background: #4a7150;
+}
+
+/* Ghost buttons default to the dark toolbar's ink, which is invisible on the
+   panel — the same correction .modal-actions makes for its own row. */
+.review-tools .btn.ghost {
+  color: var(--panel-ink);
+  border-color: rgba(0, 0, 0, 0.25);
+}
+.review-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+@media (max-width: 600px) {
+  .review-grades {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .review-q {
+    font-size: 1.15rem;
+  }
+}

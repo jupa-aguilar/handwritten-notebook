@@ -10,10 +10,15 @@
 //   notebookTombstones: { uuid, at }  notebooks deleted here
 //   syncState:          { uuid, localAt, remoteAt, at }  per notebook
 //   chats:              { notebookId, messages, updatedAt }  chat history
+//   cards:              { id, notebookId, pageId, pageUuid, q, a, box, ...srs }
+//                       review cards drawn from a page
 //
 // Chats are local-only on purpose: they are cheap to regenerate, would bloat
 // every sync manifest, and can contain a stray question the user would rather
-// not copy to another device.
+// not copy to another device. Cards are local-only for now too, but for the
+// opposite reason — a review schedule is exactly the kind of thing you want on
+// the phone as well, so they carry the page's uuid alongside its local id from
+// day one, ready for the manifest that will eventually take them.
 //
 // The last three are sync bookkeeping and used to live in localStorage. They
 // don't anymore: localStorage and IndexedDB have independent lifetimes, so
@@ -62,7 +67,7 @@ function migrateLegacySyncState(tx) {
   }
 }
 
-const dbPromise = openDB('handwritten-notebook', 4, {
+const dbPromise = openDB('handwritten-notebook', 5, {
   async upgrade(db, oldVersion, _newVersion, tx) {
     if (oldVersion < 1) {
       const pages = db.createObjectStore('pages', {
@@ -97,6 +102,17 @@ const dbPromise = openDB('handwritten-notebook', 4, {
     }
     if (oldVersion < 4) {
       db.createObjectStore('chats', { keyPath: 'notebookId' });
+    }
+    if (oldVersion < 5) {
+      const cards = db.createObjectStore('cards', {
+        keyPath: 'id',
+        autoIncrement: true,
+      });
+      cards.createIndex('notebookId', 'notebookId');
+      // Cards follow the page's *local* id, not its uuid: replacing a page's
+      // image mints a fresh uuid (see swapPageImage) and re-scanning a page
+      // must not throw away what you learned from it.
+      cards.createIndex('pageId', 'pageId');
     }
   },
 }).then((db) => {
@@ -164,7 +180,7 @@ export async function reorderNotebooks(orderedIds) {
 export async function deleteNotebook(id) {
   const db = await dbPromise;
   const tx = db.transaction(
-    ['notebooks', 'pages', 'syncState', 'chats'],
+    ['notebooks', 'pages', 'syncState', 'chats', 'cards'],
     'readwrite'
   );
   const notebooks = tx.objectStore('notebooks');
@@ -176,11 +192,12 @@ export async function deleteNotebook(id) {
   // (The tombstone is recorded separately — only deletions the *user* made
   // should propagate, not ones sync itself just applied.)
   if (nb?.uuid) await tx.objectStore('syncState').delete(nb.uuid);
-  const idx = tx.objectStore('pages').index('notebookId');
-  let cursor = await idx.openCursor(id);
-  while (cursor) {
-    await cursor.delete();
-    cursor = await cursor.continue();
+  for (const store of ['pages', 'cards']) {
+    let cursor = await tx.objectStore(store).index('notebookId').openCursor(id);
+    while (cursor) {
+      await cursor.delete();
+      cursor = await cursor.continue();
+    }
   }
   await tx.done;
 }
@@ -216,7 +233,7 @@ export async function putPage(page) {
 
 export async function deletePage(id) {
   const db = await dbPromise;
-  const tx = db.transaction(['pages', 'pageTombstones'], 'readwrite');
+  const tx = db.transaction(['pages', 'pageTombstones', 'cards'], 'readwrite');
   const pages = tx.objectStore('pages');
   const page = await pages.get(id);
   // One transaction: the page can't go without its tombstone, which is the
@@ -225,6 +242,12 @@ export async function deletePage(id) {
     await tx.objectStore('pageTombstones').put({ uuid: page.uuid, at: Date.now() });
   }
   await pages.delete(id);
+  // The cards drawn from it have nothing left to point at.
+  let cursor = await tx.objectStore('cards').index('pageId').openCursor(id);
+  while (cursor) {
+    await cursor.delete();
+    cursor = await cursor.continue();
+  }
   await tx.done;
 }
 
@@ -262,6 +285,7 @@ export async function clearAll() {
     'notebookTombstones',
     'syncState',
     'chats',
+    'cards',
   ];
   const tx = db.transaction(stores, 'readwrite');
   await Promise.all(stores.map((s) => tx.objectStore(s).clear()));
@@ -289,6 +313,57 @@ export async function saveChat(notebookId, messages) {
   // the same in storage rather than leaving an empty husk behind.
   if (!messages?.length) return db.delete('chats', notebookId);
   return db.put('chats', { notebookId, messages, updatedAt: Date.now() });
+}
+
+// ---------- review cards ----------
+//
+// One card is one question drawn from one page, plus the box on that page
+// where its answer is written. The scheduling fields (see srs.js) live on the
+// same record: there are only ever a few hundred of them per notebook, so the
+// review queue is a filter over getAll rather than a cursor over a due index.
+
+export async function listCards(notebookId) {
+  if (notebookId == null) return [];
+  const db = await dbPromise;
+  return db.getAllFromIndex('cards', 'notebookId', notebookId);
+}
+
+// Cards arrive a pageful at a time, so they go in a pageful at a time.
+export async function addCards(cards) {
+  if (!cards?.length) return [];
+  const db = await dbPromise;
+  const tx = db.transaction('cards', 'readwrite');
+  const store = tx.objectStore('cards');
+  const ids = [];
+  for (const card of cards) ids.push(await store.add(card));
+  await tx.done;
+  return ids;
+}
+
+export async function putCard(card) {
+  const db = await dbPromise;
+  return db.put('cards', card);
+}
+
+export async function deleteCard(id) {
+  const db = await dbPromise;
+  return db.delete('cards', id);
+}
+
+// Every card drawn from a page, dropped when its questions turn out to be
+// wrong — the way to redo a page is to clear it and generate again.
+export async function deleteCardsForPage(pageId) {
+  const db = await dbPromise;
+  const tx = db.transaction('cards', 'readwrite');
+  let cursor = await tx.objectStore('cards').index('pageId').openCursor(pageId);
+  let n = 0;
+  while (cursor) {
+    await cursor.delete();
+    n++;
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+  return n;
 }
 
 // ---------- sync support ----------

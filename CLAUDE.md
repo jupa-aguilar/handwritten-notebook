@@ -37,6 +37,9 @@ jsdom — nothing under test touches the DOM, which is the point of what lives i
 `zip.js` and `db.js`. `test/setup.js` supplies the two browser APIs those modules do need:
 `fake-indexeddb` and a `localStorage` stub.
 
+`srs.js` and the pure half of `cards.js` (the prompt, the JSON parsing, the anchoring) are
+covered by `test/srs.test.js` and `test/cards.test.js`; the panel that drives them is not.
+
 `db.js` opens the database when it is imported, so tests that need a clean slate go through
 `freshDb()` in `test/helpers.js` (new `IDBFactory` + `vi.resetModules()`); migration tests use
 `resetStorage()` / `seedSchemaV2()` / `loadDb()` to plant a pre-v3 database first.
@@ -66,9 +69,12 @@ wiring silently.
 | `src/main.js` (~2.4k lines) | The whole UI controller: flipbook render, search + highlight overlays, OCR queue, zoom viewer, pages overview, notebook manager, export/import, keyboard wiring. All app state is module-level (`pages`, `currentPage`, `currentNotebookId`). |
 | `src/text.js` | Accent folding, query tokenising, the all-words match rule and the highlighter — shared by the search box, the transcript panel, the on-image word boxes and the chat's page ranking, so all four agree on what "a word" is. |
 | `src/zip.js` | Store-only ZIP writer for multi-page downloads (browsers honour only the first programmatic download per gesture, so several pages must leave as one file). |
-| `src/db.js` | IndexedDB (`idb`), schema v3: `notebooks`, `pages`, plus the sync bookkeeping (`pageTombstones`, `notebookTombstones`, `syncState`). Owns the migrations and the sync merge logic (`applyRemoteNotebook`). |
+| `src/db.js` | IndexedDB (`idb`), schema v5: `notebooks`, `pages`, `chats`, `cards`, plus the sync bookkeeping (`pageTombstones`, `notebookTombstones`, `syncState`). Owns the migrations and the sync merge logic (`applyRemoteNotebook`). |
 | `src/ocr.js` | Google Cloud Vision `DOCUMENT_TEXT_DETECTION` called straight from the browser; flattens the page→block→paragraph→word tree into `{ t, x, y, w, h }` boxes in image pixels. A Claude-vision provider is kept commented out as an alternative. |
 | `src/sync.js` | Google Drive `appDataFolder` sync: `meta.json`, `nb-<uuid>.json` manifests, `pg-<uuid>` images. Auth via GIS in the browser, via the Electron loopback flow in the app. |
+| `src/srs.js` | The scheduler: SM-2 with a short relearning step and an ease floor. Pure arithmetic, no storage and no DOM — which is why it is the part with tests. |
+| `src/cards.js` | Turns one transcribed page into review cards. Asks the chat's backend for `{q, a, anchor}` JSON, then locates the *anchor* in that page's word boxes to get the rectangle the answer was written in. |
+| `src/review.js` | The review panel: deck summary, the generation run (with its own abort), the sitting itself, and cropping the answer's rectangle out of the page image. |
 | `src/chat.js` | Chat panel. Two backends behind one wire protocol (OpenAI-style Chat Completions + SSE): OpenAI's hosted `gpt-5.6-luna` when an API key is set, otherwise whatever model LM Studio has loaded locally. Owns its own conversation state per notebook; `main.js` only supplies `getContext()`. |
 | `electron/main.cjs` + `preload.cjs` | Mac shell. Loads the hosted PWA, falls back to `dist/`. Runs the system-browser OAuth loopback on `127.0.0.1:17987` and stores a refresh token encrypted via `safeStorage`. |
 
@@ -78,6 +84,26 @@ Every page and notebook has a numeric autoincrement `id` (local only, used by al
 `data-id` attributes) **and** a `uuid` (stable across devices, the only thing sync and
 export/import understand). New records must get `crypto.randomUUID()`; `ensureSyncIds()`
 backfills pre-sync records.
+
+### Review cards
+
+A card is one question drawn from one page plus the box on that page where its answer is
+written, so the answer side shows the user's own handwriting rather than a paraphrase of it.
+That box comes from the model quoting a literal fragment of the page (`anchor`), which
+`locateAnchor` matches against the page's OCR word boxes as a bag of words in a sliding
+window — never as a literal substring, because both sides are approximations of the same ink.
+Below half the words matching it returns `null` and the card shows text only: a rectangle
+over the wrong sentence is worse than no rectangle.
+
+Cards follow a page's **local `id`**, not its uuid, so re-scanning a page (`swapPageImage`,
+which mints a fresh uuid) doesn't throw away what you learned from it. They still carry the
+uuid they were measured against: when it no longer matches the page's, the crop is skipped,
+since those coordinates now point into a different picture. Cards are local-only for now, like
+`chats` — the uuid is there for the manifest that will eventually sync them.
+
+`chat.js` owns the only code that knows how to reach a model: `resolveChatModel()` +
+`complete()`, exported so a generation run resolves the model once and every page's request
+goes through the same key and the same spend counter.
 
 ### The mutation ritual
 

@@ -72,6 +72,7 @@
           <button id="zoom-btn" class="read-btn" title="Zoom in to read (Z)"><span class="read-icon">🔍</span><span class="read-label">Zoom</span></button>
           <button id="panel-toggle" class="read-btn" title="Show page text"><span class="read-icon">📖</span><span class="read-label">Text</span></button>
           <button id="chat-btn" class="read-btn" title="Chat about this notebook"><span class="read-icon">💬</span><span class="read-label">Chat</span></button>
+          <button id="review-btn" class="read-btn" title="Review cards drawn from these pages (R)"><span class="read-icon">🎯</span><span class="read-label">Review</span><span id="review-badge" class="read-badge" hidden></span></button>
           <div class="bm-wrap">
             <button id="bookmark-toggle" class="read-btn" title="Bookmark this page (B)" aria-pressed="false"><span class="read-icon">🔖</span><span class="read-label">Mark</span></button>
             <button id="bookmarks-btn" class="read-btn read-btn-more" title="Show bookmarks" aria-label="Show bookmarks">▾</button>
@@ -190,6 +191,47 @@
         <div class="modal-actions">
           <button id="import-notebook-btn" class="btn ghost" title="Import a notebook backup file">⬆ Import…</button>
           <button id="notebooks-close" class="btn ghost">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Review: spaced repetition over the pages themselves -->
+    <div id="review" class="modal" hidden>
+      <div class="modal-card modal-wide">
+        <h2>Review</h2>
+
+        <div id="review-deck">
+          <p class="hint">Questions drawn from your own pages. Each answer shows the handwriting it came from, so what you check yourself against is the notebook — not somebody's summary of it. Cards stay on this device; nothing about them is synced yet.</p>
+          <div id="review-stats" class="review-stats"></div>
+        </div>
+
+        <div id="review-session" hidden>
+          <div id="review-remaining" class="review-remaining"></div>
+          <div id="review-q" class="review-q"></div>
+          <button id="review-show" class="btn review-show">Show answer <small>space</small></button>
+          <div id="review-answer" class="review-answer" hidden>
+            <div id="review-answer-text" class="review-answer-text"></div>
+            <figure id="review-crop" class="review-crop" hidden>
+              <img id="review-crop-img" alt="The passage on the page this card was drawn from" />
+              <figcaption id="review-crop-cap"></figcaption>
+            </figure>
+            <p id="review-crop-note" class="review-crop-note" hidden></p>
+          </div>
+          <div id="review-grades" class="review-grades" hidden></div>
+          <div class="review-tools">
+            <button id="review-goto" class="btn ghost small">Open the page</button>
+            <button id="review-drop" class="btn ghost small">Delete this card</button>
+            <button id="review-end" class="btn ghost small">End the sitting</button>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <div id="review-status" class="pages-status" hidden></div>
+          <button id="review-clear-page" class="btn ghost" hidden title="Drop the cards drawn from the page you have open, so it can be generated again"></button>
+          <button id="review-stop" class="btn ghost" hidden>■ Stop</button>
+          <button id="review-generate" class="btn" hidden></button>
+          <button id="review-start" class="btn" hidden></button>
+          <button id="review-close" class="btn ghost">Close</button>
         </div>
       </div>
     </div>
@@ -320,6 +362,7 @@
           <dt><kbd>G</kbd></dt><dd>Go to page…</dd>
           <dt><kbd>B</kbd></dt><dd>Bookmark this page</dd>
           <dt><kbd>C</kbd></dt><dd>Show / hide the chat</dd>
+          <dt><kbd>R</kbd></dt><dd>Review cards from these pages</dd>
           <dt><kbd>Z</kbd></dt><dd>Zoom in to read</dd>
           <dt><kbd>F</kbd></dt><dd>Full screen</dd>
         </dl>
@@ -331,6 +374,11 @@
           <dt><kbd>G</kbd></dt><dd>Go to page… (stays in the zoom view)</dd>
           <dt><kbd>C</kbd></dt><dd>Ask about this page without leaving the view</dd>
           <dt><kbd>Esc</kbd></dt><dd>Close the chat, then the viewer</dd>
+        </dl>
+        <h3 class="settings-subtitle">Review</h3>
+        <dl class="shortcut-list">
+          <dt><kbd>space</kbd></dt><dd>Show the answer, then grade it <em>Good</em></dd>
+          <dt><kbd>1</kbd>–<kbd>4</kbd></dt><dd>Again / Hard / Good / Easy</dd>
         </dl>
         <h3 class="settings-subtitle">Anywhere</h3>
         <dl class="shortcut-list">
