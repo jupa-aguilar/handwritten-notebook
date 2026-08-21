@@ -2662,12 +2662,21 @@ function wireViewer() {
     }
   }, { passive: false });
 
-  // Double-click toggles between fit and a readable zoom at that spot
-  // (smart-zoom feel).
-  stage.addEventListener('dblclick', (e) => {
+  // Toggle between fit and a readable zoom at the point aimed at (smart-zoom
+  // feel), whichever gesture asked for it.
+  function smartZoom(clientX, clientY) {
     const rect = stage.getBoundingClientRect();
     if (vScale > vFit + 0.001) fitViewer();
-    else zoomViewer(vFit * 2.5, e.clientX - rect.left, e.clientY - rect.top);
+    else zoomViewer(vFit * 2.5, clientX - rect.left, clientY - rect.top);
+  }
+
+  // A finger's double tap is detected below, from the pointer events
+  // themselves. A browser that also synthesizes a dblclick from the same two
+  // taps would otherwise toggle the zoom straight back, so the mouse path
+  // steps aside for a moment after any touch.
+  stage.addEventListener('dblclick', (e) => {
+    if (Date.now() - lastTouchAt < 700) return;
+    smartZoom(e.clientX, e.clientY);
   });
 
   // Pinch-out on the flipbook zooms straight into the viewer — on the page the
@@ -2699,12 +2708,27 @@ function wireViewer() {
   let pinch = null; // { dist, midX, midY, scale, tx, ty } at pinch start
   let swipe = null; // { x, y, t } at single-touch start
 
+  // Double tap is ours to detect rather than the browser's to hand us. The
+  // synthesized dblclick arrives dependably while the page sits at fit scale
+  // and then stops once it's zoomed — where every touch is the start of a pan,
+  // and a pan is not a click — so the viewer zoomed in and would not come back
+  // out. Which on a phone in immersive mode, with no Fit button on screen,
+  // left the page stuck at 250%.
+  let tap = null; // the gesture in progress, while it still looks like a tap
+  let lastTap = null; // the previous tap, waiting to become half of a double
+  let lastTouchAt = 0; // when a finger last left the glass
+  const TAP_SLOP = 16; // px a finger may drift and still count as a tap
+  const TAP_MS = 400; // longer than this is a press, not a tap
+  const DOUBLE_MS = 320; // gap allowed between the two taps
+  const DOUBLE_SLOP = 48; // and how far apart they may land
+
   stage.addEventListener('pointerdown', (e) => {
     stage.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       const rect = stage.getBoundingClientRect();
+      tap = null; // two fingers is a pinch, never a tap
       pinch = {
         dist: Math.hypot(a.x - b.x, a.y - b.y),
         midX: (a.x + b.x) / 2 - rect.left,
@@ -2716,6 +2740,7 @@ function wireViewer() {
       swipe = null; // a second finger cancels any pending page swipe
       vDrag = null;
     } else if (pointers.size === 1) {
+      if (e.pointerType === 'touch') tap = { x: e.clientX, y: e.clientY, t: Date.now() };
       if (e.pointerType === 'touch' && vScale <= vFit + 0.001) {
         swipe = { x: e.clientX, y: e.clientY, t: Date.now() };
       } else {
@@ -2729,6 +2754,8 @@ function wireViewer() {
     if (pointers.has(e.pointerId)) {
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
+    // Moved too far to still be a tap — this is a pan, or a swipe.
+    if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > TAP_SLOP) tap = null;
     if (pinch && pointers.size >= 2) {
       const [a, b] = [...pointers.values()];
       const rect = stage.getBoundingClientRect();
@@ -2784,6 +2811,23 @@ function wireViewer() {
         vDrag = { x: p.x, y: p.y, tx: vTx, ty: vTy };
       }
     }
+    if (e.pointerType === 'touch' && pointers.size === 0) {
+      lastTouchAt = Date.now();
+      const now = Date.now();
+      const finished = tap && now - tap.t < TAP_MS ? tap : null;
+      tap = null;
+      const isDouble =
+        finished &&
+        lastTap &&
+        now - lastTap.t < DOUBLE_MS &&
+        Math.hypot(finished.x - lastTap.x, finished.y - lastTap.y) < DOUBLE_SLOP;
+      lastTap = isDouble ? null : finished ? { ...finished, t: now } : null;
+      if (isDouble) {
+        swipe = null; // the second tap is not a page turn
+        smartZoom(finished.x, finished.y);
+      }
+    }
+
     if (swipe && pointers.size === 0 && e.pointerType === 'touch') {
       const dx = e.clientX - swipe.x;
       const dy = e.clientY - swipe.y;
@@ -2803,6 +2847,7 @@ function wireViewer() {
     pointers.delete(e.pointerId);
     pinch = null;
     swipe = null;
+    tap = null;
     if (pointers.size === 0) {
       vDrag = null;
       stage.classList.remove('grabbing');
