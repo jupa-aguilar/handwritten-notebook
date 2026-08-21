@@ -49,6 +49,7 @@ import {
   chatWorksWithoutLocalServer,
 } from './chat.js';
 import { locateAnchor } from './cards.js';
+import { initProof, openProof, closeProof } from './proofpanel.js';
 import {
   initReview,
   openReview,
@@ -2959,6 +2960,7 @@ function wire() {
     { el: $('#notebooks'), close: () => ($('#notebooks').hidden = true) },
     { el: $('#pages-overview'), close: closePagesOverview },
     { el: $('#review'), close: closeReview },
+    { el: $('#proof'), close: closeProof },
     { el: $('#settings'), close: closeSettings },
     { el: $('#shortcuts'), close: () => ($('#shortcuts').hidden = true) },
   ];
@@ -3174,6 +3176,21 @@ function wire() {
     onChanged: scheduleSync,
     currentPageIndex: () => currentPage,
   });
+
+  initProof({
+    getContext: () => ({ id: currentNotebookId, pages }),
+    onGoToPage: goToPage,
+    currentPageIndex: () => currentPage,
+    // A corrected transcript is notebook content: it has to reach the other
+    // devices, and everything drawn from the text has to be redrawn.
+    onChanged: async (page) => {
+      scheduleSync();
+      await reanchorCards(page); // a fixed word may be the one an anchor missed
+      refreshSearch();
+      updatePanel();
+    },
+  });
+  $('#proof-btn').addEventListener('click', openProof);
 
   $('#viewer-chat-tab').addEventListener('click', () => openChat());
 

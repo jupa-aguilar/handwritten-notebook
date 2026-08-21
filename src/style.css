@@ -2176,3 +2176,62 @@ body.is-mobile.immersive .viewer-toolbar {
     font-size: 1.15rem;
   }
 }
+
+/* ---------- checking the transcription ---------- */
+
+.proof-fix {
+  margin: 16px 0 4px;
+}
+/* The line as transcribed, with the word in question marked inside it — the
+   sentence is what makes a misreading obvious, not the word on its own. */
+.proof-line {
+  margin: 10px 0 6px;
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+.proof-context {
+  color: rgba(44, 38, 32, 0.75);
+}
+.proof-wrong {
+  background: rgba(180, 40, 30, 0.14);
+  border-radius: 3px;
+  padding: 0 2px;
+  text-decoration: line-through;
+  text-decoration-color: rgba(140, 43, 34, 0.6);
+}
+.proof-arrow {
+  margin-top: 6px;
+  font-size: 1.1rem;
+}
+.proof-right {
+  color: #2f6b40;
+}
+.proof-why {
+  margin: 2px 0 10px;
+  font-size: 0.8rem;
+  color: rgba(44, 38, 32, 0.55);
+}
+.proof-verdict {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+.proof-verdict .btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.proof-verdict .btn small {
+  opacity: 0.65;
+}
+.proof-verdict .btn.ghost {
+  color: var(--panel-ink);
+  border-color: rgba(0, 0, 0, 0.25);
+}
+/* The panel's own head is a row of buttons; the check joins it without
+   pushing the ✕ off the end. */
+.panel-head #proof-btn {
+  margin-left: auto;
+}

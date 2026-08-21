@@ -105,6 +105,7 @@
       <aside id="panel" class="panel" hidden>
         <div class="panel-head">
           <strong>Page text</strong>
+          <button id="proof-btn" class="btn ghost small" title="Check this transcription against the handwriting">✨ Check</button>
           <button id="panel-close" class="btn ghost small" aria-label="Close panel">✕</button>
         </div>
         <div id="panel-body" class="panel-body"></div>
@@ -205,6 +206,40 @@
         <div class="modal-actions">
           <button id="import-notebook-btn" class="btn ghost" title="Import a notebook backup file">⬆ Import…</button>
           <button id="notebooks-close" class="btn ghost">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Proofreading: the model points at a word, the handwriting settles it -->
+    <div id="proof" class="modal" hidden>
+      <div class="modal-card modal-wide">
+        <h2>Check the transcription</h2>
+
+        <p class="hint">Vision reads handwriting well, not perfectly, and its mistakes are invisible — the transcript reads like something, so nothing looks wrong until a search comes up empty. A model reads the page back and points at words that can't be what the line means; the line in your own hand is shown with each one, and nothing changes until you say so.</p>
+
+        <div id="proof-fix" class="proof-fix" hidden>
+          <div id="proof-remaining" class="review-remaining"></div>
+          <div id="proof-line" class="proof-line"></div>
+          <div id="proof-why" class="proof-why"></div>
+          <figure id="proof-crop" class="review-crop" hidden>
+            <img id="proof-crop-img" alt="The line on the page as it was written" />
+          </figure>
+          <p id="proof-crop-note" class="review-crop-note" hidden></p>
+          <div class="proof-verdict">
+            <button id="proof-apply" class="btn">✓ Correct it <small>enter</small></button>
+            <button id="proof-skip" class="btn ghost">Leave it <small>backspace</small></button>
+          </div>
+          <div class="review-tools">
+            <button id="proof-goto" class="btn ghost small">Open the page</button>
+          </div>
+        </div>
+
+        <div class="modal-actions pages-actions">
+          <div id="proof-status" class="pages-status" hidden></div>
+          <button id="proof-stop" class="btn ghost" hidden>■ Stop</button>
+          <button id="proof-check-page" class="btn"></button>
+          <button id="proof-check-all" class="btn ghost"></button>
+          <button id="proof-close" class="btn ghost">Close</button>
         </div>
       </div>
     </div>
@@ -396,6 +431,11 @@
         <dl class="shortcut-list">
           <dt><kbd>space</kbd></dt><dd>Show the answer, then grade it <em>Good</em></dd>
           <dt><kbd>1</kbd>–<kbd>4</kbd></dt><dd>Again / Hard / Good / Easy</dd>
+        </dl>
+        <h3 class="settings-subtitle">Checking the transcription</h3>
+        <dl class="shortcut-list">
+          <dt><kbd>enter</kbd></dt><dd>Apply the correction</dd>
+          <dt><kbd>backspace</kbd></dt><dd>Leave the word as it was</dd>
         </dl>
         <h3 class="settings-subtitle">Anywhere</h3>
         <dl class="shortcut-list">

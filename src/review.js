@@ -9,7 +9,8 @@
 
 import { listCards, addCards, putCard, deleteCard, deleteCardsForPage } from './db.js';
 import { resolveChatModel } from './chat.js';
-import { generateForPage, pagesToGenerate, cropRect } from './cards.js';
+import { generateForPage, pagesToGenerate } from './cards.js';
+import { cropPage } from './crop.js';
 import { review, nextInterval, dueCards, isDue, formatInterval, GRADES } from './srs.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -259,22 +260,9 @@ async function paintCrop(card) {
   }
 
   try {
-    const bitmap = await createImageBitmap(page.blob);
-    const cut = cropRect(page, card.box);
-    const x = Math.max(0, cut.x);
-    const y = Math.max(0, cut.y);
-    const w = Math.min(bitmap.width - x, cut.w);
-    const h = Math.min(bitmap.height - y, cut.h);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(w);
-    canvas.height = Math.round(h);
-    canvas.getContext('2d').drawImage(bitmap, x, y, w, h, 0, 0, canvas.width, canvas.height);
-    bitmap.close();
-
-    const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.9));
+    const url = await cropPage(page, card.box);
     releaseCrop();
-    cropUrl = URL.createObjectURL(blob);
+    cropUrl = url;
     $('#review-crop-img').src = cropUrl;
     $('#review-crop-cap').textContent = `Page ${page.order + 1}`;
     fig.hidden = false;

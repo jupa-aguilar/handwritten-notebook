@@ -79,6 +79,9 @@ wiring silently.
 | `src/sync.js` | Google Drive `appDataFolder` sync: `meta.json`, `nb-<uuid>.json` manifests, `pg-<uuid>` images. Auth via GIS in the browser, via the Electron loopback flow in the app. |
 | `src/srs.js` | The scheduler: SM-2 with a short relearning step and an ease floor. Pure arithmetic, no storage and no DOM — which is why it is the part with tests. |
 | `src/cards.js` | Turns one transcribed page into review cards. Asks the chat's backend for `{q, a, anchor}` JSON, then locates the *anchor* in that page's word boxes to get the rectangle the answer was written in. |
+| `src/proof.js` | Assisted proofreading of a page's transcription: the prompt, the JSON, locating a fix in the text and in the word boxes, and applying it. Pure but for the model call. |
+| `src/proofpanel.js` | The proofreading panel: the run over one page or the notebook, and the one-at-a-time verdict. |
+| `src/crop.js` | Cuts a rectangle of a page image out as an object URL — shared by the review cards and the proofreader, which both show handwriting beside a model's claim about it. |
 | `src/review.js` | The review panel: deck summary, the generation run (with its own abort), the sitting itself, and cropping the answer's rectangle out of the page image. |
 | `src/chat.js` | Chat panel. Two backends behind one wire protocol (OpenAI-style Chat Completions + SSE): OpenAI's hosted `gpt-5.6-luna` when an API key is set, otherwise whatever model LM Studio has loaded locally. Owns its own conversation state per notebook; `main.js` only supplies `getContext()`. |
 | `electron/main.cjs` + `preload.cjs` | Mac shell. Loads the hosted PWA, falls back to `dist/`. Runs the system-browser OAuth loopback on `127.0.0.1:17987` and stores a refresh token encrypted via `safeStorage`. |
@@ -116,6 +119,24 @@ straight back up. `putCard` is the only place `modifiedAt` is set, for the same 
 `chat.js` owns the only code that knows how to reach a model: `resolveChatModel()` +
 `complete()`, exported so a generation run resolves the model once and every page's request
 goes through the same key and the same spend counter.
+
+### Proofreading a transcription
+
+Vision's mistakes are invisible: the transcript reads like something, so nothing looks wrong
+until a search comes up empty or the chat answers from a word the user never wrote. `proof.js`
+has a model read the page's own text back and point at words that can't be what the line
+means — never at the writer's grammar, style or spelling, which are theirs.
+
+Two rules keep it from doing damage. **Nothing is applied without an explicit press**, with the
+line cropped from the page shown beside the proposal. And **an ambiguous fix is refused**:
+`locateCorrection` returns null rather than guess which of two identical words was meant,
+because a fix applied to the wrong one is an error the user never had.
+
+A correction updates `page.text` *and* the matching `page.words[].t` — search draws its
+highlights from the boxes, so fixing only the text would leave the corrected word findable but
+unmarked on the image. Word-for-word only: a fix that splits or joins words has no honest
+mapping onto boxes measured in ink, so those change the text alone. Applying one is a content
+change, so it takes the full mutation ritual below.
 
 ### The mutation ritual
 
