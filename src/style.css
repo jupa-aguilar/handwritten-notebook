@@ -31,6 +31,17 @@ body {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none; /* no rubber-band when there is nothing to scroll */
+  /* And no double-tap-to-zoom: the viewer answers that gesture itself, while
+     Safari's version zoomed the whole frame and left it panned — the title cut
+     off the top, the reading bar past the bottom, and no way to scroll back
+     because the frame is fixed. `manipulation` still allows panning and
+     pinching, so the panels that scroll are untouched. */
+  touch-action: manipulation;
+}
+html {
+  /* A fixed body stops handing its background to the canvas, so the strip it
+     doesn't cover — the home-indicator band — came out white. */
+  background: var(--bg-2);
 }
 body {
   /* The one thing WebKit reliably refuses to drag around. */
@@ -286,10 +297,6 @@ body {
 .viewer-toolbar {
   touch-action: none;
 }
-.toolbar {
-  touch-action: manipulation; /* the search box still needs its caret */
-}
-
 .reading-bar {
   position: fixed;
   bottom: 84px;
