@@ -81,6 +81,7 @@ wiring silently.
 | `src/cards.js` | Turns one transcribed page into review cards. Asks the chat's backend for `{q, a, anchor}` JSON, then locates the *anchor* in that page's word boxes to get the rectangle the answer was written in. |
 | `src/proof.js` | Assisted proofreading of a page's transcription: the prompt, the JSON, locating a fix in the text and in the word boxes, and applying it. Pure but for the model call. |
 | `src/proofpanel.js` | The proofreading panel: the run over one page or the notebook, and the one-at-a-time verdict. |
+| `src/help.js` | Opens the guide and keeps its section chips in step with the scroll. The guide's content is static markup in `index.html`; its examples are the app's own components wearing the real classes (a `.reading-bar`, a row of `.review-grade`s) rather than screenshots, so they can't fall out of date with the interface, stay sharp at any size and weigh nothing. Keep it that way. |
 | `src/crop.js` | Cuts a rectangle of a page image out as an object URL — shared by the review cards and the proofreader, which both show handwriting beside a model's claim about it. |
 | `src/review.js` | The review panel: deck summary, the generation run (with its own abort), the sitting itself, and cropping the answer's rectangle out of the page image. |
 | `src/chat.js` | Chat panel. Two backends behind one wire protocol (OpenAI-style Chat Completions + SSE): OpenAI's hosted `gpt-5.6-luna` when an API key is set, otherwise whatever model LM Studio has loaded locally. Owns its own conversation state per notebook; `main.js` only supplies `getContext()`. |
@@ -191,6 +192,8 @@ state beyond the OAuth credentials.
   combining marks): `refreshSearch` indexes into the folded text and then slices the original
   to build its snippet, so a fold that changed length would corrupt it.
 - Phones (`IS_MOBILE`) skip the flipbook entirely and read in the zoom viewer.
+- The guide's copy is in Spanish (the user's language) while the interface stays English, so it
+  names buttons in English inside Spanish sentences on purpose.
 - The phone frame must not move: `overflow: hidden` on **both** `html` and `body`,
   `overscroll-behavior: none`, `position: fixed` on the body, and `touch-action` on the bars
   that aren't scrollable. Each closes a different hole in WebKit. The viewport meta pins the

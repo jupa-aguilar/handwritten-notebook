@@ -50,6 +50,7 @@ import {
 } from './chat.js';
 import { locateAnchor } from './cards.js';
 import { initProof, openProof, closeProof } from './proofpanel.js';
+import { initHelp, openHelp, closeHelp } from './help.js';
 import {
   initReview,
   openReview,
@@ -2961,6 +2962,7 @@ function wire() {
     { el: $('#pages-overview'), close: closePagesOverview },
     { el: $('#review'), close: closeReview },
     { el: $('#proof'), close: closeProof },
+    { el: $('#help'), close: closeHelp },
     { el: $('#settings'), close: closeSettings },
     { el: $('#shortcuts'), close: () => ($('#shortcuts').hidden = true) },
   ];
@@ -3191,6 +3193,8 @@ function wire() {
     },
   });
   $('#proof-btn').addEventListener('click', openProof);
+
+  initHelp({ onShortcuts: () => ($('#shortcuts').hidden = false) });
 
   $('#viewer-chat-tab').addEventListener('click', () => openChat());
 

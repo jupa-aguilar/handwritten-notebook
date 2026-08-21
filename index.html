@@ -51,6 +51,7 @@
           </div>
           <button id="update-btn" class="btn" hidden title="A newer version has been downloaded — reload to use it">⟳ Update</button>
           <button id="fullscreen-btn" class="btn ghost" title="Full screen (F)" aria-label="Full screen">⛶</button>
+          <button id="help-btn" class="btn ghost" title="How this app works" aria-label="Guide">?</button>
           <button id="settings-btn" class="btn ghost" title="Settings" aria-label="Settings">⚙</button>
         </div>
       </div>
@@ -399,6 +400,163 @@
         <div class="modal-actions">
           <button id="goto-cancel" class="btn ghost">Cancel</button>
           <button id="goto-go" class="btn">Go</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- The guide. Its examples are built from the app's own components rather
+         than screenshots: they cannot fall out of date with the interface, they
+         stay sharp on any screen, and they weigh nothing. Nothing inside is
+         interactive — the samples are spans wearing the real classes. -->
+    <div id="help" class="modal" hidden>
+      <div class="modal-card modal-wide help-card">
+        <div class="help-head">
+          <h2>Guía</h2>
+          <button id="help-close" class="btn ghost small" aria-label="Cerrar">✕</button>
+        </div>
+        <nav class="help-nav" id="help-nav">
+          <button class="help-chip" data-help-to="help-start">Empezar</button>
+          <button class="help-chip" data-help-to="help-read">Leer</button>
+          <button class="help-chip" data-help-to="help-search">Buscar</button>
+          <button class="help-chip" data-help-to="help-text">Texto</button>
+          <button class="help-chip" data-help-to="help-review">Repaso</button>
+          <button class="help-chip" data-help-to="help-chat">Chat</button>
+          <button class="help-chip" data-help-to="help-sync">Sincronizar</button>
+          <button class="help-chip" data-help-to="help-export">Guardar</button>
+        </nav>
+
+        <div class="help-body" id="help-body">
+          <section class="help-section" id="help-start">
+            <h3>Empezar</h3>
+            <p>Sube fotos o escaneos de tus páginas con <strong>＋ Add pages</strong>. Se guardan en este dispositivo, no en un servidor: la app funciona sin conexión y tus apuntes no salen de aquí salvo que actives la sincronización.</p>
+            <p>Para que la app pueda leer tu letra hace falta una clave de Google Cloud Vision en <strong>⚙</strong>. Sin ella puedes leer y marcar páginas, pero no buscar dentro de ellas, ni preguntar al chat, ni hacer tarjetas de repaso — todo eso se apoya en la transcripción.</p>
+            <div class="help-sample" aria-hidden="true">
+              <div class="help-row">
+                <span class="btn">＋ Add pages</span>
+                <span class="btn ghost">☁</span>
+                <span class="btn ghost">?</span>
+                <span class="btn ghost">⚙</span>
+              </div>
+              <span class="help-caption">La barra de arriba: añadir, sincronizar, esta guía y los ajustes</span>
+            </div>
+            <p class="help-note">El contador de páginas transcritas y el gasto del chat están dentro de <strong>☁</strong>, para que sepas siempre por dónde vas.</p>
+          </section>
+
+          <section class="help-section" id="help-read">
+            <h3>Leer</h3>
+            <p>En escritorio las páginas se pasan como un libro; en el teléfono se lee directamente en el visor, a pantalla completa. Las cinco herramientas de lectura viven en la barra flotante:</p>
+            <div class="help-sample" aria-hidden="true">
+              <div class="reading-bar help-bar">
+                <span class="read-grip"></span>
+                <span class="read-btn"><span class="read-icon">🗂</span><span class="read-label">Pages</span></span>
+                <span class="read-btn"><span class="read-icon">🔍</span><span class="read-label">Zoom</span></span>
+                <span class="read-btn"><span class="read-icon">📖</span><span class="read-label">Text</span></span>
+                <span class="read-btn"><span class="read-icon">💬</span><span class="read-label">Chat</span></span>
+                <span class="read-btn"><span class="read-icon">🎯</span><span class="read-label">Review</span><span class="read-badge">3</span></span>
+                <span class="read-btn"><span class="read-icon">🔖</span><span class="read-label">Mark</span></span>
+              </div>
+              <span class="help-caption">En escritorio se arrastra por los puntos; en el teléfono se ancla abajo</span>
+            </div>
+            <ul class="help-steps">
+              <li><strong>Doble tap</strong> (o doble clic) sobre la página amplía en ese punto; otro doble tap vuelve a ajustarla.</li>
+              <li><strong>Desliza</strong> con un dedo para pasar de página; con la página ampliada, un dedo la mueve.</li>
+              <li><strong>Pellizca</strong> para ampliar y reducir dentro del visor.</li>
+              <li>El número de página, abajo, abre <em>ir a la página…</em> si lo pulsas.</li>
+            </ul>
+            <p class="help-note">Con <strong>Mark</strong> pones un marcador en la página que estás leyendo; el <strong>▾</strong> de al lado abre la lista para saltar entre ellos.</p>
+          </section>
+
+          <section class="help-section" id="help-search">
+            <h3>Buscar</h3>
+            <p>La búsqueda mira dentro del texto transcrito de todas las páginas. Ignora mayúsculas y acentos, y una página aparece cuando contiene <em>todas</em> las palabras que escribiste, no la frase literal.</p>
+            <p>Lo que la hace distinta: además de listarte las páginas, <strong>dibuja un recuadro sobre cada palabra encontrada, encima de tu letra</strong>.</p>
+            <div class="help-sample" aria-hidden="true">
+              <svg viewBox="0 0 320 120" class="help-figure" role="img">
+                <rect x="4" y="4" width="312" height="112" rx="6" class="hf-page" />
+                <line x1="20" y1="34" x2="300" y2="34" class="hf-rule" />
+                <line x1="20" y1="62" x2="300" y2="62" class="hf-rule" />
+                <line x1="20" y1="90" x2="300" y2="90" class="hf-rule" />
+                <text x="24" y="30" class="hf-ink">la mitocondria produce ATP</text>
+                <rect x="46" y="16" width="86" height="18" class="hf-hit" />
+                <text x="24" y="58" class="hf-ink">en las crestas de la</text>
+                <text x="24" y="86" class="hf-ink">membrana interna</text>
+              </svg>
+              <span class="help-caption">El resultado señalado sobre la propia página</span>
+            </div>
+            <p class="help-note"><kbd>⌘F</kbd> lleva el cursor a la búsqueda desde cualquier sitio. <kbd>Esc</kbd> la limpia.</p>
+          </section>
+
+          <section class="help-section" id="help-text">
+            <h3>Texto y ✨ Check</h3>
+            <p><strong>Text</strong> abre la transcripción de la página que estás leyendo. Ahí vive <strong>✨ Check</strong>, la revisión asistida.</p>
+            <p>La máquina lee tu letra bien, pero no perfecto, y sus errores son invisibles: el texto <em>parece</em> decir algo, así que no notas nada hasta que una búsqueda no encuentra lo que sabes que escribiste. Con ✨ Check, un modelo relee la página y señala palabras que no pueden ser lo que la línea dice.</p>
+            <div class="help-sample" aria-hidden="true">
+              <div class="help-proof">
+                <div class="proof-context">La <span class="proof-wrong">rebolución</span> industrial empezó en Inglaterra</div>
+                <div class="proof-arrow">rebolución → <strong class="proof-right">revolución</strong></div>
+                <div class="proof-why">no es palabra</div>
+                <div class="help-inline-btns"><span class="btn">✓ Correct it</span><span class="btn ghost">Leave it</span></div>
+              </div>
+              <span class="help-caption">Con el recorte de esa misma línea en tu letra debajo</span>
+            </div>
+            <p class="help-note">Nada cambia hasta que lo apruebas: <kbd>enter</kbd> corrige, <kbd>retroceso</kbd> lo deja como estaba. Si dos palabras iguales compiten y no está claro cuál era, la propuesta se descarta sola en vez de adivinar.</p>
+          </section>
+
+          <section class="help-section" id="help-review">
+            <h3>Repaso</h3>
+            <p>Preguntas sacadas de tus propias páginas. Lo que las hace distintas de cualquier app de fichas: <strong>la respuesta te enseña el recorte de tu letra</strong>, así que lo que compruebas es tu cuaderno, no el resumen de alguien.</p>
+            <ol class="help-steps">
+              <li>Abre <strong>🎯 Review</strong> y pulsa <strong>Generate cards</strong>. Se pide una vez por página, y solo por las que aún no tienen tarjetas — puedes parar a medias y seguir otro día.</li>
+              <li><strong>Start review</strong> empieza la sesión. <kbd>espacio</kbd> revela la respuesta.</li>
+              <li>Califica con los cuatro botones, o con <kbd>1</kbd>–<kbd>4</kbd>. Cada uno te dice cuándo volverá esa tarjeta.</li>
+            </ol>
+            <div class="help-sample" aria-hidden="true">
+              <div class="review-grades help-grades">
+                <span class="btn review-grade grade-again"><span>Again</span><small>10 min</small></span>
+                <span class="btn review-grade grade-hard"><span>Hard</span><small>1 d</small></span>
+                <span class="btn review-grade"><span>Good</span><small>15 d</small></span>
+                <span class="btn review-grade grade-easy"><span>Easy</span><small>40 d</small></span>
+              </div>
+              <span class="help-caption">Fallar no castiga: devuelve la tarjeta dentro de la misma sesión</span>
+            </div>
+            <ul class="help-steps">
+              <li>El número naranja sobre 🎯 es lo que te toca <em>hoy</em>. Sin número, no hay nada pendiente.</li>
+              <li>¿Una pregunta mal hecha? <strong>Delete this card</strong>. ¿Una página entera que salió mal? <strong>Clear page N</strong> y genérala otra vez.</li>
+            </ul>
+            <p class="help-note">Las tarjetas y su calendario se sincronizan: lo que repases en el teléfono aparece repasado en el ordenador.</p>
+          </section>
+
+          <section class="help-section" id="help-chat">
+            <h3>Chat</h3>
+            <p>Pregunta sobre lo que hay escrito en el cuaderno. Responde a partir de las páginas transcritas, y cuando cita una, el número de página es un enlace que te lleva allí.</p>
+            <p>Necesita un modelo: una clave de OpenAI en <strong>⚙</strong>, o LM Studio corriendo en tu ordenador (gratis y sin salir de casa). Con la clave, cada mensaje cuesta unos céntimos y el gasto se ve dentro de <strong>☁</strong>.</p>
+            <p class="help-note">Si no menciona ninguna página, responde sobre la que estás mirando. Las conversaciones se guardan por cuaderno, pero <em>no</em> se sincronizan.</p>
+          </section>
+
+          <section class="help-section" id="help-sync">
+            <h3>Sincronizar</h3>
+            <p>La copia y el traspaso entre aparatos van por <strong>tu propio Google Drive</strong>, en una carpeta oculta que solo esta app puede ver. Se configura con un ID de cliente en <strong>⚙</strong>.</p>
+            <ul class="help-steps">
+              <li>Viajan: los cuadernos, las páginas con su texto, los marcadores y las tarjetas de repaso.</li>
+              <li>No viajan: las conversaciones del chat y tus claves.</li>
+            </ul>
+            <p class="help-note">Si editas en dos aparatos sin sincronizar entre medias, no se pierde nada: se mezclan página por página y gana la versión más reciente de cada una.</p>
+          </section>
+
+          <section class="help-section" id="help-export">
+            <h3>Guardar y llevarte todo</h3>
+            <ul class="help-steps">
+              <li><strong>Pages → 📄 PDF</strong> arma un PDF <em>buscable</em>: la imagen de tus páginas con el texto transcrito detrás, invisible, para que Vista Previa o Acrobat encuentren palabras dentro de tu letra.</li>
+              <li><strong>Pages</strong> también deja seleccionar varias para descargarlas juntas, sustituirlas por una versión editada o borrarlas.</li>
+              <li>Desde <strong>📚</strong> puedes exportar un cuaderno entero a un archivo e importarlo en otro sitio.</li>
+            </ul>
+            <p class="help-note">Pulsa <kbd>?</kbd> en cualquier momento para la lista completa de atajos de teclado.</p>
+          </section>
+        </div>
+
+        <div class="modal-actions">
+          <button id="help-shortcuts" class="btn ghost">Atajos de teclado</button>
+          <button id="help-done" class="btn">Entendido</button>
         </div>
       </div>
     </div>

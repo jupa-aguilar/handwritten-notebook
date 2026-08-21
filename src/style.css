@@ -1688,6 +1688,12 @@ body.is-mobile #viewer-close {
 body.is-mobile {
   --read-bar-h: calc(60px + env(safe-area-inset-bottom, 0px));
 }
+/* A dialog is open: the reading bar is behind its dim anyway, and on a phone
+   a full-screen dialog puts its own buttons exactly where the bar is docked —
+   which is how the guide's "Entendido" ended up underneath it. */
+body.is-mobile:has(.modal:not([hidden])) .reading-bar {
+  display: none;
+}
 body.is-mobile .reading-bar {
   position: fixed;
   left: 0;
@@ -2234,4 +2240,203 @@ body.is-mobile.immersive .viewer-toolbar {
    pushing the ✕ off the end. */
 .panel-head #proof-btn {
   margin-left: auto;
+}
+
+/* ---------- the guide ---------- */
+
+/* Taller than the other dialogs on purpose: it is a document, and a document
+   in a 90vh card with a 40vh scroller reads like a keyhole. */
+.help-card {
+  width: min(720px, 94vw);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+.help-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.help-head h2 {
+  margin: 0;
+  flex: 1;
+}
+.help-head .btn.ghost {
+  color: var(--panel-ink);
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+/* The section chips scroll sideways rather than wrap: two rows of chips take
+   more of the card than the text they lead to. */
+.help-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px -24px 0;
+  /* A horizontal scroller clips what overflows it vertically too, which was
+     shaving the top off the chips. */
+  padding: 3px 24px 12px;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  border-bottom: 1px solid rgba(44, 38, 32, 0.12);
+}
+.help-chip {
+  flex: none;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(44, 38, 32, 0.2);
+  background: transparent;
+  color: rgba(44, 38, 32, 0.75);
+  font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.help-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.help-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 -24px;
+  padding: 4px 24px 8px;
+}
+.help-section {
+  padding: 14px 0 18px;
+  border-bottom: 1px solid rgba(44, 38, 32, 0.1);
+}
+.help-section:last-child {
+  border-bottom: none;
+}
+.help-section h3 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+}
+.help-section p {
+  margin: 0 0 10px;
+  line-height: 1.55;
+}
+.help-steps {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  line-height: 1.55;
+}
+.help-steps li {
+  margin-bottom: 5px;
+}
+.help-note {
+  font-size: 0.85rem;
+  color: rgba(44, 38, 32, 0.62);
+}
+.help-section kbd {
+  font-size: 0.78rem;
+}
+
+/* The examples: the app's own components, parked on a strip of paper. Inert —
+   they wear the classes, not the behaviour. */
+.help-sample {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 16px 14px 12px;
+  border-radius: 10px;
+  background: rgba(44, 38, 32, 0.05);
+  border: 1px solid rgba(44, 38, 32, 0.08);
+  pointer-events: none;
+}
+.help-sample .btn {
+  cursor: default;
+}
+/* Ghost buttons carry the dark toolbar's ink, which is all but invisible on
+   the panel — the same correction the modal action bars make. */
+.help-sample .btn.ghost {
+  color: var(--panel-ink);
+  border-color: rgba(0, 0, 0, 0.25);
+}
+.help-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.help-caption {
+  font-size: 0.75rem;
+  color: rgba(44, 38, 32, 0.5);
+  text-align: center;
+}
+/* The reading bar sample sits in the flow instead of floating over the app. */
+.reading-bar.help-bar {
+  position: static;
+  transform: none;
+  bottom: auto;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.help-grades {
+  width: 100%;
+  margin-top: 0;
+}
+.help-proof {
+  width: 100%;
+}
+.help-inline-btns {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* A page with a search hit on it, drawn rather than screenshotted. */
+.help-figure {
+  width: 100%;
+  max-width: 340px;
+}
+.hf-page {
+  fill: #fdfcf7;
+  stroke: rgba(44, 38, 32, 0.25);
+}
+.hf-rule {
+  stroke: rgba(70, 110, 160, 0.35);
+  stroke-width: 1;
+}
+.hf-ink {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 13px;
+  fill: #2a3550;
+}
+.hf-hit {
+  fill: rgba(200, 116, 60, 0.28);
+  stroke: rgba(200, 116, 60, 0.85);
+  rx: 3;
+}
+
+@media (max-width: 600px) {
+  /* The guide is a whole screen here like every other dialog: my width/height
+     caps would otherwise beat the phone rule and leave a card floating in the
+     middle with the app showing around it. */
+  .help-card {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    height: 100%;
+  }
+  /* The negative margins that bleed the chips and the text to the card's edges
+     have to match the phone's padding, not the desktop's 24px. */
+  .help-nav,
+  .help-body {
+    margin-left: calc(-16px - env(safe-area-inset-left, 0px));
+    margin-right: calc(-16px - env(safe-area-inset-right, 0px));
+    padding-left: calc(16px + env(safe-area-inset-left, 0px));
+    padding-right: calc(16px + env(safe-area-inset-right, 0px));
+  }
+  .help-sample {
+    padding: 12px 8px 10px;
+  }
 }
