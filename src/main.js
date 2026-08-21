@@ -20,6 +20,8 @@ import {
   recordPageTombstone,
   recordNotebookTombstone,
   getSyncedState,
+  listCardsForPage,
+  putCard,
 } from './db.js';
 import { transcribeImage } from './ocr.js';
 import {
@@ -46,6 +48,7 @@ import {
   setOpenAiKey,
   chatWorksWithoutLocalServer,
 } from './chat.js';
+import { locateAnchor } from './cards.js';
 import {
   initReview,
   openReview,
@@ -880,6 +883,7 @@ async function runOcrQueue({ manual = false } = {}) {
       }
       await putPage(page);
       await touchNotebook(page.notebookId);
+      await reanchorCards(page);
       if (pages[currentPage] === page) updatePanel();
       refreshSearch();
     }
@@ -891,6 +895,18 @@ async function runOcrQueue({ manual = false } = {}) {
     // Push the fresh transcriptions to other devices.
     if (!pending && isSyncConfigured() && isAutoSyncOn()) doSync(false);
     else scheduleSync(); // …or just light the dot
+  }
+}
+
+// Cards left without a box — by a re-scan, or by a transcription that didn't
+// contain their passage the first time — get another chance at one every time
+// the page is transcribed. Cards that already have a box are left alone.
+async function reanchorCards(page) {
+  if (page.ocrStatus !== 'done') return;
+  for (const card of await listCardsForPage(page.id)) {
+    if (card.box || !card.anchor) continue;
+    const box = locateAnchor(page, card.anchor);
+    if (box) await putCard({ ...card, box, pageUuid: page.uuid });
   }
 }
 
@@ -1107,6 +1123,9 @@ async function doSync(interactive) {
       await loadCurrentNotebook();
       if (!$('#notebooks').hidden) renderNotebookList();
     }
+    // Cards can arrive without a single page changing — a sitting done on the
+    // phone is nothing but grades.
+    await refreshDueCount();
     setOcrStatus('');
     icon.textContent = '✓';
     btn.classList.remove('pending'); // everything local is on Drive now
@@ -2194,6 +2213,12 @@ async function swapPageImage(page, file) {
     ocrStatus: TRANSCRIPTION_ENABLED ? 'pending' : 'skipped',
   });
   await putPage(page);
+  // The cards drawn from this page survive a re-scan — it is the same page —
+  // but their boxes were measured in the pixels of the picture that just went
+  // away. Drop them to text-only until the new transcription re-anchors them.
+  for (const card of await listCardsForPage(page.id)) {
+    await putCard({ ...card, pageUuid: page.uuid, box: null });
+  }
 }
 
 // Anything the pages overview needs to say. The toolbar's own status line is
@@ -3101,6 +3126,7 @@ function wire() {
     getContext: () => ({ id: currentNotebookId, name: $('#current-notebook').textContent, pages }),
     onGoToPage: goToPage,
     onDueCount: paintDueBadge,
+    onChanged: scheduleSync,
     currentPageIndex: () => currentPage,
   });
 

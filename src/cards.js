@@ -271,6 +271,8 @@ export async function generateForPage(page, notebookId, { signal, model } = {}) 
   const raw = await complete(buildCardPrompt(page), { signal, model });
   const now = Date.now();
   return parseCards(raw).map((c) => ({
+    // Its identity across devices; the autoincrement id is local-only.
+    uuid: crypto.randomUUID(),
     notebookId,
     pageId: page.id,
     // The page's identity at the time the box was measured: if the image is
@@ -282,6 +284,7 @@ export async function generateForPage(page, notebookId, { signal, model } = {}) 
     anchor: c.anchor,
     box: locateAnchor(page, c.anchor),
     createdAt: now,
+    modifiedAt: now,
     suspended: false,
     ...newSchedule(now),
   }));

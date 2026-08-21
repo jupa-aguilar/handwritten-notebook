@@ -4,6 +4,13 @@
 //   meta.json        { version, notebooks: { [uuid]: { name, updatedAt, deletedAt? } } }
 //   nb-<uuid>.json   per-notebook manifest: name, updatedAt, pages (text, words, order)
 //   pg-<uuid>.jpg    page images — immutable, uploaded once
+//   cd-<uuid>.json   that notebook's review cards, with their deletions
+//
+// Cards sit in a file of their own rather than in the manifest, because the
+// two change on completely different rhythms: grading forty cards in a sitting
+// would otherwise re-upload every page's text and word boxes forty times. The
+// file carries its own tombstones so a device that never saw a deletion can't
+// push the card back up (see applyRemoteCards in db.js).
 //
 // Reconciliation is a per-page merge: when a notebook changed on both sides
 // since this device's last sync, the pull merges page by page (newest
@@ -34,6 +41,7 @@ import {
   setNotebookTombstones,
   getSyncedState,
   setSyncedState,
+  applyRemoteCards,
 } from './db.js';
 import { applySharedUsage, withOwnContribution } from './usage.js';
 
@@ -349,6 +357,40 @@ async function deleteRemoteNotebook(token, files, uuid) {
     }
     await deleteFile(token, files, `nb-${uuid}.json`);
   }
+  await deleteFile(token, files, `cd-${uuid}.json`);
+}
+
+// One notebook's review cards. Cheap enough to reconcile on every run: the
+// file is a few kilobytes, and its own timestamps decide everything, so there
+// is no per-notebook synced state to keep for it.
+async function syncCards(token, files, nb) {
+  const name = `cd-${nb.uuid}.json`;
+  const file = files.get(name);
+  let remote = null;
+  if (file) {
+    try {
+      remote = await downloadFile(token, file.id, 'json');
+    } catch {
+      /* unreadable: rebuild the file from what this device holds */
+    }
+  }
+  const { cards, tombstones, changed } = await applyRemoteCards(
+    nb.id,
+    remote?.cards || [],
+    remote?.tombstones || {}
+  );
+  // Nothing of ours is missing up there, so an upload would only rewrite the
+  // same bytes with a newer timestamp.
+  if (!changed && file) return false;
+  if (!cards.length && !Object.keys(tombstones).length) return false;
+  await uploadFile(
+    token,
+    files,
+    name,
+    'application/json',
+    JSON.stringify({ notebook: nb.uuid, updatedAt: Date.now(), cards, tombstones })
+  );
+  return true;
 }
 
 // Returns { pulled, pushed, deletedLocal, deletedRemote } (arrays of uuids).
@@ -374,7 +416,13 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
     }
   }
 
-  const result = { pulled: [], pushed: [], deletedLocal: [], deletedRemote: [] };
+  const result = {
+    pulled: [],
+    pushed: [],
+    deletedLocal: [],
+    deletedRemote: [],
+    cards: [],
+  };
   const tombs = await getNotebookTombstones();
 
   // 1. Propagate local deletions (unless the remote copy is newer — it wins).
@@ -444,6 +492,19 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
       onStatus(`Uploading “${nb.name}”…`);
       await pushNotebook(token, files, meta, nb.id, onStatus);
       result.pushed.push(nb.uuid);
+    }
+  }
+
+  // 4. Review cards, once the pages they point at are in place — a card whose
+  // page arrived in this very run has to find it.
+  for (const nb of await listNotebooks()) {
+    try {
+      onStatus(`Syncing cards for “${nb.name}”…`);
+      if (await syncCards(token, files, nb)) result.cards.push(nb.uuid);
+    } catch (err) {
+      // A card file is worth less than the notebook it belongs to: never fail
+      // a sync that already moved pages over a review schedule.
+      console.error('Could not sync cards for', nb.name, err);
     }
   }
 

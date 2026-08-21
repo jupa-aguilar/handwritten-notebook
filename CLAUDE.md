@@ -39,6 +39,11 @@ jsdom — nothing under test touches the DOM, which is the point of what lives i
 
 `srs.js` and the pure half of `cards.js` (the prompt, the JSON parsing, the anchoring) are
 covered by `test/srs.test.js` and `test/cards.test.js`; the panel that drives them is not.
+`test/card-sync.test.js` covers `applyRemoteCards` and the v5→v6 upgrade — the same reasoning
+as `sync-merge.test.js`: two devices and a disagreeing clock can't be reproduced by hand, and
+a bug there loses a schedule silently. The Drive transport around it (`syncCards`) still can't
+be tested without an account; it was verified by stubbing `fetch` for googleapis.com in the
+page and running the real sync button against an in-memory appDataFolder.
 
 `db.js` opens the database when it is imported, so tests that need a clean slate go through
 `freshDb()` in `test/helpers.js` (new `IDBFactory` + `vi.resetModules()`); migration tests use
@@ -69,7 +74,7 @@ wiring silently.
 | `src/main.js` (~2.4k lines) | The whole UI controller: flipbook render, search + highlight overlays, OCR queue, zoom viewer, pages overview, notebook manager, export/import, keyboard wiring. All app state is module-level (`pages`, `currentPage`, `currentNotebookId`). |
 | `src/text.js` | Accent folding, query tokenising, the all-words match rule and the highlighter — shared by the search box, the transcript panel, the on-image word boxes and the chat's page ranking, so all four agree on what "a word" is. |
 | `src/zip.js` | Store-only ZIP writer for multi-page downloads (browsers honour only the first programmatic download per gesture, so several pages must leave as one file). |
-| `src/db.js` | IndexedDB (`idb`), schema v5: `notebooks`, `pages`, `chats`, `cards`, plus the sync bookkeeping (`pageTombstones`, `notebookTombstones`, `syncState`). Owns the migrations and the sync merge logic (`applyRemoteNotebook`). |
+| `src/db.js` | IndexedDB (`idb`), schema v6: `notebooks`, `pages`, `chats`, `cards`, plus the sync bookkeeping (`pageTombstones`, `notebookTombstones`, `cardTombstones`, `syncState`). Owns the migrations and both sync merges (`applyRemoteNotebook`, `applyRemoteCards`). |
 | `src/ocr.js` | Google Cloud Vision `DOCUMENT_TEXT_DETECTION` called straight from the browser; flattens the page→block→paragraph→word tree into `{ t, x, y, w, h }` boxes in image pixels. A Claude-vision provider is kept commented out as an alternative. |
 | `src/sync.js` | Google Drive `appDataFolder` sync: `meta.json`, `nb-<uuid>.json` manifests, `pg-<uuid>` images. Auth via GIS in the browser, via the Electron loopback flow in the app. |
 | `src/srs.js` | The scheduler: SM-2 with a short relearning step and an ease floor. Pure arithmetic, no storage and no DOM — which is why it is the part with tests. |
@@ -96,10 +101,17 @@ Below half the words matching it returns `null` and the card shows text only: a 
 over the wrong sentence is worse than no rectangle.
 
 Cards follow a page's **local `id`**, not its uuid, so re-scanning a page (`swapPageImage`,
-which mints a fresh uuid) doesn't throw away what you learned from it. They still carry the
-uuid they were measured against: when it no longer matches the page's, the crop is skipped,
-since those coordinates now point into a different picture. Cards are local-only for now, like
-`chats` — the uuid is there for the manifest that will eventually sync them.
+which mints a fresh uuid) doesn't throw away what you learned from it. A re-scan repoints its
+cards at the new uuid and drops their boxes — those coordinates measured a picture that no
+longer exists — and `reanchorCards` gives them back once the new transcription lands.
+
+Cards sync in a **file of their own** (`cd-<notebook-uuid>.json`), never in the notebook
+manifest: grading forty cards in a sitting would otherwise re-upload every page's text and
+word boxes forty times. Hence `onChanged: scheduleSync` rather than the mutation ritual —
+a grade must *not* call `touchNotebook`. The merge is per card by `modifiedAt`, and the file
+carries its own tombstones, because a device that never saw a deletion would push the card
+straight back up. `putCard` is the only place `modifiedAt` is set, for the same reason
+`putPage` owns the page one.
 
 `chat.js` owns the only code that knows how to reach a model: `resolveChatModel()` +
 `complete()`, exported so a generation run resolves the model once and every page's request

@@ -17,6 +17,10 @@ const $ = (sel) => document.querySelector(sel);
 let getContext = null; // () => { id, name, pages }, supplied by main.js
 let onGoToPage = () => {};
 let onDueCount = () => {}; // main.js paints the badge on the reading bar
+// Cards changed: main.js schedules a push. Deliberately not touchNotebook() —
+// cards ride in their own file, and bumping the notebook would drag every
+// page's text back up to Drive for the sake of one grade.
+let onChanged = () => {};
 
 let cards = []; // every card of the current notebook
 let queue = []; // what's left of this sitting
@@ -118,6 +122,7 @@ async function generate() {
         await addCards(fresh);
         cards.push(...fresh);
         made += fresh.length;
+        onChanged();
       }
     } catch (err) {
       if (signal.aborted) break;
@@ -216,6 +221,7 @@ async function gradeCurrent(grade) {
   // the panel to be opened again.
   if (grade === 'again') queue.push(card);
   await putCard(card);
+  onChanged();
   onDueCount(cards.filter((c) => isDue(c)).length);
   nextCard();
 }
@@ -296,6 +302,7 @@ async function dropCurrent() {
   cards = cards.filter((c) => c.id !== id);
   queue = queue.filter((c) => c.id !== id);
   await deleteCard(id);
+  onChanged();
   onDueCount(cards.filter((c) => isDue(c)).length);
   nextCard();
 }
@@ -308,6 +315,7 @@ async function clearCurrentPage() {
   if (!page) return;
   const n = await deleteCardsForPage(page.id);
   cards = cards.filter((c) => c.pageId !== page.id);
+  if (n) onChanged();
   onDueCount(cards.filter((c) => isDue(c)).length);
   setStatus(n ? `Cleared ${n} card${n === 1 ? '' : 's'} from page ${page.order + 1}.` : 'That page had no cards.');
   paintDeck();
@@ -347,6 +355,7 @@ export function initReview(opts) {
   getContext = opts.getContext;
   onGoToPage = opts.onGoToPage || onGoToPage;
   onDueCount = opts.onDueCount || onDueCount;
+  onChanged = opts.onChanged || onChanged;
   currentPageIndex = opts.currentPageIndex || currentPageIndex;
 
   $('#review-btn').addEventListener('click', openReview);
@@ -382,7 +391,10 @@ export function initReview(opts) {
   load();
 }
 
-// So main.js can paint the badge before the panel has ever been opened.
+// So main.js can paint the badge before the panel has ever been opened, and
+// repaint it after a sync brings a sitting's worth of grades from the phone.
+// Never mid-sitting: the queue on screen is already in hand.
 export function refreshDueCount() {
+  if (!$('#review-session').hidden) return Promise.resolve();
   return load();
 }

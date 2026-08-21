@@ -10,15 +10,16 @@
 //   notebookTombstones: { uuid, at }  notebooks deleted here
 //   syncState:          { uuid, localAt, remoteAt, at }  per notebook
 //   chats:              { notebookId, messages, updatedAt }  chat history
-//   cards:              { id, notebookId, pageId, pageUuid, q, a, box, ...srs }
+//   cards:              { id, uuid, notebookId, pageId, pageUuid, q, a, box, ...srs }
 //                       review cards drawn from a page
+//   cardTombstones:     { uuid, at }  cards deleted here
 //
 // Chats are local-only on purpose: they are cheap to regenerate, would bloat
 // every sync manifest, and can contain a stray question the user would rather
-// not copy to another device. Cards are local-only for now too, but for the
-// opposite reason — a review schedule is exactly the kind of thing you want on
-// the phone as well, so they carry the page's uuid alongside its local id from
-// day one, ready for the manifest that will eventually take them.
+// not copy to another device. Cards are not: a review schedule you can only
+// reach from one machine is half a review schedule, so they sync — in a file
+// of their own (see sync.js), because grading a card must not drag a notebook
+// manifest full of page text and word boxes up to Drive with it.
 //
 // The last three are sync bookkeeping and used to live in localStorage. They
 // don't anymore: localStorage and IndexedDB have independent lifetimes, so
@@ -67,7 +68,7 @@ function migrateLegacySyncState(tx) {
   }
 }
 
-const dbPromise = openDB('handwritten-notebook', 5, {
+const dbPromise = openDB('handwritten-notebook', 6, {
   async upgrade(db, oldVersion, _newVersion, tx) {
     if (oldVersion < 1) {
       const pages = db.createObjectStore('pages', {
@@ -113,6 +114,24 @@ const dbPromise = openDB('handwritten-notebook', 5, {
       // image mints a fresh uuid (see swapPageImage) and re-scanning a page
       // must not throw away what you learned from it.
       cards.createIndex('pageId', 'pageId');
+    }
+    if (oldVersion < 6) {
+      db.createObjectStore('cardTombstones', { keyPath: 'uuid' });
+      // Cards made before they synced have no identity beyond their local
+      // autoincrement id, which means nothing on another device.
+      if (oldVersion >= 5) {
+        const cards = tx.objectStore('cards');
+        let cursor = await cards.openCursor();
+        while (cursor) {
+          const card = cursor.value;
+          if (!card.uuid) {
+            card.uuid = crypto.randomUUID();
+            card.modifiedAt ||= card.reviewedAt || card.createdAt || Date.now();
+            await cursor.update(card);
+          }
+          cursor = await cursor.continue();
+        }
+      }
     }
   },
 }).then((db) => {
@@ -233,7 +252,10 @@ export async function putPage(page) {
 
 export async function deletePage(id) {
   const db = await dbPromise;
-  const tx = db.transaction(['pages', 'pageTombstones', 'cards'], 'readwrite');
+  const tx = db.transaction(
+    ['pages', 'pageTombstones', 'cards', 'cardTombstones'],
+    'readwrite'
+  );
   const pages = tx.objectStore('pages');
   const page = await pages.get(id);
   // One transaction: the page can't go without its tombstone, which is the
@@ -243,8 +265,10 @@ export async function deletePage(id) {
   }
   await pages.delete(id);
   // The cards drawn from it have nothing left to point at.
+  const cardTombs = tx.objectStore('cardTombstones');
   let cursor = await tx.objectStore('cards').index('pageId').openCursor(id);
   while (cursor) {
+    if (cursor.value.uuid) await cardTombs.put({ uuid: cursor.value.uuid, at: Date.now() });
     await cursor.delete();
     cursor = await cursor.continue();
   }
@@ -286,6 +310,7 @@ export async function clearAll() {
     'syncState',
     'chats',
     'cards',
+    'cardTombstones',
   ];
   const tx = db.transaction(stores, 'readwrite');
   await Promise.all(stores.map((s) => tx.objectStore(s).clear()));
@@ -335,35 +360,193 @@ export async function addCards(cards) {
   const tx = db.transaction('cards', 'readwrite');
   const store = tx.objectStore('cards');
   const ids = [];
-  for (const card of cards) ids.push(await store.add(card));
+  for (const card of cards) {
+    card.uuid ||= crypto.randomUUID();
+    card.modifiedAt ||= card.createdAt || Date.now();
+    ids.push(await store.add(card));
+  }
   await tx.done;
   return ids;
 }
 
+// Every app-side write lands here, so this is where modifiedAt gets bumped —
+// the card merge picks the newer side by it. (Sync-applied remote cards are
+// written with raw puts and keep the remote's own timestamp.)
+export async function listCardsForPage(pageId) {
+  const db = await dbPromise;
+  return db.getAllFromIndex('cards', 'pageId', pageId);
+}
+
 export async function putCard(card) {
   const db = await dbPromise;
+  card.uuid ||= crypto.randomUUID();
+  card.modifiedAt = Date.now();
   return db.put('cards', card);
 }
 
 export async function deleteCard(id) {
   const db = await dbPromise;
-  return db.delete('cards', id);
+  const tx = db.transaction(['cards', 'cardTombstones'], 'readwrite');
+  const card = await tx.objectStore('cards').get(id);
+  // Same transaction as the delete, for the same reason pages do it: the
+  // tombstone is the only thing stopping the next pull from bringing it back.
+  if (card?.uuid) {
+    await tx.objectStore('cardTombstones').put({ uuid: card.uuid, at: Date.now() });
+  }
+  await tx.objectStore('cards').delete(id);
+  await tx.done;
 }
 
 // Every card drawn from a page, dropped when its questions turn out to be
 // wrong — the way to redo a page is to clear it and generate again.
 export async function deleteCardsForPage(pageId) {
   const db = await dbPromise;
-  const tx = db.transaction('cards', 'readwrite');
+  const tx = db.transaction(['cards', 'cardTombstones'], 'readwrite');
+  const tombs = tx.objectStore('cardTombstones');
   let cursor = await tx.objectStore('cards').index('pageId').openCursor(pageId);
   let n = 0;
   while (cursor) {
+    if (cursor.value.uuid) await tombs.put({ uuid: cursor.value.uuid, at: Date.now() });
     await cursor.delete();
     n++;
     cursor = await cursor.continue();
   }
   await tx.done;
   return n;
+}
+
+// Cards travel between devices in a file of their own, so their merge lives
+// here beside the one for pages. It is a simpler problem: a card is a small
+// independent record, so the union of both sides wins, per card, by
+// modifiedAt. What makes it work at all is that the deletions ride along in
+// the same file — a device that never saw the delete would otherwise push the
+// card straight back up.
+
+const CARD_TOMBSTONE_TTL = 60 * 24 * 60 * 60 * 1000; // 60 days, as for pages
+
+export async function getCardTombstones() {
+  const db = await dbPromise;
+  const tx = db.transaction('cardTombstones', 'readwrite');
+  const cutoff = Date.now() - CARD_TOMBSTONE_TTL;
+  const map = {};
+  let cursor = await tx.store.openCursor();
+  while (cursor) {
+    if (cursor.value.at < cutoff) await cursor.delete();
+    else map[cursor.value.uuid] = cursor.value.at;
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+  return map;
+}
+
+export async function recordCardTombstones(map) {
+  const db = await dbPromise;
+  const tx = db.transaction('cardTombstones', 'readwrite');
+  for (const [uuid, at] of Object.entries(map || {})) {
+    const existing = await tx.store.get(uuid);
+    if (!existing || existing.at < at) await tx.store.put({ uuid, at });
+  }
+  await tx.done;
+}
+
+// What goes in the file: the page's uuid instead of its local id, and nothing
+// the other device can work out for itself.
+const CARD_WIRE_FIELDS = [
+  'uuid',
+  'q',
+  'a',
+  'anchor',
+  'box',
+  'ease',
+  'interval',
+  'reps',
+  'lapses',
+  'due',
+  'reviewedAt',
+  'suspended',
+  'createdAt',
+  'modifiedAt',
+];
+
+export function cardToWire(card, pageUuid) {
+  const out = { pageUuid: pageUuid || card.pageUuid || '' };
+  for (const k of CARD_WIRE_FIELDS) if (card[k] !== undefined) out[k] = card[k];
+  return out;
+}
+
+// Merge a notebook's cards with the copy on Drive. Returns what the file
+// should now hold, and whether the remote is missing anything we have — the
+// only reason to spend an upload.
+export async function applyRemoteCards(notebookId, remoteCards = [], remoteTombs = {}) {
+  const db = await dbPromise;
+  await recordCardTombstones(remoteTombs);
+  const tombstones = await getCardTombstones();
+
+  const pages = await getPages(notebookId);
+  const pageByUuid = new Map(pages.map((p) => [p.uuid, p]));
+  const local = await db.getAllFromIndex('cards', 'notebookId', notebookId);
+  const byUuid = new Map(local.map((c) => [c.uuid, c]));
+  let changed = false;
+
+  for (const r of remoteCards) {
+    if (!r?.uuid) continue;
+    const mine = byUuid.get(r.uuid);
+    if (tombstones[r.uuid]) {
+      // Deleted here. The upload below drops it, which is how the other
+      // device finds out.
+      if (mine) await db.delete('cards', mine.id);
+      byUuid.delete(r.uuid);
+      changed = true;
+      continue;
+    }
+    if (mine) {
+      if ((mine.modifiedAt || 0) > (r.modifiedAt || 0)) {
+        changed = true; // our grade is the newer one: push it back
+        continue;
+      }
+      // Raw put, not putCard: the remote's modifiedAt is the whole point.
+      await db.put('cards', { ...mine, ...fromWire(r, mine.pageId, mine.notebookId) });
+      byUuid.set(r.uuid, { ...mine, ...fromWire(r, mine.pageId, mine.notebookId) });
+      continue;
+    }
+    const page = pageByUuid.get(r.pageUuid);
+    // Its page hasn't landed here yet (a first sync where an image failed, or
+    // a page re-scanned elsewhere). Leave it on Drive and pick it up next
+    // round rather than storing a card that points at nothing.
+    if (!page) continue;
+    const record = fromWire(r, page.id, notebookId);
+    const id = await db.add('cards', record);
+    byUuid.set(r.uuid, { ...record, id });
+  }
+
+  const remoteUuids = new Set(remoteCards.map((r) => r?.uuid));
+  for (const c of local) {
+    if (remoteUuids.has(c.uuid)) continue;
+    if (tombstones[c.uuid]) {
+      await db.delete('cards', c.id);
+      byUuid.delete(c.uuid);
+      changed = true;
+    } else {
+      changed = true; // made here since the last sync
+    }
+  }
+  // Deletions this device recorded that the file doesn't carry yet.
+  for (const uuid of Object.keys(tombstones)) {
+    if (!(uuid in (remoteTombs || {}))) changed = true;
+  }
+
+  const pageById = new Map(pages.map((p) => [p.id, p]));
+  const cards = [...byUuid.values()].map((c) =>
+    cardToWire(c, pageById.get(c.pageId)?.uuid)
+  );
+  return { cards, tombstones, changed };
+}
+
+function fromWire(r, pageId, notebookId) {
+  const out = { notebookId, pageId, pageUuid: r.pageUuid || '' };
+  for (const k of CARD_WIRE_FIELDS) if (r[k] !== undefined) out[k] = r[k];
+  out.modifiedAt ||= out.createdAt || Date.now();
+  return out;
 }
 
 // ---------- sync support ----------

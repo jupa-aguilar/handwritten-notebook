@@ -57,6 +57,34 @@ export async function seedSchemaV2({ notebooks = [], pages = [] } = {}) {
   db.close();
 }
 
+// Recreate the database as schema v5 left it — cards with no uuid, no
+// cardTombstones store — so the v6 upgrade has real records to migrate.
+// Call before importing db.js.
+export async function seedSchemaV5({ notebooks = [], pages = [], cards = [] } = {}) {
+  const req = indexedDB.open(DB_NAME, 5);
+  req.onupgradeneeded = () => {
+    const db = req.result;
+    const p = db.createObjectStore('pages', { keyPath: 'id', autoIncrement: true });
+    p.createIndex('order', 'order');
+    p.createIndex('notebookId', 'notebookId');
+    db.createObjectStore('notebooks', { keyPath: 'id', autoIncrement: true });
+    db.createObjectStore('pageTombstones', { keyPath: 'uuid' });
+    db.createObjectStore('notebookTombstones', { keyPath: 'uuid' });
+    db.createObjectStore('syncState', { keyPath: 'uuid' });
+    db.createObjectStore('chats', { keyPath: 'notebookId' });
+    const c = db.createObjectStore('cards', { keyPath: 'id', autoIncrement: true });
+    c.createIndex('notebookId', 'notebookId');
+    c.createIndex('pageId', 'pageId');
+  };
+  const db = await promisify(req);
+  const tx = db.transaction(['notebooks', 'pages', 'cards'], 'readwrite');
+  for (const n of notebooks) tx.objectStore('notebooks').add(n);
+  for (const pg of pages) tx.objectStore('pages').add(pg);
+  for (const c of cards) tx.objectStore('cards').add(c);
+  await txDone(tx);
+  db.close();
+}
+
 // Direct store access, for setting up "what this device already had" without
 // going through the app's own write paths (which stamp their own timestamps).
 export async function rawPut(store, values) {
