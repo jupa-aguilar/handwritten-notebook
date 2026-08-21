@@ -2,7 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- maximum-scale/user-scalable is the only thing that stops iOS zooming the
+         whole frame, and a zoomed frame is one the app cannot keep still: it
+         pans under the finger, takes the toolbar off the top of the screen, and
+         no gesture brings it back — iOS remembers the scale of a home-screen app
+         across launches, and nothing in script can reset it.
+
+         The two obvious alternatives were both tried on the device, over the
+         Web Inspector, and both failed: `touch-action` (any value) does not
+         govern the pinch, which is a viewport gesture rather than an element
+         one, and preventDefault on gesturestart runs — the handler fires — while
+         the page zooms anyway. Don't swap this back for either of them.
+
+         The cost is the system pinch-zoom inside the app. The thing worth
+         zooming is the page image, and that has the viewer, which does its own. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#2b2622" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
