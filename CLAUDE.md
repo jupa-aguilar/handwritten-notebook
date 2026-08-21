@@ -77,7 +77,7 @@ wiring silently.
 | `src/db.js` | IndexedDB (`idb`), schema v6: `notebooks`, `pages`, `chats`, `cards`, plus the sync bookkeeping (`pageTombstones`, `notebookTombstones`, `cardTombstones`, `syncState`). Owns the migrations and both sync merges (`applyRemoteNotebook`, `applyRemoteCards`). |
 | `src/ocr.js` | Google Cloud Vision `DOCUMENT_TEXT_DETECTION` called straight from the browser; flattens the page→block→paragraph→word tree into `{ t, x, y, w, h }` boxes in image pixels. A Claude-vision provider is kept commented out as an alternative. |
 | `src/sync.js` | Google Drive `appDataFolder` sync: `meta.json`, `nb-<uuid>.json` manifests, `pg-<uuid>` images. Auth via GIS in the browser, via the Electron loopback flow in the app. |
-| `src/srs.js` | The scheduler: SM-2 with a short relearning step and an ease floor. Pure arithmetic, no storage and no DOM — which is why it is the part with tests. |
+| `src/srs.js` | The scheduler: SM-2 with a short relearning step and an ease floor. Hard and Easy are defined *against* Good rather than by formulas of their own, so the four buttons can't cross — they did, twice. Pure arithmetic, no storage and no DOM, which is why it is the part with tests. |
 | `src/cards.js` | Turns one transcribed page into review cards. Asks the chat's backend for `{q, a, anchor}` JSON, then locates the *anchor* in that page's word boxes to get the rectangle the answer was written in. |
 | `src/proof.js` | Assisted proofreading of a page's transcription: the prompt, the JSON, locating a fix in the text and in the word boxes, and applying it. Pure but for the model call. |
 | `src/proofpanel.js` | The proofreading panel: the run over one page or the notebook, and the one-at-a-time verdict. |

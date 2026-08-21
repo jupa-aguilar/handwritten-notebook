@@ -43,20 +43,36 @@ export function nextInterval(card, grade) {
   const reps = card.reps || 0;
   const learning = reps === 0 || interval === 0;
 
+  // What the ordinary answer is worth. The other two are defined against it,
+  // because that is what they mean: "sooner than usual" and "later than
+  // usual". Left to their own formulas they drifted into nonsense — on a new
+  // card Hard and Good both said one day, and on the second review Easy came
+  // back *sooner* than Good, since Good's fixed second step outran it.
+  const good = learning
+    ? 1
+    : reps === 1
+      ? interval < 1
+        ? 3 // graduated through Hard, so a shorter second step than the usual 6
+        : 6 // SM-2's fixed second step
+      : clampInterval(interval * ease);
+
   switch (grade) {
     case 'again':
       return 0; // minutes, not days — see RELEARN_STEP
     case 'hard':
-      // Still growing, just barely: a card you struggled through has been
-      // recalled, and repeating today's interval tomorrow teaches nothing.
-      return learning ? 1 : clampInterval(Math.max(interval + 1, interval * 1.2));
+      // Still growing: a card you struggled through has been recalled, and
+      // repeating today's interval tomorrow teaches nothing. Never as far as
+      // Good, or the two buttons promise a difference they don't make.
+      return learning
+        ? 0.5
+        : clampInterval(Math.min(Math.max(interval + 1, interval * 1.2), good * 0.9));
     case 'easy':
-      return learning ? 4 : clampInterval(Math.max(interval + 2, interval * ease * 1.3));
+      // Always past Good. Pressing "that was easy" must not bring the card
+      // back sooner than the answer that admits nothing.
+      return learning ? 4 : clampInterval(Math.max(good * 1.3, good + 1));
     case 'good':
     default:
-      if (reps === 0) return 1;
-      if (reps === 1) return 6; // SM-2's fixed second step
-      return clampInterval(interval * ease);
+      return good;
   }
 }
 

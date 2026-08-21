@@ -54,6 +54,30 @@ describe('review', () => {
     expect(c.ease).toBe(2.7);
   });
 
+  // The four buttons only mean anything as an order. Left to their own
+  // formulas they crossed: on a new card Hard and Good both said one day, and
+  // on the second review Easy came back sooner than Good.
+  it('always offers a longer wait than the button before it', () => {
+    let c = newSchedule(0);
+    const states = [{ ...c }];
+    for (const g of ['good', 'good', 'good', 'hard', 'again', 'good', 'easy', 'hard']) {
+      c = review(c, g, c.due);
+      states.push({ ...c });
+    }
+    for (const s of states) {
+      const hard = nextInterval(s, 'hard');
+      const good = nextInterval(s, 'good');
+      const easy = nextInterval(s, 'easy');
+      expect(nextInterval(s, 'again')).toBeLessThan(hard);
+      expect(hard).toBeLessThan(good);
+      expect(good).toBeLessThan(easy);
+    }
+  });
+
+  it('brings a new card back within the day when it was hard', () => {
+    expect(formatInterval(nextInterval(newSchedule(0), 'hard'))).toBe('12 h');
+  });
+
   // A hard answer is still a recall: repeating the same interval would mean
   // the card never leaves the pile.
   it('grows the interval even when the answer was hard', () => {
