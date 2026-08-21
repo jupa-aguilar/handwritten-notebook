@@ -1874,8 +1874,21 @@ body.chat-unavailable #chat-btn,
 body.chat-unavailable #chat {
   display: none;
 }
-body.is-mobile .viewer-toolbar .viewer-sep:last-of-type {
+/* Ten controls on one phone-width row. The separators go first — they divide
+   groups that are obvious without them — then the gap and the two tabular
+   columns tighten, because the alternative is `Fit` wrapping onto a row of its
+   own and taking 60px off the page you are trying to read. */
+body.is-mobile .viewer-toolbar {
+  gap: 4px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+body.is-mobile .viewer-sep {
   display: none;
+}
+body.is-mobile .viewer-indicator,
+body.is-mobile .viewer-zoom-level {
+  min-width: 44px;
 }
 /* The head is the screen's title bar now, so it owns the top inset. Without
    it the ✕ sits behind the status bar / Dynamic Island in standalone mode —
