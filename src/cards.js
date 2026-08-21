@@ -131,27 +131,126 @@ export function locateAnchor(page, anchor) {
   // text-only card beats a rectangle over the wrong sentence.
   if (best.score < Math.max(2, Math.ceil(size * 0.5))) return null;
 
-  // Trim the window back to the words that actually matched, so a short quote
-  // inside a long line doesn't box the whole line.
-  let from = best.start;
-  let to = best.start + size - 1;
+  // Only the words that actually matched go into the box. Taking the whole
+  // window instead would be the same thing right up until the page has two
+  // columns: Vision's reading order walks straight across the gutter, so one
+  // unmatched word in the middle of the run dragged the neighbouring table
+  // into the picture.
   const hit = (k) =>
     wanted.has(folded[k]) || want.some((t) => t.length > 3 && folded[k].includes(t));
-  while (from < to && !hit(from)) from++;
-  while (to > from && !hit(to)) to--;
+  const matched = [];
+  for (let k = best.start; k < best.start + size; k++) if (hit(k)) matched.push(words[k]);
+  return matched.length ? union(matched) : null;
+}
 
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (let k = from; k <= to; k++) {
-    const w = words[k];
-    x0 = Math.min(x0, w.x);
-    y0 = Math.min(y0, w.y);
-    x1 = Math.max(x1, w.x + w.w);
-    y1 = Math.max(y1, w.y + w.h);
+function union(boxes) {
+  const x = Math.min(...boxes.map((b) => b.x));
+  const y = Math.min(...boxes.map((b) => b.y));
+  return {
+    x,
+    y,
+    w: Math.max(...boxes.map((b) => b.x + b.w)) - x,
+    h: Math.max(...boxes.map((b) => b.y + b.h)) - y,
+  };
+}
+
+// The rectangle actually cut out of the page image: the card's box, padded so
+// it looks like a piece of paper rather than a ransom note, and then snapped
+// to whole words and whole lines.
+//
+// The snapping is the part that matters. Padding alone lands wherever it
+// lands, which meant crops that opened on the bottom halves of the line above
+// and closed on the top halves of the line below — legible, but plainly an
+// accident. Any line or word the padding *mostly* covers is taken in full;
+// anything it merely grazes is pushed back out.
+const KEEP = 0.4; // fraction of a word or line that has to be inside to keep it
+
+export function cropRect(page, box) {
+  if (!box) return null;
+  // Padding is measured against one line, never against the box: a passage
+  // spanning two lines is twice as tall, and a margin scaled to *that* reached
+  // far enough to swallow the next bullet down whole.
+  const pad = Math.max(12, lineHeight(page, box) * 0.4);
+  let rect = {
+    x0: Math.max(0, box.x - pad),
+    y0: Math.max(0, box.y - pad),
+    x1: Math.min(page.width || Infinity, box.x + box.w + pad),
+    y1: Math.min(page.height || Infinity, box.y + box.h + pad),
+  };
+  const words = page?.words || [];
+  if (!words.length) return fromEdges(rect);
+
+  rect = snap(
+    rect,
+    rows(words).map((r) => ({ lo: r.y0, hi: r.y1, keep: r })),
+    'y0',
+    'y1',
+    box.y,
+    box.y + box.h
+  );
+  // Horizontally only against the words on the lines the crop now shows —
+  // words elsewhere on the page have no say in where its edges fall.
+  const onScreen = words.filter((w) => w.y + w.h > rect.y0 && w.y < rect.y1);
+  rect = snap(
+    rect,
+    onScreen.map((w) => ({ lo: w.x, hi: w.x + w.w })),
+    'x0',
+    'x1',
+    box.x,
+    box.x + box.w
+  );
+  return fromEdges(rect);
+}
+
+// How tall a line of this handwriting is: the median word height on the page,
+// which shrugs off both the stray tall capital and the lone accent.
+function lineHeight(page, box) {
+  const hs = (page?.words || []).map((w) => w.h).sort((a, b) => a - b);
+  return hs.length ? hs[Math.floor(hs.length / 2)] : box.h;
+}
+
+const fromEdges = (r) => ({ x: r.x0, y: r.y0, w: r.x1 - r.x0, h: r.y1 - r.y0 });
+
+// Grow or shrink one axis of `rect` so no span is left half-shown. `keepLo`
+// and `keepHi` bound what must survive: the card's own box, which is never
+// trimmed away however little of a line it happens to cover.
+function snap(rect, spans, loKey, hiKey, keepLo, keepHi) {
+  const out = { ...rect };
+  for (const span of spans) {
+    const size = span.hi - span.lo;
+    if (size <= 0) continue;
+    const inside = Math.min(out[hiKey], span.hi) - Math.max(out[loKey], span.lo);
+    if (inside <= 0) continue;
+    const wanted = inside / size >= KEEP || (span.lo < keepHi && span.hi > keepLo);
+    if (wanted) {
+      out[loKey] = Math.min(out[loKey], span.lo);
+      out[hiKey] = Math.max(out[hiKey], span.hi);
+    } else if (span.lo <= keepLo) {
+      out[loKey] = Math.max(out[loKey], span.hi); // grazed from above
+    } else {
+      out[hiKey] = Math.min(out[hiKey], span.lo); // grazed from below
+    }
   }
-  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  return out;
+}
+
+// Words grouped into the lines they were written on, by vertical overlap.
+function rows(words) {
+  const sorted = [...words].sort((a, b) => a.y - b.y);
+  const out = [];
+  for (const w of sorted) {
+    const last = out[out.length - 1];
+    // More than half of the word's height shared with the row it is joining:
+    // a superscript or a caret sits above its line, not on it.
+    const overlap = last ? Math.min(last.y1, w.y + w.h) - Math.max(last.y0, w.y) : 0;
+    if (last && overlap > w.h * 0.5) {
+      last.y0 = Math.min(last.y0, w.y);
+      last.y1 = Math.max(last.y1, w.y + w.h);
+    } else {
+      out.push({ y0: w.y, y1: w.y + w.h });
+    }
+  }
+  return out;
 }
 
 // Which pages are worth a request: transcribed, long enough to hold an idea,

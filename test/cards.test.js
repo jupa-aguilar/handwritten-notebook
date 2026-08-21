@@ -3,6 +3,7 @@ import {
   buildCardPrompt,
   parseCards,
   locateAnchor,
+  cropRect,
   pagesToGenerate,
   MIN_TEXT_CHARS,
 } from '../src/cards.js';
@@ -91,6 +92,104 @@ describe('locateAnchor', () => {
   it('has nothing to say about a page transcribed without word boxes', () => {
     expect(locateAnchor({ words: [] }, 'mitocondria')).toBeNull();
     expect(locateAnchor(page, '')).toBeNull();
+  });
+});
+
+// A page written in two columns, the way Vision reads it: straight across the
+// gutter, so words that sit on opposite sides of the page are neighbours in
+// `words`.
+const twoColumns = {
+  width: 1000,
+  height: 400,
+  words: [
+    { t: 'TABLA', x: 40, y: 100, w: 90, h: 30 },
+    { t: 'EN', x: 140, y: 100, w: 40, h: 30 },
+    { t: 'DISCO', x: 190, y: 100, w: 90, h: 30 },
+    { t: 'acelera', x: 600, y: 100, w: 110, h: 30 },
+    { t: 'busquedas', x: 720, y: 100, w: 150, h: 30 },
+    { t: 'fila', x: 40, y: 160, w: 60, h: 30 },
+    { t: '1', x: 110, y: 160, w: 20, h: 30 },
+    { t: 'por', x: 600, y: 160, w: 50, h: 30 },
+    { t: 'un', x: 660, y: 160, w: 40, h: 30 },
+    { t: 'campo', x: 710, y: 160, w: 100, h: 30 },
+  ],
+};
+
+describe('locateAnchor across columns', () => {
+  // Taking the whole matched window would have spanned the gutter and boxed
+  // the table on the left along with the sentence on the right.
+  it('boxes only the words that matched, not the run between them', () => {
+    const box = locateAnchor(twoColumns, 'acelera busquedas por un campo');
+    expect(box.x).toBe(600);
+    expect(box.x + box.w).toBe(870);
+  });
+});
+
+describe('cropRect', () => {
+  const page = {
+    width: 1000,
+    height: 400,
+    words: [
+      { t: 'arriba', x: 100, y: 40, w: 120, h: 30 }, // the line above
+      { t: 'Almacen', x: 100, y: 100, w: 140, h: 30 },
+      { t: 'organizado', x: 250, y: 100, w: 160, h: 30 },
+      { t: 'y', x: 100, y: 160, w: 20, h: 30 }, // the line below
+      { t: 'guarda', x: 130, y: 160, w: 110, h: 30 },
+    ],
+  };
+
+  it('never leaves a line half shown', () => {
+    const cut = cropRect(page, { x: 100, y: 100, w: 310, h: 30 });
+    for (const w of page.words) {
+      const inside = Math.min(cut.y + cut.h, w.y + w.h) - Math.max(cut.y, w.y);
+      expect(inside <= 0 || inside === w.h).toBe(true);
+    }
+  });
+
+  it('never leaves a word half shown', () => {
+    const cut = cropRect(page, { x: 250, y: 100, w: 160, h: 30 });
+    for (const w of page.words.filter((w) => w.y === 100)) {
+      const inside = Math.min(cut.x + cut.w, w.x + w.w) - Math.max(cut.x, w.x);
+      expect(inside <= 0 || inside === w.w).toBe(true);
+    }
+  });
+
+  it('keeps the passage itself even when the padding barely reaches it', () => {
+    const box = { x: 100, y: 100, w: 310, h: 30 };
+    const cut = cropRect(page, box);
+    expect(cut.x).toBeLessThanOrEqual(box.x);
+    expect(cut.y).toBeLessThanOrEqual(box.y);
+    expect(cut.x + cut.w).toBeGreaterThanOrEqual(box.x + box.w);
+    expect(cut.y + cut.h).toBeGreaterThanOrEqual(box.y + box.h);
+  });
+
+  it('stays inside the image', () => {
+    const cut = cropRect(page, { x: 0, y: 0, w: 100, h: 30 });
+    expect(cut.x).toBeGreaterThanOrEqual(0);
+    expect(cut.y).toBeGreaterThanOrEqual(0);
+    expect(cut.x + cut.w).toBeLessThanOrEqual(page.width);
+  });
+
+  // The padding is a line's worth, not the box's worth — otherwise a two-line
+  // passage generates enough margin to take a third line in with it.
+  it('does not swallow the next line when the passage spans two', () => {
+    const twoLines = {
+      width: 1000,
+      height: 400,
+      words: [
+        { t: 'acelera', x: 100, y: 100, w: 140, h: 46 },
+        { t: 'busquedas', x: 250, y: 100, w: 180, h: 46 },
+        { t: 'por', x: 100, y: 166, w: 60, h: 46 },
+        { t: 'campo', x: 170, y: 166, w: 120, h: 46 },
+        { t: 'funciona', x: 100, y: 232, w: 150, h: 46 },
+      ],
+    };
+    const cut = cropRect(twoLines, { x: 100, y: 100, w: 330, h: 112 });
+    expect(cut.y + cut.h).toBeLessThan(232);
+  });
+
+  it('has nothing to crop without a box', () => {
+    expect(cropRect(page, null)).toBeNull();
   });
 });
 

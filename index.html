@@ -225,7 +225,10 @@
           </div>
         </div>
 
-        <div class="modal-actions">
+        <!-- pages-actions is what lets .pages-status take a full row of its
+             own: without the wrap, the progress line was squeezed into a
+             sliver between the buttons. -->
+        <div class="modal-actions pages-actions">
           <div id="review-status" class="pages-status" hidden></div>
           <button id="review-clear-page" class="btn ghost" hidden title="Drop the cards drawn from the page you have open, so it can be generated again"></button>
           <button id="review-stop" class="btn ghost" hidden>■ Stop</button>

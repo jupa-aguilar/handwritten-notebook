@@ -9,7 +9,7 @@
 
 import { listCards, addCards, putCard, deleteCard, deleteCardsForPage } from './db.js';
 import { resolveChatModel } from './chat.js';
-import { generateForPage, pagesToGenerate } from './cards.js';
+import { generateForPage, pagesToGenerate, cropRect } from './cards.js';
 import { review, nextInterval, dueCards, isDue, formatInterval, GRADES } from './srs.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -254,11 +254,11 @@ async function paintCrop(card) {
 
   try {
     const bitmap = await createImageBitmap(page.blob);
-    const pad = Math.max(14, card.box.h * 0.45);
-    const x = Math.max(0, card.box.x - pad);
-    const y = Math.max(0, card.box.y - pad);
-    const w = Math.min(bitmap.width - x, card.box.w + pad * 2);
-    const h = Math.min(bitmap.height - y, card.box.h + pad * 2);
+    const cut = cropRect(page, card.box);
+    const x = Math.max(0, cut.x);
+    const y = Math.max(0, cut.y);
+    const w = Math.min(bitmap.width - x, cut.w);
+    const h = Math.min(bitmap.height - y, cut.h);
 
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(w);
