@@ -19,10 +19,23 @@
   display: none !important;
 }
 
+/* The app is a fixed frame, never a page: nothing here scrolls except the
+   panels that say so. Saying it four times over is not belt and braces — each
+   line closes a different hole in WebKit. `overflow: hidden` on the body alone
+   leaves the *root* free to scroll, which is what let a press-and-drag on the
+   floating reading bar haul the whole app up the screen and leave it there,
+   toolbar off the top and a band of nothing at the bottom. */
 html,
 body {
   margin: 0;
   height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none; /* no rubber-band when there is nothing to scroll */
+}
+body {
+  /* The one thing WebKit reliably refuses to drag around. */
+  position: fixed;
+  inset: 0;
 }
 
 body {
@@ -31,8 +44,6 @@ body {
   color: var(--ink);
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
 }
 
 /* ---------- toolbar ---------- */
@@ -268,6 +279,17 @@ body {
    draggable anywhere the reader wants it (see makeReadingBarDraggable).
    Fixed rather than absolute so the drag maths is plain viewport
    coordinates; JS switches left/top on once it has been moved. */
+/* Nothing inside these bars scrolls, so a finger that presses and drags on one
+   must not be offered to the page as a pan. */
+.reading-bar,
+.pager,
+.viewer-toolbar {
+  touch-action: none;
+}
+.toolbar {
+  touch-action: manipulation; /* the search box still needs its caret */
+}
+
 .reading-bar {
   position: fixed;
   bottom: 84px;
@@ -401,6 +423,7 @@ body {
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   padding: 10px;
+  overscroll-behavior: contain;
 }
 .bm-head {
   display: flex;
@@ -635,6 +658,7 @@ body {
   flex: 1;
   overflow: auto;
   padding: 14px;
+  overscroll-behavior: contain;
 }
 .panel-meta {
   font-size: 0.75rem;
@@ -672,6 +696,7 @@ body {
   max-height: 45%;
   overflow: auto;
   padding: 8px;
+  overscroll-behavior: contain;
 }
 .results-head {
   font-size: 0.75rem;
@@ -734,6 +759,7 @@ mark {
      it vertically — with nothing to scroll and Save out of reach. */
   max-height: 90vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .modal-card h2 {
   margin: 0 0 8px;
@@ -808,6 +834,7 @@ mark {
   padding: 0;
   max-height: 50vh;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 .nb-item {
   position: relative;
@@ -934,6 +961,7 @@ kbd {
   overflow: auto;
   /* Horizontal room so the insertion bar isn't clipped at the outer columns. */
   padding: 2px 10px;
+  overscroll-behavior: contain;
 }
 .page-card {
   position: relative;
@@ -1233,6 +1261,7 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overscroll-behavior: contain;
 }
 .chat-msg {
   max-width: 90%;
@@ -1322,6 +1351,7 @@ kbd {
   margin: 0;
   padding: 4px;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 .cm-jump {
   display: flex;
@@ -1864,6 +1894,7 @@ body.is-mobile .panel-body,
 body.is-mobile .bm-list {
   flex: 1;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 body.is-mobile .bm-list {
   padding: 4px calc(12px + env(safe-area-inset-right, 0px))
