@@ -71,7 +71,7 @@ wiring silently.
 
 | File | Role |
 |---|---|
-| `src/main.js` (~2.4k lines) | The whole UI controller: flipbook render, search + highlight overlays, OCR queue, zoom viewer, pages overview, notebook manager, export/import, keyboard wiring. All app state is module-level (`pages`, `currentPage`, `currentNotebookId`). |
+| `src/main.js` (~3.3k lines) | The whole UI controller: flipbook render, search + highlight overlays, OCR queue, zoom viewer, pages overview, notebook manager, export/import, keyboard wiring. All app state is module-level (`pages`, `currentPage`, `currentNotebookId`). |
 | `src/text.js` | Accent folding, query tokenising, the all-words match rule and the highlighter — shared by the search box, the transcript panel, the on-image word boxes and the chat's page ranking, so all four agree on what "a word" is. |
 | `src/zip.js` | Store-only ZIP writer for multi-page downloads (browsers honour only the first programmatic download per gesture, so several pages must leave as one file). |
 | `src/db.js` | IndexedDB (`idb`), schema v6: `notebooks`, `pages`, `chats`, `cards`, plus the sync bookkeeping (`pageTombstones`, `notebookTombstones`, `cardTombstones`, `syncState`). Owns the migrations and both sync merges (`applyRemoteNotebook`, `applyRemoteCards`). |
@@ -170,6 +170,14 @@ state beyond the OAuth credentials.
   combining marks): `refreshSearch` indexes into the folded text and then slices the original
   to build its snippet, so a fold that changed length would corrupt it.
 - Phones (`IS_MOBILE`) skip the flipbook entirely and read in the zoom viewer.
+- The phone frame must not move: `overflow: hidden` on **both** `html` and `body`,
+  `overscroll-behavior: none`, `position: fixed` on the body, and `touch-action` on the bars
+  that aren't scrollable. Each closes a different hole in WebKit. The viewport meta pins the
+  scale (`maximum-scale=1, user-scalable=no`) because that is the *only* thing that stops iOS
+  zooming the frame — verified on the device: `touch-action` doesn't govern the pinch, and
+  preventDefault on `gesturestart` runs while the page zooms anyway. iOS then remembers that
+  scale across launches and nothing in script can reset it, which is why a single accidental
+  pinch used to leave the app permanently askew.
 - `vite.config.js` sets `base: './'` so one build works from GitHub Pages, `file://` and the
   Electron shell.
 - The code comments explain *why* (browser quirks, sync invariants), not what — match that
