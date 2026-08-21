@@ -2280,6 +2280,8 @@ body.is-mobile.immersive .viewer-toolbar {
   overflow-x: auto;
   overscroll-behavior: contain;
   border-bottom: 1px solid rgba(44, 38, 32, 0.12);
+  -webkit-mask-image: linear-gradient(to right, #000 88%, transparent);
+  mask-image: linear-gradient(to right, #000 88%, transparent);
 }
 .help-chip {
   flex: none;
@@ -2297,6 +2299,17 @@ body.is-mobile.immersive .viewer-toolbar {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+/* The card is a flex column, so the buttons are simply its last row — no
+   sticky bleed. The shared rule hangs that bar past the card's bottom edge,
+   which is invisible on a desktop card floating in the middle of the screen
+   and cut clean off by the home indicator on a phone. */
+.help-card .modal-actions {
+  position: static;
+  bottom: auto;
+  margin: 0 -24px;
+  padding: 14px 24px calc(14px + env(safe-area-inset-bottom, 0px));
 }
 
 .help-body {
@@ -2430,11 +2443,22 @@ body.is-mobile.immersive .viewer-toolbar {
   /* The negative margins that bleed the chips and the text to the card's edges
      have to match the phone's padding, not the desktop's 24px. */
   .help-nav,
-  .help-body {
+  .help-body,
+  .help-card .modal-actions {
     margin-left: calc(-16px - env(safe-area-inset-left, 0px));
     margin-right: calc(-16px - env(safe-area-inset-right, 0px));
     padding-left: calc(16px + env(safe-area-inset-left, 0px));
     padding-right: calc(16px + env(safe-area-inset-right, 0px));
+  }
+  /* The card's own bottom padding would sit under the button row; the row
+     carries the inset itself instead. */
+  .help-card {
+    padding-bottom: 0;
+  }
+  .help-card .modal-actions {
+    margin-bottom: 0;
+    padding-top: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
   .help-sample {
     padding: 12px 8px 10px;
