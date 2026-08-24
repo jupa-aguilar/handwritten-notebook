@@ -1505,6 +1505,43 @@ async function moveNotebookTo(srcId, targetId, after) {
   renderNotebookList();
 }
 
+// Chrome auto-scrolls the *page* during a drag but never an inner scroller, so
+// dragging a row towards the top of the notebook list (or the pages grid) stops
+// dead at the first visible one: the rows above it can't be reached. Steer the
+// container ourselves while the pointer rests in the band along either edge.
+function wireDragAutoScroll(box) {
+  const BAND = 56; // px from an edge where the list starts moving
+  const MAX = 16; // px per frame with the pointer right at the edge
+  let speed = 0;
+  let frame = null;
+  const step = () => {
+    box.scrollTop += speed;
+    frame = speed ? requestAnimationFrame(step) : null;
+  };
+  // Listen on the document, not the box: once the pointer leaves the band the
+  // box hears nothing more, and the scroll would run away on its own.
+  document.addEventListener('dragover', (e) => {
+    const r = box.getBoundingClientRect();
+    const inside =
+      e.clientX >= r.left && e.clientX <= r.right &&
+      e.clientY >= r.top && e.clientY <= r.bottom;
+    const up = inside ? BAND - (e.clientY - r.top) : 0;
+    const down = inside ? BAND - (r.bottom - e.clientY) : 0;
+    // A list barely taller than two bands has them overlapping: the nearer edge
+    // wins, so the middle of it still holds still.
+    const push = up > down ? -up : down;
+    speed = up > 0 || down > 0 ? Math.round((push / BAND) * MAX) : 0;
+    if (speed && !frame) frame = requestAnimationFrame(step);
+  });
+  // dragend fires on the source even when the drop lands outside the window;
+  // a drop anywhere ends the drag too. Either way the scroll must stop.
+  for (const type of ['drop', 'dragend']) {
+    document.addEventListener(type, () => {
+      speed = 0;
+    });
+  }
+}
+
 let nbDragId = null; // id of the notebook being dragged in the manager
 
 async function renderNotebookList() {
@@ -3224,6 +3261,9 @@ function wire() {
       pop.hidden = true;
     }
   });
+
+  wireDragAutoScroll($('#notebook-list'));
+  wireDragAutoScroll($('#pages-grid'));
 
   $('#notebooks-btn').addEventListener('click', openNotebooks);
   $('#notebooks-close').addEventListener('click', () => ($('#notebooks').hidden = true));
