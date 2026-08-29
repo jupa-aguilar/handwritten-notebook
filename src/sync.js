@@ -175,6 +175,35 @@ async function driveOk(resp, what) {
   throw new Error(`Drive ${what} failed (${resp.status}): ${body.slice(0, 200)}`);
 }
 
+// Drive fails transiently far more often than a desktop makes it look: rate
+// limits under a burst of image uploads, the odd 5xx, and on a phone simply
+// losing the connection mid-request. Every one of those used to be fatal to
+// the whole run, which on a notebook of a hundred images made finishing a
+// coin flip. Anything that might come good on its own is worth another go;
+// anything that won't — a 401, a 404, a bad request — still throws at once.
+const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
+const ATTEMPTS = 3;
+
+async function driveFetch(url, init, what) {
+  let last;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    // 400ms, then 800ms. Long enough for a rate limit to lift, short enough
+    // that a sitting sync doesn't feel hung.
+    if (attempt) await new Promise((r) => setTimeout(r, 400 * 2 ** (attempt - 1)));
+    let resp;
+    try {
+      resp = await fetch(url, init);
+    } catch (err) {
+      last = err; // never reached the server: worth trying again
+      continue;
+    }
+    if (resp.ok) return resp;
+    if (!RETRYABLE.has(resp.status)) return driveOk(resp, what); // throws
+    last = new Error(`Drive ${what} failed (${resp.status})`);
+  }
+  throw last;
+}
+
 // All appDataFolder files as a Map name -> { id }.
 async function listAppFiles(token) {
   const map = new Map();
@@ -186,10 +215,7 @@ async function listAppFiles(token) {
       pageSize: '1000',
     });
     if (pageToken) q.set('pageToken', pageToken);
-    const r = await driveOk(
-      await fetch(`${API}/files?${q}`, { headers: authHeaders(token) }),
-      'list'
-    );
+    const r = await driveFetch(`${API}/files?${q}`, { headers: authHeaders(token) }, 'list');
     const data = await r.json();
     for (const f of data.files || []) map.set(f.name, f);
     pageToken = data.nextPageToken;
@@ -198,8 +224,9 @@ async function listAppFiles(token) {
 }
 
 async function downloadFile(token, id, as) {
-  const r = await driveOk(
-    await fetch(`${API}/files/${id}?alt=media`, { headers: authHeaders(token) }),
+  const r = await driveFetch(
+    `${API}/files/${id}?alt=media`,
+    { headers: authHeaders(token) },
     'download'
   );
   return as === 'blob' ? r.blob() : r.json();
@@ -210,23 +237,25 @@ async function downloadFile(token, id, as) {
 async function uploadFile(token, files, name, mimeType, data) {
   let id = files.get(name)?.id;
   if (!id) {
-    const r = await driveOk(
-      await fetch(`${API}/files?fields=id`, {
+    const r = await driveFetch(
+      `${API}/files?fields=id`,
+      {
         method: 'POST',
         headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, parents: ['appDataFolder'], mimeType }),
-      }),
+      },
       'create'
     );
     id = (await r.json()).id;
     files.set(name, { id, name });
   }
-  await driveOk(
-    await fetch(`${UPLOAD}/files/${id}?uploadType=media`, {
+  await driveFetch(
+    `${UPLOAD}/files/${id}?uploadType=media`,
+    {
       method: 'PATCH',
       headers: { ...authHeaders(token), 'Content-Type': mimeType },
       body: data,
-    }),
+    },
     'upload'
   );
   return id;
@@ -326,7 +355,7 @@ async function pullNotebook(token, files, meta, uuid, onStatus = () => {}) {
   const manifest = await downloadFile(token, mf.id, 'json');
   const total = (manifest.pages || []).length;
   let done = 0;
-  const { id, merged, updatedAt } = await applyRemoteNotebook(
+  const { id, merged, updatedAt, missing } = await applyRemoteNotebook(
     manifest,
     async (pm) => {
       const f = files.get(`pg-${pm.uuid}`);
@@ -340,10 +369,24 @@ async function pullNotebook(token, files, meta, uuid, onStatus = () => {}) {
       pageTombstones: await getPageTombstones(),
     }
   );
+
+  // Some of the remote's pages didn't come down. Two things must NOT happen
+  // now, and the second is the dangerous one:
+  //
+  //   - the state must not be recorded, or the next run would see nothing
+  //     changed and never fetch the stragglers;
+  //   - the notebook must not be pushed back, because pushNotebook builds the
+  //     manifest out of the pages that are *here* — it would drop the very
+  //     pages that failed to download and then delete their images as stale.
+  //     A flaky connection on the phone would quietly delete the desktop's
+  //     pages off Drive.
+  if (missing.length) return { incomplete: missing.length };
+
   // Anything local the remote lacked survived the merge: publish it back so
   // every device converges on the union. (pushNotebook records the state.)
   if (merged) await pushNotebook(token, files, meta, id, onStatus);
   else await setSyncedState(uuid, updatedAt, manifest.updatedAt);
+  return { incomplete: 0 };
 }
 
 async function deleteRemoteNotebook(token, files, uuid) {
@@ -433,6 +476,11 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
     deletedLocal: [],
     deletedRemote: [],
     cards: [],
+    // Notebooks that came down short, and notebooks that failed outright. A
+    // run that reports neither is the only one that finished.
+    incomplete: [],
+    failed: [],
+    restored: [],
   };
   const tombs = await getNotebookTombstones();
 
@@ -459,6 +507,12 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
   const localByUuid = new Map(locals.map((n) => [n.uuid, n]));
 
   for (const [uuid, entry] of Object.entries(meta.notebooks)) {
+    // Kept per notebook for the same reason the card step is: a notebook that
+    // cannot be reconciled — a bad manifest, a dropped connection — used to
+    // end the whole run from here, so everything queued behind it never
+    // synced at all, cards included. That is the shape of "the phone only
+    // gets some of it".
+    try {
     const local = localByUuid.get(uuid);
     if (entry.deletedAt) {
       if (local && local.updatedAt > entry.deletedAt) {
@@ -474,8 +528,9 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
     }
     if (!local) {
       onStatus(`Downloading “${entry.name}”…`);
-      await pullNotebook(token, files, meta, uuid, onStatus);
-      result.pulled.push(uuid);
+      const { incomplete } = await pullNotebook(token, files, meta, uuid, onStatus);
+      if (incomplete) result.incomplete.push(entry.name || uuid);
+      else result.pulled.push(uuid);
       continue;
     }
     // Compare each side against what it looked like after the last sync of
@@ -488,21 +543,54 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
       // anything local survived that the remote lacks, pushes the union back
       // — neither device's edits get stomped.
       onStatus(`Downloading “${entry.name}”…`);
-      await pullNotebook(token, files, meta, uuid, onStatus);
-      result.pulled.push(uuid);
+      const { incomplete } = await pullNotebook(token, files, meta, uuid, onStatus);
+      if (incomplete) result.incomplete.push(entry.name || uuid);
+      else result.pulled.push(uuid);
     } else if (localChanged) {
       onStatus(`Uploading “${local.name}”…`);
       await pushNotebook(token, files, meta, local.id, onStatus);
       result.pushed.push(uuid);
+    }
+    } catch (err) {
+      console.error('Could not sync notebook', entry?.name || uuid, err);
+      result.failed.push(entry?.name || uuid);
     }
   }
 
   // 3. Notebooks that only exist locally.
   for (const nb of locals) {
     if (!meta.notebooks[nb.uuid]) {
-      onStatus(`Uploading “${nb.name}”…`);
-      await pushNotebook(token, files, meta, nb.id, onStatus);
-      result.pushed.push(nb.uuid);
+      try {
+        onStatus(`Uploading “${nb.name}”…`);
+        await pushNotebook(token, files, meta, nb.id, onStatus);
+        result.pushed.push(nb.uuid);
+      } catch (err) {
+        console.error('Could not upload notebook', nb.name, err);
+        result.failed.push(nb.name);
+      }
+    }
+  }
+
+  // 3b. Images Drive is missing for pages this device holds. Nothing else
+  // puts them back: an image is written once per uuid and only when a push
+  // runs, so a single failed upload used to leave a page that no other device
+  // could ever fetch — permanently, since the desktop never notices (it never
+  // downloads its own pages) and never pushes again while it believes it is
+  // up to date. Cheap to check: the file listing is already in hand.
+  for (const nb of locals) {
+    const entry = meta.notebooks[nb.uuid];
+    if (!entry || entry.deletedAt) continue; // not published, or deleted
+    try {
+      const gaps = (await getPages(nb.id)).filter(
+        (p) => p.uuid && p.blob && !files.has(`pg-${p.uuid}`)
+      );
+      for (const [i, p] of gaps.entries()) {
+        onStatus(`Restoring “${nb.name}” — image ${i + 1}/${gaps.length}…`);
+        await uploadFile(token, files, `pg-${p.uuid}`, p.mediaType || 'image/jpeg', p.blob);
+      }
+      if (gaps.length) result.restored.push(nb.name);
+    } catch (err) {
+      console.error('Could not restore images for', nb.name, err);
     }
   }
 

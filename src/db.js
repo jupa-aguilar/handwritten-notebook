@@ -771,12 +771,19 @@ export async function deleteNotebookByUuid(uuid) {
 //     it was deleted remotely, so it goes here too;
 //   - remote-only page: added, unless its uuid is tombstoned here (deleted or
 //     replaced locally) — then the push-back removes it remotely instead.
+//
+// A remote page whose image cannot be fetched is reported in `missing` rather
+// than thrown: see the note at the call. A caller that sees anything in there
+// is holding an incomplete copy and must neither publish it back nor record
+// the sync as done.
 // Returns { id, merged, updatedAt }; merged means local material survived
 // that the remote lacks, so the caller must push the result back.
 export async function applyRemoteNotebook(manifest, resolveBlob, opts = {}) {
   const { lastSyncAt = 0, pageTombstones = {} } = opts;
   const db = await dbPromise;
   let merged = false;
+  // Pages the remote has that could not be fetched this time round.
+  const missing = [];
   let nb = await getNotebookByUuid(manifest.uuid);
   if (!nb) {
     const id = await db.add('notebooks', {
@@ -823,7 +830,20 @@ export async function applyRemoteNotebook(manifest, resolveBlob, opts = {}) {
     } else if (pageTombstones[pm.uuid]) {
       merged = true; // deleted/replaced here: the push-back drops it remotely
     } else {
-      const blob = await resolveBlob(pm);
+      let blob;
+      try {
+        blob = await resolveBlob(pm);
+      } catch (err) {
+        // One image that will not come down must not take the rest of the
+        // notebook with it. A phone on mobile data drops a request now and
+        // then, and this used to throw all the way out of syncNow — leaving
+        // the notebook half-copied and skipping every notebook queued behind
+        // it, cards included. The page is left for the next pull, which is
+        // why the caller must not record this sync as a complete one.
+        console.error('Could not fetch the image for page', pm.uuid, err);
+        missing.push(pm.uuid);
+        continue;
+      }
       await db.add('pages', {
         uuid: pm.uuid,
         notebookId: nb.id,
@@ -862,5 +882,5 @@ export async function applyRemoteNotebook(manifest, resolveBlob, opts = {}) {
     nb.updatedAt = Date.now();
     await db.put('notebooks', nb);
   }
-  return { id: nb.id, merged, updatedAt: nb.updatedAt };
+  return { id: nb.id, merged, updatedAt: nb.updatedAt, missing };
 }

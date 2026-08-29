@@ -283,3 +283,57 @@ describe('the notebook record itself', () => {
     expect(await (await rawAll('pages'))[0].blob.text()).toBe('local');
   });
 });
+
+// The failure that made a phone on mobile data unable to finish a sync: one
+// image that wouldn't come down threw out of applyRemoteNotebook, out of
+// pullNotebook and out of syncNow, leaving the notebook half-copied and every
+// notebook queued behind it — cards included — untouched.
+describe('a page whose image will not come down', () => {
+  const failOn = (badUuid) => async (pm) => {
+    if (pm.uuid === badUuid) throw new Error('Drive download failed (503)');
+    return resolveBlob(pm);
+  };
+
+  it('does not stop the pages around it from arriving', async () => {
+    const mf = manifest({
+      pages: [
+        manifestPage({ uuid: 'pg-1', order: 0 }),
+        manifestPage({ uuid: 'pg-2', order: 1 }),
+        manifestPage({ uuid: 'pg-3', order: 2 }),
+      ],
+    });
+    const res = await db.applyRemoteNotebook(mf, failOn('pg-2'));
+    const stored = (await rawAll('pages')).map((p) => p.uuid).sort();
+    expect(stored).toEqual(['pg-1', 'pg-3']);
+    expect(res.missing).toEqual(['pg-2']);
+  });
+
+  it('reports the gap so the caller can refuse to call the sync done', async () => {
+    const mf = manifest({ pages: [manifestPage({ uuid: 'pg-1' })] });
+    const res = await db.applyRemoteNotebook(mf, failOn('pg-1'));
+    // Nothing landed, and the caller is told — which is what stops it
+    // recording a synced state and never fetching the page again.
+    expect(await rawAll('pages')).toHaveLength(0);
+    expect(res.missing).toEqual(['pg-1']);
+  });
+
+  it('says nothing is missing when every image arrives', async () => {
+    const mf = manifest({ pages: [manifestPage({ uuid: 'pg-1' })] });
+    expect((await db.applyRemoteNotebook(mf, resolveBlob)).missing).toEqual([]);
+  });
+
+  it('never asks for an image of a page this device already holds', async () => {
+    // The page is shared, so no download is needed and a broken Drive cannot
+    // affect it — the reason the desktop never notices its own missing images.
+    await givenLocalNotebook({
+      updatedAt: 1000,
+      pages: [localPage({ uuid: 'pg-1', notebookId: 1, modifiedAt: 2000 })],
+    });
+    const mf = manifest({
+      updatedAt: 3000,
+      pages: [manifestPage({ uuid: 'pg-1', modifiedAt: 500 })],
+    });
+    const res = await db.applyRemoteNotebook(mf, failOn('pg-1'), { lastSyncAt: 900 });
+    expect(res.missing).toEqual([]);
+  });
+});

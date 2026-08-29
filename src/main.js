@@ -1129,7 +1129,27 @@ async function doSync(interactive) {
     // Cards can arrive without a single page changing — a sitting done on the
     // phone is nothing but grades.
     await refreshDueCount();
-    setOcrStatus('');
+
+    // A run that came down short must not look like a clean one. It used to:
+    // anything that failed threw all the way out, and anything that didn't
+    // throw showed a tick — so a notebook arriving with half its pages was
+    // indistinguishable from one that arrived whole.
+    const short = [...res.incomplete, ...res.failed];
+    if (short.length) {
+      // No tick, and the message stays up: 'pending' is not the cue for this,
+      // it means local changes haven't been pushed, and updateSyncCue owns it.
+      icon.textContent = '☁';
+      setOcrStatus(
+        `Synced, but ${short.join(', ')} came down short — Drive didn't answer for some of it. It will pick up the rest next time.`
+      );
+      return;
+    }
+
+    setOcrStatus(
+      res.restored.length
+        ? `Synced. Put back images Drive was missing for ${res.restored.join(', ')}.`
+        : ''
+    );
     icon.textContent = '✓';
     btn.classList.remove('pending'); // everything local is on Drive now
     setTimeout(() => {
