@@ -25,13 +25,22 @@ Rules:
 - Write the questions and answers in the same language as the page.
 - Ask about what the page actually claims: definitions, causes, steps, numbers,
   distinctions. Never ask about the page's layout, its title, or how it looks.
+- Every question must stand on its own, naming the thing it asks about. The
+  reader has the question and nothing else in front of them, so never lean on
+  "the text", "the page", "the author" or "the previous point": none of them
+  will be there.
+- Ask only what somebody who studied this page a month ago, without it to hand,
+  could answer.
+- Never ask for a list to be recited. Ask for one of its items, or for what
+  tells them apart.
 - The answer must be short — a phrase or one sentence.
 - "anchor" must be copied verbatim from the page text: the 3-10 consecutive
   words where the answer is written. Never invent or reword an anchor.
+- "topic" names what this page is about in 2-4 words, in the page's language.
 - Skip anything you cannot ask about with confidence. Fewer good cards beats
   filling a quota; an empty list is a valid answer.
 
-Reply with JSON only: {"cards":[{"q":"…","a":"…","anchor":"…"}]}`;
+Reply with JSON only: {"topic":"…","cards":[{"q":"…","a":"…","anchor":"…"}]}`;
 
 export function buildCardPrompt(page, limit = CARDS_PER_PAGE) {
   return [
@@ -46,16 +55,16 @@ export function buildCardPrompt(page, limit = CARDS_PER_PAGE) {
 // Models wrap JSON in prose, in ``` fences, or answer with a bare array
 // however firmly the prompt asks for an object. Rather than trusting any of
 // that, take the outermost bracketed run and parse it.
-export function parseCards(raw) {
-  if (!raw) return [];
+//
+// Both bracket shapes are tried, and the first that yields actual cards wins:
+// a bare array's outermost `{` ... `}` is its first element, which parses
+// perfectly well and holds no list at all.
+function extractCardJson(raw) {
+  if (!raw) return null;
   let text = String(raw).trim();
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence) text = fence[1].trim();
 
-  // Both bracket shapes are tried, and the first that yields actual cards
-  // wins: a bare array's outermost `{` ... `}` is its first element, which
-  // parses perfectly well and holds no list at all.
-  let list = [];
   for (const [open, close] of [
     ['{', '}'],
     ['[', ']'],
@@ -70,12 +79,21 @@ export function parseCards(raw) {
       continue;
     }
     const found = Array.isArray(data) ? data : Array.isArray(data?.cards) ? data.cards : [];
-    if (found.length) {
-      list = found;
-      break;
-    }
+    if (found.length) return { data, cards: found };
   }
+  return null;
+}
 
+// What the page is about, in two or three words. It is the frame a question
+// loses on its way off the page: the model wrote it with the whole sheet in
+// view, and it is answered with nothing in view at all.
+export function parseTopic(raw) {
+  const topic = extractCardJson(raw)?.data?.topic;
+  return typeof topic === 'string' ? topic.trim() : '';
+}
+
+export function parseCards(raw) {
+  const list = extractCardJson(raw)?.cards || [];
   const seen = new Set();
   const cards = [];
   for (const item of list) {
@@ -253,6 +271,74 @@ function rows(words) {
   return out;
 }
 
+// The rectangle behind a hint: the card's passage with a line of context above
+// and below, so the crop can be shown with the answer itself covered and still
+// say something. What comes back is the sentence around the gap — which is how
+// you find a word you wrote yourself, instead of being handed it.
+//
+// Whole lines, edge to edge, rather than cropRect's snapping: half a line of
+// context is not a sentence.
+const HINT_CONTEXT = 1; // lines kept either side of the answer
+// Below this much ink left uncovered there is no hint to give: one or two
+// stray words are not a sentence, and a mask over everything else is a grey
+// slab. Counted in words rather than in area, because the padding inflates the
+// area — a single-line page passes an area test and still shows nothing.
+const MIN_VISIBLE_WORDS = 3;
+
+// How far the mask overshoots the answer's own box, as a fraction of a line.
+// A word box bounds the ink Vision was sure of, and a descender or an accent
+// regularly falls outside one — an uncovered tail is enough to give the word
+// away, and the cost of being generous is a little blank paper.
+const MASK_PAD = 0.18;
+
+// What the hint covers. Kept here rather than in the drawing code so all the
+// geometry stays in the module that can be tested without a canvas.
+export function maskRect(page, box) {
+  if (!box) return null;
+  const pad = Math.max(3, lineHeight(page, box) * MASK_PAD);
+  return { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 };
+}
+
+export function hintRect(page, box, context = HINT_CONTEXT) {
+  const words = page?.words;
+  if (!box || !words?.length) return null;
+
+  const lines = rows(words);
+  let first = -1;
+  let last = -1;
+  for (const [i, r] of lines.entries()) {
+    if (r.y1 <= box.y || r.y0 >= box.y + box.h) continue;
+    if (first === -1) first = i;
+    last = i;
+  }
+  if (first === -1) return null;
+
+  const lo = lines[Math.max(0, first - context)];
+  const hi = lines[Math.min(lines.length - 1, last + context)];
+  const on = words.filter((w) => w.y + w.h > lo.y0 && w.y < hi.y1);
+  if (!on.length) return null;
+
+  const pad = Math.max(12, lineHeight(page, box) * 0.4);
+  const x = Math.max(0, Math.min(...on.map((w) => w.x)) - pad);
+  const y = Math.max(0, lo.y0 - pad);
+  const rect = {
+    x,
+    y,
+    w: Math.min(page.width || Infinity, Math.max(...on.map((w) => w.x + w.w)) + pad) - x,
+    h: Math.min(page.height || Infinity, hi.y1 + pad) - y,
+  };
+  if (rect.w <= 0 || rect.h <= 0) return null;
+
+  const visible = on.filter(
+    (w) =>
+      w.x + w.w <= box.x ||
+      w.x >= box.x + box.w ||
+      w.y + w.h <= box.y ||
+      w.y >= box.y + box.h
+  );
+  return visible.length >= MIN_VISIBLE_WORDS ? rect : null;
+}
+
 // Which pages are worth a request: transcribed, long enough to hold an idea,
 // and without cards already. Regenerating a page is deliberate (clear it
 // first), so a second run over a notebook only pays for what it skipped.
@@ -270,6 +356,10 @@ export function pagesToGenerate(pages, existingCards) {
 export async function generateForPage(page, notebookId, { signal, model } = {}) {
   const raw = await complete(buildCardPrompt(page), { signal, model });
   const now = Date.now();
+  // One topic for the page, copied onto each of its cards rather than stored
+  // beside the page: a card syncs on its own and is shown on its own, so it has
+  // to carry its own frame.
+  const topic = parseTopic(raw);
   return parseCards(raw).map((c) => ({
     // Its identity across devices; the autoincrement id is local-only.
     uuid: crypto.randomUUID(),
@@ -281,6 +371,7 @@ export async function generateForPage(page, notebookId, { signal, model } = {}) 
     pageUuid: page.uuid || '',
     q: c.q,
     a: c.a,
+    topic,
     anchor: c.anchor,
     box: locateAnchor(page, c.anchor),
     createdAt: now,

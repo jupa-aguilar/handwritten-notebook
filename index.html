@@ -251,13 +251,21 @@
         <h2>Review</h2>
 
         <div id="review-deck">
-          <p class="hint">Questions drawn from your own pages. Each answer shows the handwriting it came from, so what you check yourself against is the notebook — not somebody's summary of it. Cards stay on this device; nothing about them is synced yet.</p>
+          <p class="hint">Questions drawn from your own pages. Each answer shows the handwriting it came from, so what you check yourself against is the notebook — not somebody's summary of it. With Drive sync set up, the cards and where each one has got to in its schedule travel between your devices.</p>
           <div id="review-stats" class="review-stats"></div>
         </div>
 
         <div id="review-session" hidden>
           <div id="review-remaining" class="review-remaining"></div>
+          <div id="review-topic" class="review-topic" hidden></div>
           <div id="review-q" class="review-q"></div>
+          <!-- The line the answer was written on, with the answer itself
+               covered: the step between drawing a blank and giving up. -->
+          <figure id="review-hint-crop" class="review-crop review-hint-crop" hidden>
+            <img id="review-hint-img" alt="The passage this card was drawn from, with the answer covered" />
+            <figcaption id="review-hint-cap"></figcaption>
+          </figure>
+          <button id="review-hint" class="btn ghost review-hint" hidden>Show the line <small>h</small></button>
           <button id="review-show" class="btn review-show">Show answer <small>space</small></button>
           <div id="review-answer" class="review-answer" hidden>
             <div id="review-answer-text" class="review-answer-text"></div>
@@ -508,7 +516,8 @@
             <ol class="help-steps">
               <li>Abre <strong>🎯 Review</strong> y pulsa <strong>Generate cards</strong>. Se pide una vez por página, y solo por las que aún no tienen tarjetas — puedes parar a medias y seguir otro día.</li>
               <li><strong>Start review</strong> empieza la sesión. <kbd>espacio</kbd> revela la respuesta.</li>
-              <li>Califica con los cuatro botones, o con <kbd>1</kbd>–<kbd>4</kbd>. Cada uno te dice cuándo volverá esa tarjeta.</li>
+              <li>¿No te sale? <strong>Show the line</strong> (<kbd>h</kbd>) te enseña la línea de tu cuaderno con la respuesta tapada: el contexto sin la respuesta. Al usarla se retira <strong>Easy</strong>, que ya no sería honesto.</li>
+              <li>Califica con los botones, o con <kbd>1</kbd>–<kbd>4</kbd>. Cada uno te dice cuándo volverá esa tarjeta.</li>
             </ol>
             <div class="help-sample" aria-hidden="true">
               <div class="review-grades help-grades">
@@ -587,8 +596,9 @@
         </dl>
         <h3 class="settings-subtitle">Review</h3>
         <dl class="shortcut-list">
+          <dt><kbd>H</kbd></dt><dd>Show the line it was written on, answer covered</dd>
           <dt><kbd>space</kbd></dt><dd>Show the answer, then grade it <em>Good</em></dd>
-          <dt><kbd>1</kbd>–<kbd>4</kbd></dt><dd>Again / Hard / Good / Easy</dd>
+          <dt><kbd>1</kbd>–<kbd>4</kbd></dt><dd>Again / Hard / Good / Easy — no <em>Easy</em> once you've had the hint</dd>
         </dl>
         <h3 class="settings-subtitle">Checking the transcription</h3>
         <dl class="shortcut-list">

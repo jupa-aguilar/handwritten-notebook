@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   buildCardPrompt,
   parseCards,
+  parseTopic,
   locateAnchor,
+  hintRect,
   cropRect,
   pagesToGenerate,
   MIN_TEXT_CHARS,
@@ -53,6 +55,52 @@ describe('parseCards', () => {
     expect(parseCards('lo siento, no puedo')).toEqual([]);
     expect(parseCards('')).toEqual([]);
     expect(parseCards('{"cards":[trunca')).toEqual([]);
+  });
+});
+
+describe('parseTopic', () => {
+  it('reads the topic out of the same reply as the cards', () => {
+    const raw = '{"topic":"Mitocondria","cards":[{"q":"a","a":"b"}]}';
+    expect(parseTopic(raw)).toBe('Mitocondria');
+  });
+
+  it('has none to offer when the model answered with a bare array', () => {
+    expect(parseTopic('[{"q":"a","a":"b"}]')).toBe('');
+  });
+
+  it('has none on junk, rather than throwing', () => {
+    expect(parseTopic('lo siento, no puedo')).toBe('');
+    expect(parseTopic('')).toBe('');
+  });
+});
+
+describe('hintRect', () => {
+  // Three lines, so a box on the middle one has a neighbour either side.
+  const three = {
+    words: [
+      ...row('uno dos tres cuatro', 0),
+      ...row('cinco seis siete ocho', 30),
+      ...row('nueve diez once doce', 60),
+    ],
+  };
+
+  it('takes in the lines above and below the answer', () => {
+    const box = { x: 40, y: 30, w: 34, h: 12 };
+    const rect = hintRect(three, box);
+    // All three lines are in it: up to the first (clamped at the image edge)
+    // and past the bottom of the last, at y 60 + 12.
+    expect(rect.y).toBe(0);
+    expect(rect.y + rect.h).toBeGreaterThan(72);
+  });
+
+  it('gives up when the mask would cover everything shown', () => {
+    const one = { words: row('uno dos tres', 0) };
+    expect(hintRect(one, { x: 0, y: 0, w: 114, h: 12 })).toBeNull();
+  });
+
+  it('gives up on a page that was never transcribed', () => {
+    expect(hintRect({ words: [] }, { x: 0, y: 0, w: 10, h: 10 })).toBeNull();
+    expect(hintRect(three, null)).toBeNull();
   });
 });
 

@@ -455,6 +455,7 @@ const CARD_WIRE_FIELDS = [
   'uuid',
   'q',
   'a',
+  'topic',
   'anchor',
   'box',
   'ease',

@@ -2085,6 +2085,19 @@ body.is-mobile.immersive .viewer-toolbar {
   text-transform: uppercase;
   color: rgba(44, 38, 32, 0.55);
 }
+/* What the page was about, in the model's own words: the frame a question loses
+   on its way off the page. Set quietly and apart — it is the context the
+   question is asked in, not part of the question. */
+.review-topic {
+  display: inline-block;
+  margin: 10px 0 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(44, 38, 32, 0.07);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: rgba(44, 38, 32, 0.62);
+}
 .review-q {
   margin: 10px 0 18px;
   font-size: 1.3rem;
@@ -2100,6 +2113,23 @@ body.is-mobile.immersive .viewer-toolbar {
 .review-show small {
   margin-left: 8px;
   opacity: 0.6;
+}
+
+.review-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 8px;
+}
+.review-hint small {
+  margin-left: 8px;
+  opacity: 0.6;
+}
+/* Above its button rather than below it, so revealing the line pushes the
+   answer down instead of jumping it up under the cursor. */
+.review-hint-crop {
+  margin: 0 0 10px;
 }
 
 .review-answer {
@@ -2163,7 +2193,8 @@ body.is-mobile.immersive .viewer-toolbar {
 
 /* Ghost buttons default to the dark toolbar's ink, which is invisible on the
    panel — the same correction .modal-actions makes for its own row. */
-.review-tools .btn.ghost {
+.review-tools .btn.ghost,
+.review-hint.btn.ghost {
   color: var(--panel-ink);
   border-color: rgba(0, 0, 0, 0.25);
 }

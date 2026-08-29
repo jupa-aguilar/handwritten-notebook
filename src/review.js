@@ -9,8 +9,8 @@
 
 import { listCards, addCards, putCard, deleteCard, deleteCardsForPage } from './db.js';
 import { resolveChatModel } from './chat.js';
-import { generateForPage, pagesToGenerate } from './cards.js';
-import { cropPage } from './crop.js';
+import { generateForPage, pagesToGenerate, hintRect } from './cards.js';
+import { cropPage, cropHint } from './crop.js';
 import { review, nextInterval, dueCards, isDue, formatInterval, GRADES } from './srs.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -29,8 +29,16 @@ let current = null;
 let generating = null; // AbortController while a run is in flight
 let currentPageIndex = () => 0; // which page the reader has open, from main.js
 let cropUrl = null; // object URL of the answer image, revoked as we go
+let hintUrl = null; // and of the hint's, which is a different crop of the page
+let usedHint = false; // was the line shown before this card was answered?
 
 const GRADE_LABELS = { again: 'Again', hard: 'Hard', good: 'Good', easy: 'Easy' };
+
+// After a hint, Easy is off the table — the line was in front of you. Only that
+// one: hiding more would be a punishment, and the other three still mean
+// exactly what they say. Both the buttons and the number keys read this, so
+// there is one answer to what the card is currently offering.
+const offeredGrades = () => (usedHint ? GRADES.filter((g) => g !== 'easy') : GRADES);
 
 // ---------- deck ----------
 
@@ -162,6 +170,7 @@ function endSession() {
   queue = [];
   current = null;
   releaseCrop();
+  releaseHint();
   $('#review-session').hidden = true;
   $('#review-deck').hidden = false;
   paintDeck();
@@ -169,6 +178,7 @@ function endSession() {
 
 function nextCard() {
   releaseCrop();
+  releaseHint();
   current = queue.shift() || null;
   if (!current) {
     endSession();
@@ -176,6 +186,11 @@ function nextCard() {
     return;
   }
   $('#review-remaining').textContent = `${queue.length + 1} left`;
+  // Cards made before the model was asked for one carry no topic; the chip
+  // simply isn't there for them.
+  const topic = $('#review-topic');
+  topic.textContent = current.topic || '';
+  topic.hidden = !current.topic;
   $('#review-q').textContent = current.q;
   $('#review-answer-text').textContent = current.a;
   $('#review-answer').hidden = true;
@@ -184,18 +199,68 @@ function nextCard() {
   $('#review-show').focus();
   $('#review-crop').hidden = true;
   $('#review-crop-note').hidden = true;
+  usedHint = false;
+  $('#review-hint-crop').hidden = true;
+  $('#review-hint').hidden = !hintAvailable(current);
+}
+
+// Whether there is a line worth showing: the card knows where its answer was
+// written, that page is still in the notebook, it is still the picture the box
+// was measured against, and the crop would leave ink visible around the mask.
+// The first three are what paintCrop checks before it crops at all.
+function hintAvailable(card) {
+  if (!card?.box) return false;
+  const page = getContext().pages.find((p) => p.id === card.pageId);
+  if (!page) return false;
+  if (card.pageUuid && page.uuid && card.pageUuid !== page.uuid) return false;
+  return !!hintRect(page, card.box);
+}
+
+// The step between drawing a blank and giving up: the passage as it was
+// written, with the answer covered. No model, no text — the box has been on
+// the card since it was made.
+async function showHint() {
+  if (!current || $('#review-hint').hidden) return;
+  const card = current;
+  const page = getContext().pages.find((p) => p.id === card.pageId);
+  $('#review-hint').hidden = true;
+  // Set before the crop, and kept even if it fails: what counts is that the
+  // reader asked to be shown the neighbourhood, not whether we managed it.
+  usedHint = true;
+
+  try {
+    const url = await cropHint(page, card.box);
+    if (!url) return;
+    // Graded while the crop was in flight — this picture belongs to a card
+    // that is no longer on screen.
+    if (current !== card) {
+      URL.revokeObjectURL(url);
+      return;
+    }
+    releaseHint();
+    hintUrl = url;
+    $('#review-hint-img').src = hintUrl;
+    $('#review-hint-cap').textContent = `Page ${page.order + 1} — the answer is covered`;
+    $('#review-hint-crop').hidden = false;
+  } catch (err) {
+    console.error('Could not crop the hint', err);
+  }
 }
 
 async function showAnswer() {
   if (!current || !$('#review-answer').hidden) return;
   $('#review-answer').hidden = false;
   $('#review-show').hidden = true;
+  $('#review-hint').hidden = true;
+  // The hint has been overtaken: a block laid over an answer you have just
+  // been shown is stale, and the crop below says the same thing uncovered.
+  $('#review-hint-crop').hidden = true;
 
   // Label each grade with what it costs you: "Good — 15 d" is the difference
   // between a scheduler you trust and four buttons you press at random.
   const grades = $('#review-grades');
   grades.replaceChildren();
-  for (const grade of GRADES) {
+  for (const grade of offeredGrades()) {
     const btn = document.createElement('button');
     btn.className = `btn review-grade grade-${grade}`;
     btn.dataset.grade = grade;
@@ -232,6 +297,11 @@ async function gradeCurrent(grade) {
 function releaseCrop() {
   if (cropUrl) URL.revokeObjectURL(cropUrl);
   cropUrl = null;
+}
+
+function releaseHint() {
+  if (hintUrl) URL.revokeObjectURL(hintUrl);
+  hintUrl = null;
 }
 
 // Cut the card's rectangle out of the page image. Padded, because a box that
@@ -351,6 +421,7 @@ export function initReview(opts) {
   $('#review-generate').addEventListener('click', generate);
   $('#review-stop').addEventListener('click', () => generating?.abort());
   $('#review-start').addEventListener('click', startSession);
+  $('#review-hint').addEventListener('click', showHint);
   $('#review-show').addEventListener('click', showAnswer);
   $('#review-goto').addEventListener('click', gotoCurrentPage);
   $('#review-drop').addEventListener('click', dropCurrent);
@@ -369,10 +440,18 @@ export function initReview(opts) {
       else gradeCurrent('good');
       return;
     }
+    if (e.key === 'h' && $('#review-answer').hidden) {
+      e.preventDefault();
+      showHint();
+      return;
+    }
     const n = Number(e.key);
     if (n >= 1 && n <= 4 && !$('#review-answer').hidden) {
       e.preventDefault();
-      gradeCurrent(GRADES[n - 1]);
+      // Indexed into what is on screen, so 4 does nothing on a card whose
+      // Easy was withdrawn rather than quietly grading it anyway.
+      const grade = offeredGrades()[n - 1];
+      if (grade) gradeCurrent(grade);
     }
   });
 
