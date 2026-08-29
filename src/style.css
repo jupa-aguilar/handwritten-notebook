@@ -79,6 +79,40 @@ body {
   gap: 12px;
 }
 
+/* Slim: the toolbar down to a strip, so the page gets the height back. Not on
+   phones, which have their own immersive mode with a different layout — the
+   two would fight over the same element.
+
+   What stays is chosen, not left over: the notebook's name so you know which
+   one is open, and #ocr-status and #transcribe-now because that is where sync
+   trouble and the call to transcribe are announced. Something that only takes
+   room when it has something to say costs nothing the rest of the time, and
+   hiding it would hide exactly what needs seeing. The search row goes: ⌘F
+   brings the whole toolbar back for it. */
+body:not(.is-mobile).slim .toolbar {
+  padding-top: calc(4px + env(safe-area-inset-top, 0px));
+  padding-bottom: 4px;
+  gap: 0;
+}
+body:not(.is-mobile).slim .search-wrap {
+  display: none;
+}
+body:not(.is-mobile).slim .toolbar .btn {
+  padding: 4px 9px;
+  font-size: 0.85rem;
+}
+body:not(.is-mobile).slim .btn-label {
+  display: none;
+}
+body:not(.is-mobile).slim .current-notebook {
+  font-size: 0.95rem;
+}
+/* Nothing to collapse on a phone: the toolbar there is already one row, and
+   ⛶ immersive is that platform's answer. */
+body.is-mobile #slim-btn {
+  display: none;
+}
+
 .brand {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1.25rem;
@@ -334,19 +368,45 @@ body {
   background-size: 5px 6px;
   background-position: center;
 }
-/* Collapsed: shrunk to the tool last used. Entered by dragging — so it stops
-   covering the page you're aiming at — and stays that way once dropped, a
-   small pill parked where you left it. Clicking it opens the bar again. */
+/* Collapsed: a circle, parked where you left it. It is the resting state, not
+   an exception — the bar is a launcher, so it opens, does its job and goes
+   back to being a dot on the page. Entered by dragging, by choosing a tool,
+   and by leaving it alone; clicking it opens the bar again.
+
+   The icon inside is the tool in use, which is what keeps the circle from
+   being an anonymous blob: this bar is the only thing that says which view
+   you are in, and collapsing it would take that with it. */
 .reading-bar.collapsed {
   cursor: grab;
+  border-radius: 50%;
+  padding: 3px;
 }
 .reading-bar.collapsed .read-btn:not(.last-used),
 .reading-bar.collapsed .read-grip {
   display: none;
 }
+/* Mark and its caret sit in a wrapper. Hiding the buttons inside it leaves the
+   wrapper itself at zero width — and the flex gap either side of nothing is
+   still a gap, which made the circle two pixels wider than it was tall. */
+.reading-bar.collapsed .bm-wrap:not(:has(.last-used)) {
+  display: none;
+}
 .reading-bar.collapsed .read-btn.last-used {
+  width: 42px;
+  height: 42px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 50%;
+  justify-content: center;
   background: rgba(255, 255, 255, 0.1);
-  pointer-events: none; /* the pill is one target: press it to open */
+  pointer-events: none; /* the circle is one target: press it to open */
+}
+/* No room for a word in a circle, and none needed — the icon is the label. */
+.reading-bar.collapsed .read-btn.last-used .read-label {
+  display: none;
+}
+.reading-bar.collapsed .read-btn.last-used .read-icon {
+  font-size: 1.25rem;
 }
 .read-btn {
   display: flex;

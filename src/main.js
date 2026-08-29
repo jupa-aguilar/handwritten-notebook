@@ -353,6 +353,8 @@ function recentreReadingBar() {
 }
 
 const READING_BAR_COLLAPSED_KEY = 'notebook.readingBarCollapsed';
+// Long enough to be a considered pause rather than a twitch of the mouse.
+const IDLE_COLLAPSE_MS = 3000;
 
 // Drag by the grip, like the tool palettes in iPad drawing apps: moving it
 // collapses it to the tool last used, and it *stays* that way once dropped —
@@ -373,13 +375,54 @@ function makeReadingBarDraggable() {
     }
   }
 
-  // Which tool the pill shows. Defaults to the first until something is used.
+  // Which tool the circle shows. The one whose view is open if there is one —
+  // this bar is the only thing that says which view you are in, and a circle
+  // that forgot it would be an anonymous blob — otherwise the last one
+  // pressed. Defaults to the first until something is used.
   const buttons = [...bar.querySelectorAll('.read-btn')];
   buttons[0]?.classList.add('last-used');
+  function showTool(preferred) {
+    const shown = bar.querySelector('.read-btn.active') || preferred;
+    if (shown) buttons.forEach((b) => b.classList.toggle('last-used', b === shown));
+  }
   bar.addEventListener('click', (e) => {
     const btn = e.target.closest('.read-btn');
     if (!btn || btn.classList.contains('read-btn-more')) return;
     buttons.forEach((b) => b.classList.toggle('last-used', b === btn));
+    // Chosen: the bar has done what it is for, so it gets out of the way. The
+    // panel it just opened is the thing worth looking at now.
+    //
+    // Straight away, not on the next frame: each tool's own listener sits on
+    // its button and so has already run — the target phase precedes this one —
+    // meaning .active is set and the circle can show where you have just gone.
+    // A deferred version worked only while the tab was visible, since a
+    // background tab gets no frames.
+    if (!isCollapsed()) {
+      showTool(btn);
+      setCollapsed(true);
+    }
+  });
+
+  // Left alone: back to a circle. Only ever while the pointer is away, so it
+  // cannot close under someone still deciding.
+  let idle = null;
+  const stopIdle = () => {
+    clearTimeout(idle);
+    idle = null;
+  };
+  bar.addEventListener('pointerenter', stopIdle);
+  bar.addEventListener('pointerleave', () => {
+    stopIdle();
+    if (isCollapsed()) return;
+    idle = setTimeout(() => {
+      // Three things that mean "still in use": a drag in progress, which owns
+      // its own collapsing; the bookmark list, which is anchored to a button
+      // that would vanish under it; and the keyboard, since collapsing would
+      // take the focused control off the screen.
+      if (drag || !$('#bookmarks-pop').hidden || bar.contains(document.activeElement)) return;
+      showTool();
+      setCollapsed(true);
+    }, IDLE_COLLAPSE_MS);
   });
 
   // A click that ends a drag, or that opens the pill, must not also fire the
@@ -1239,6 +1282,31 @@ function updateChatAvailability() {
 function toggleChatShortcut() {
   if (document.body.classList.contains('chat-unavailable')) return;
   toggleChat();
+}
+
+const SLIM_KEY = 'notebook.slimHeader';
+
+// The toolbar down to a strip. Explicit, and remembered — deliberately not
+// revealed by pointing at the top of the window: on a Mac that edge belongs to
+// the title bar and the traffic lights, so the pointer crosses it constantly
+// wanting nothing from the app, and a toolbar that unfurled every time would
+// be worse than one that never moved.
+function setSlim(on) {
+  document.body.classList.toggle('slim', on);
+  localStorage.setItem(SLIM_KEY, on ? '1' : '0');
+  const btn = $('#slim-btn');
+  btn.textContent = on ? '⌄' : '⌃';
+  btn.title = on ? 'Show the toolbar (T)' : 'Collapse the toolbar (T)';
+  // The header's height is the book's height: StPageFlip only refits on a
+  // window resize, so without this the book keeps the geometry it had and the
+  // search overlays sit off their words. Same reason setPanelHidden does it.
+  window.dispatchEvent(new Event('resize'));
+}
+
+const isSlim = () => document.body.classList.contains('slim');
+
+function toggleSlim() {
+  setSlim(!isSlim());
 }
 
 function toggleFullscreen() {
@@ -2933,7 +3001,12 @@ function wireViewer() {
 
 function wire() {
   wireViewer();
-  if (!IS_MOBILE) makeReadingBarDraggable(); // docked to the bottom on phones
+  if (!IS_MOBILE) {
+    makeReadingBarDraggable(); // docked to the bottom on phones
+    // Restore the strip before the book is built, so it is measured against
+    // the height it will actually have.
+    setSlim(localStorage.getItem(SLIM_KEY) === '1');
+  }
   $('#file-input').addEventListener('change', (e) => {
     handleFiles(e.target.files);
     e.target.value = '';
@@ -3082,6 +3155,9 @@ function wire() {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
       e.preventDefault();
       if (!$('#viewer').hidden) closeViewer();
+      // The box isn't on screen while the toolbar is a strip, so focusing it
+      // would do nothing anybody could see.
+      if (isSlim()) setSlim(false);
       $('#search').focus();
       $('#search').select();
       return;
@@ -3144,6 +3220,7 @@ function wire() {
     if (e.key === 'Home') goFirst();
     if (e.key === 'End') goLast();
     if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+    if (e.key === 't' || e.key === 'T') toggleSlim();
     if (e.key === 'z' || e.key === 'Z') openViewer();
     if (e.key === 'r' || e.key === 'R') openReview();
     if (e.key === 'b' || e.key === 'B') toggleBookmark();
@@ -3160,6 +3237,7 @@ function wire() {
     $('.book-area')
   );
 
+  $('#slim-btn').addEventListener('click', toggleSlim);
   $('#fullscreen-btn').addEventListener('click', toggleFullscreen);
   document.addEventListener('fullscreenchange', () => {
     $('#fullscreen-btn').textContent = document.fullscreenElement ? '⤡' : '⛶';
