@@ -9,8 +9,14 @@
 
 import { listCards, addCards, putCard, deleteCard, deleteCardsForPage } from './db.js';
 import { resolveChatModel } from './chat.js';
-import { generateForPage, pagesToGenerate, hintRect } from './cards.js';
-import { cropPage, cropHint } from './crop.js';
+import {
+  generateForPage,
+  pagesToGenerate,
+  hintRect,
+  cardsToTopUp,
+  topUpForPage,
+} from './cards.js';
+import { cropHint, cropAnswer } from './crop.js';
 import { review, nextInterval, dueCards, isDue, formatInterval, GRADES } from './srs.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -30,7 +36,9 @@ let generating = null; // AbortController while a run is in flight
 let currentPageIndex = () => 0; // which page the reader has open, from main.js
 let cropUrl = null; // object URL of the answer image, revoked as we go
 let hintUrl = null; // and of the hint's, which is a different crop of the page
-let usedHint = false; // was the line shown before this card was answered?
+// How far up the ladder this card has been walked: 0 nothing shown, 1 the
+// written hint, 2 the line it was written on. Anything above 0 withdraws Easy.
+let hintStep = 0;
 
 const GRADE_LABELS = { again: 'Again', hard: 'Hard', good: 'Good', easy: 'Easy' };
 
@@ -38,7 +46,7 @@ const GRADE_LABELS = { again: 'Again', hard: 'Hard', good: 'Good', easy: 'Easy' 
 // one: hiding more would be a punishment, and the other three still mean
 // exactly what they say. Both the buttons and the number keys read this, so
 // there is one answer to what the card is currently offering.
-const offeredGrades = () => (usedHint ? GRADES.filter((g) => g !== 'easy') : GRADES);
+const offeredGrades = () => (hintStep > 0 ? GRADES.filter((g) => g !== 'easy') : GRADES);
 
 // ---------- deck ----------
 
@@ -86,6 +94,16 @@ function paintDeck() {
   const gen = $('#review-generate');
   gen.hidden = sitting || !!generating || pending === 0;
   gen.textContent = `✨ Generate cards (${pending} page${pending === 1 ? '' : 's'})`;
+
+  // Cards drawn before hints and takeaways existed. Offered separately from
+  // generating because it is the opposite trade: it writes onto the cards you
+  // already have rather than making new ones, so nothing you have sat with is
+  // lost.
+  const thin = cardsToTopUp(cards).length;
+  const topup = $('#review-topup');
+  topup.hidden = sitting || !!generating || thin === 0;
+  topup.textContent = `💡 Add hints (${thin} card${thin === 1 ? '' : 's'})`;
+
   $('#review-stop').hidden = sitting || !generating;
 }
 
@@ -154,6 +172,74 @@ async function generate() {
   paintDeck();
 }
 
+// A card already sat with cannot be regenerated — clearing a page takes its
+// schedule down with the cards — so the hint and the takeaway are asked for on
+// their own and written onto the cards in place. Deliberately putCard and
+// onChanged, never touchNotebook: cards ride in a file of their own, and a
+// hint must not drag a manifest full of page text up to Drive.
+async function topUp() {
+  if (generating) return;
+  const { pages } = getContext();
+  const thin = cardsToTopUp(cards);
+  if (!thin.length) return;
+
+  // One request per page, since the model is being shown that page's text.
+  const byPage = new Map();
+  for (const card of thin) {
+    if (!byPage.has(card.pageId)) byPage.set(card.pageId, []);
+    byPage.get(card.pageId).push(card);
+  }
+  const todo = [...byPage.entries()]
+    .map(([pageId, group]) => [pages.find((p) => p.id === pageId), group])
+    .filter(([page]) => page);
+  if (!todo.length) return;
+
+  generating = new AbortController();
+  const { signal } = generating;
+  paintDeck();
+
+  let model;
+  try {
+    model = (await resolveChatModel()).id;
+  } catch (err) {
+    generating = null;
+    setStatus(err.message, true);
+    paintDeck();
+    return;
+  }
+
+  let filled = 0;
+  let failed = 0;
+  for (const [i, [page, group]] of todo.entries()) {
+    if (signal.aborted) break;
+    setStatus(`Reading page ${page.order + 1} — ${i + 1} of ${todo.length}, ${filled} cards so far…`);
+    try {
+      const updated = await topUpForPage(page, group, { signal, model });
+      for (const card of updated) {
+        const at = cards.findIndex((c) => c.id === card.id);
+        if (at !== -1) cards[at] = card;
+        await putCard(card);
+        filled++;
+      }
+      if (updated.length) onChanged();
+    } catch (err) {
+      if (signal.aborted) break;
+      console.error('Could not top up page', page.order + 1, err);
+      failed++;
+    }
+    paintDeck();
+  }
+
+  const stopped = signal.aborted;
+  generating = null;
+  setStatus(
+    `${stopped ? 'Stopped — ' : ''}${filled} card${filled === 1 ? '' : 's'} filled in` +
+      (failed ? `, ${failed} page${failed === 1 ? '' : 's'} failed` : ''),
+    failed > 0 && filled === 0
+  );
+  paintDeck();
+}
+
 // ---------- the sitting ----------
 
 function startSession() {
@@ -199,16 +285,18 @@ function nextCard() {
   $('#review-show').focus();
   $('#review-crop').hidden = true;
   $('#review-crop-note').hidden = true;
-  usedHint = false;
+  $('#review-insight').hidden = true;
+  hintStep = 0;
+  $('#review-hint-text').hidden = true;
   $('#review-hint-crop').hidden = true;
-  $('#review-hint').hidden = !hintAvailable(current);
+  paintHintButton();
 }
 
 // Whether there is a line worth showing: the card knows where its answer was
 // written, that page is still in the notebook, it is still the picture the box
 // was measured against, and the crop would leave ink visible around the mask.
 // The first three are what paintCrop checks before it crops at all.
-function hintAvailable(card) {
+function inkHintAvailable(card) {
   if (!card?.box) return false;
   const page = getContext().pages.find((p) => p.id === card.pageId);
   if (!page) return false;
@@ -216,24 +304,45 @@ function hintAvailable(card) {
   return !!hintRect(page, card.box);
 }
 
-// The step between drawing a blank and giving up: the passage as it was
-// written, with the answer covered. No model, no text — the box has been on
-// the card since it was made.
+// One button walks the ladder, so it names the next step rather than itself.
+// Cards made before hints existed have only the ink step, and for them it
+// reads exactly as it did before.
+function paintHintButton() {
+  const btn = $('#review-hint');
+  const written = hintStep < 1 && !!current?.hint;
+  const ink = hintStep < 2 && inkHintAvailable(current);
+  btn.hidden = !written && !ink;
+  $('#review-hint-label').textContent = written ? 'Hint' : 'Show the line';
+}
+
+// A step up the ladder. The written nudge first because it gives away least;
+// the line it was written on second, with the answer covered — no model and no
+// stored text, since the box has been on the card since it was made.
 async function showHint() {
   if (!current || $('#review-hint').hidden) return;
   const card = current;
+
+  if (hintStep < 1 && card.hint) {
+    hintStep = 1;
+    $('#review-hint-text').textContent = card.hint;
+    $('#review-hint-text').hidden = false;
+    paintHintButton();
+    return;
+  }
+
   const page = getContext().pages.find((p) => p.id === card.pageId);
-  $('#review-hint').hidden = true;
   // Set before the crop, and kept even if it fails: what counts is that the
   // reader asked to be shown the neighbourhood, not whether we managed it.
-  usedHint = true;
+  hintStep = 2;
+  paintHintButton();
 
   try {
     const url = await cropHint(page, card.box);
     if (!url) return;
-    // Graded while the crop was in flight — this picture belongs to a card
-    // that is no longer on screen.
-    if (current !== card) {
+    // Overtaken while the crop was in flight: the card was graded, or the
+    // reader gave up and pressed through to the answer. Either way this
+    // picture has nowhere to go.
+    if (current !== card || !$('#review-answer').hidden) {
       URL.revokeObjectURL(url);
       return;
     }
@@ -252,9 +361,16 @@ async function showAnswer() {
   $('#review-answer').hidden = false;
   $('#review-show').hidden = true;
   $('#review-hint').hidden = true;
-  // The hint has been overtaken: a block laid over an answer you have just
-  // been shown is stale, and the crop below says the same thing uncovered.
+  // The masked crop is overtaken, not the context in it: paintCrop puts the
+  // same picture back with the block lifted and the answer marked instead.
+  // Hiding it and dropping to the tight crop was the bug — it handed over the
+  // answer with the sentence it lived in cut away from around it.
   $('#review-hint-crop').hidden = true;
+  releaseHint();
+
+  const insight = $('#review-insight');
+  $('#review-insight-text').textContent = current.insight || '';
+  insight.hidden = !current.insight;
 
   // Label each grade with what it costs you: "Good — 15 d" is the difference
   // between a scheduler you trust and four buttons you press at random.
@@ -304,7 +420,8 @@ function releaseHint() {
   hintUrl = null;
 }
 
-// Cut the card's rectangle out of the page image. Padded, because a box that
+// The page behind the answer: the passage in the lines it was written among,
+// with the words that answered the question marked. Padded, because a box that
 // hugs the letters reads as a ransom note — a little of the surrounding paper
 // is what makes it look like a piece of the notebook.
 async function paintCrop(card) {
@@ -330,7 +447,7 @@ async function paintCrop(card) {
   }
 
   try {
-    const url = await cropPage(page, card.box);
+    const url = await cropAnswer(page, card.box);
     releaseCrop();
     cropUrl = url;
     $('#review-crop-img').src = cropUrl;
@@ -419,6 +536,7 @@ export function initReview(opts) {
   $('#review-btn').addEventListener('click', openReview);
   $('#review-close').addEventListener('click', () => setReviewOpen(false));
   $('#review-generate').addEventListener('click', generate);
+  $('#review-topup').addEventListener('click', topUp);
   $('#review-stop').addEventListener('click', () => generating?.abort());
   $('#review-start').addEventListener('click', startSession);
   $('#review-hint').addEventListener('click', showHint);

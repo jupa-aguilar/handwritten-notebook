@@ -2115,6 +2115,18 @@ body.is-mobile.immersive .viewer-toolbar {
   opacity: 0.6;
 }
 
+/* The written nudge. Set as an aside to the question rather than as an answer
+   to it: indented, quieter, and in the reader's own register — it is a thing
+   said beside the question, not a thing the page says. */
+.review-hint-text {
+  margin: 0 0 12px;
+  padding-left: 12px;
+  border-left: 2px solid rgba(44, 38, 32, 0.18);
+  font-size: 1rem;
+  line-height: 1.45;
+  color: rgba(44, 38, 32, 0.75);
+}
+
 .review-hint {
   display: flex;
   align-items: center;
@@ -2160,6 +2172,31 @@ body.is-mobile.immersive .viewer-toolbar {
   margin: 6px 0 0;
   font-size: 0.78rem;
   color: rgba(44, 38, 32, 0.55);
+}
+
+/* The machine's remark about the page, and kept visibly apart from the
+   handwriting above it — everything else on this side of the card is the
+   reader's own ink, and this one line is not. */
+.review-insight {
+  display: block;
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(44, 38, 32, 0.05);
+  color: rgba(44, 38, 32, 0.8);
+}
+.review-insight-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(44, 38, 32, 0.45);
+}
+.review-insight p {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 .review-grades {

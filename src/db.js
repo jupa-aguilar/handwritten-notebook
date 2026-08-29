@@ -456,6 +456,8 @@ const CARD_WIRE_FIELDS = [
   'q',
   'a',
   'topic',
+  'hint',
+  'insight',
   'anchor',
   'box',
   'ease',

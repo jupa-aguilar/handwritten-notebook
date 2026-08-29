@@ -20,14 +20,32 @@ export async function cropPage(page, box) {
 // Null when there is no hint to give: see hintRect, which refuses a crop the
 // mask would swallow.
 export async function cropHint(page, box, { context } = {}) {
-  return cut(page, hintRect(page, box, context), maskRect(page, box));
+  return cut(page, hintRect(page, box, context), maskRect(page, box), 'cover');
+}
+
+// The same picture once the card is turned over: the block lifted off, and the
+// words that answered it marked instead. Uncovering the passage without
+// widening the crop back out was the bug — the reader was handed the answer
+// with the sentence it lived in cut away from around it.
+//
+// Falls back to the tight framing when there is no context to show, and marks
+// nothing there: a highlight over a crop that is only the answer says nothing.
+export async function cropAnswer(page, box, { context } = {}) {
+  const wide = hintRect(page, box, context);
+  if (wide) return cut(page, wide, maskRect(page, box), 'mark');
+  return cut(page, box && cropRect(page, box));
 }
 
 // Paper the answer is hidden behind. A flat grey rather than white: it has to
 // read as something laid over the ink, not as a page that was left blank.
 const MASK_FILL = '#c9c3b9';
+// And the wash that replaces it. Laid down with 'multiply', which is what a
+// highlighter does to paper: the darkest thing at each pixel survives, so the
+// ink stays as legible as it was and only the paper around it takes the
+// colour. An ordinary fill at any alpha washes the strokes out with it.
+const MARK_FILL = '#ffd66b';
 
-async function cut(page, rect, mask) {
+async function cut(page, rect, mark, mode = 'cover') {
   if (!page?.blob || !rect) return null;
   const bitmap = await createImageBitmap(page.blob);
   try {
@@ -43,11 +61,13 @@ async function cut(page, rect, mask) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(bitmap, x, y, w, h, 0, 0, canvas.width, canvas.height);
 
-    if (mask) {
+    if (mark) {
       // The crop is drawn at its natural size, so the box's page pixels are the
       // canvas's own — only the origin moves.
-      ctx.fillStyle = MASK_FILL;
-      ctx.fillRect(mask.x - x, mask.y - y, mask.w, mask.h);
+      ctx.fillStyle = mode === 'mark' ? MARK_FILL : MASK_FILL;
+      if (mode === 'mark') ctx.globalCompositeOperation = 'multiply';
+      ctx.fillRect(mark.x - x, mark.y - y, mark.w, mark.h);
+      ctx.globalCompositeOperation = 'source-over';
     }
 
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.9));

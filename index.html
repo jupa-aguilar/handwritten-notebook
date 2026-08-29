@@ -259,13 +259,15 @@
           <div id="review-remaining" class="review-remaining"></div>
           <div id="review-topic" class="review-topic" hidden></div>
           <div id="review-q" class="review-q"></div>
-          <!-- The line the answer was written on, with the answer itself
-               covered: the step between drawing a blank and giving up. -->
+          <!-- The ladder between drawing a blank and giving up, cheapest step
+               first: a written nudge, then the line it was written on with the
+               answer covered. One button walks it. -->
+          <p id="review-hint-text" class="review-hint-text" hidden></p>
           <figure id="review-hint-crop" class="review-crop review-hint-crop" hidden>
             <img id="review-hint-img" alt="The passage this card was drawn from, with the answer covered" />
             <figcaption id="review-hint-cap"></figcaption>
           </figure>
-          <button id="review-hint" class="btn ghost review-hint" hidden>Show the line <small>h</small></button>
+          <button id="review-hint" class="btn ghost review-hint" hidden><span id="review-hint-label">Hint</span> <small>h</small></button>
           <button id="review-show" class="btn review-show">Show answer <small>space</small></button>
           <div id="review-answer" class="review-answer" hidden>
             <div id="review-answer-text" class="review-answer-text"></div>
@@ -274,6 +276,13 @@
               <figcaption id="review-crop-cap"></figcaption>
             </figure>
             <p id="review-crop-note" class="review-crop-note" hidden></p>
+            <!-- The machine's remark about the page, kept visibly apart from
+                 the handwriting above it so it can't be mistaken for the
+                 reader's own words. -->
+            <aside id="review-insight" class="review-insight" hidden>
+              <span class="review-insight-label">Worth remembering</span>
+              <p id="review-insight-text"></p>
+            </aside>
           </div>
           <div id="review-grades" class="review-grades" hidden></div>
           <div class="review-tools">
@@ -289,6 +298,7 @@
         <div class="modal-actions pages-actions">
           <div id="review-status" class="pages-status" hidden></div>
           <button id="review-clear-page" class="btn ghost" hidden title="Drop the cards drawn from the page you have open, so it can be generated again"></button>
+          <button id="review-topup" class="btn ghost" hidden title="Add a hint and a takeaway to cards made before they existed, without touching their schedule"></button>
           <button id="review-stop" class="btn ghost" hidden>■ Stop</button>
           <button id="review-generate" class="btn" hidden></button>
           <button id="review-start" class="btn" hidden></button>
@@ -516,7 +526,8 @@
             <ol class="help-steps">
               <li>Abre <strong>🎯 Review</strong> y pulsa <strong>Generate cards</strong>. Se pide una vez por página, y solo por las que aún no tienen tarjetas — puedes parar a medias y seguir otro día.</li>
               <li><strong>Start review</strong> empieza la sesión. <kbd>espacio</kbd> revela la respuesta.</li>
-              <li>¿No te sale? <strong>Show the line</strong> (<kbd>h</kbd>) te enseña la línea de tu cuaderno con la respuesta tapada: el contexto sin la respuesta. Al usarla se retira <strong>Easy</strong>, que ya no sería honesto.</li>
+              <li>¿No te sale? <kbd>h</kbd> sube un escalón cada vez: primero una <strong>pista escrita</strong>, que apunta sin decirlo, y luego <strong>Show the line</strong>, la línea de tu cuaderno con la respuesta tapada. Desde el primer escalón se retira <strong>Easy</strong>, que ya no sería honesto.</li>
+              <li>Al revelar vuelve esa misma línea sin tapar, con la respuesta resaltada en su sitio, y debajo un <strong>aprendizaje</strong>: una frase que añade lo que la respuesta sola no dice. Sale de tu página, no de fuera.</li>
               <li>Califica con los botones, o con <kbd>1</kbd>–<kbd>4</kbd>. Cada uno te dice cuándo volverá esa tarjeta.</li>
             </ol>
             <div class="help-sample" aria-hidden="true">
@@ -531,6 +542,7 @@
             <ul class="help-steps">
               <li>El número naranja sobre 🎯 es lo que te toca <em>hoy</em>. Sin número, no hay nada pendiente.</li>
               <li>¿Una pregunta mal hecha? <strong>Delete this card</strong>. ¿Una página entera que salió mal? <strong>Clear page N</strong> y genérala otra vez.</li>
+              <li><strong>Add hints</strong> aparece si tienes tarjetas de antes de que existieran la pista y el aprendizaje: se los añade sin tocar lo que ya llevas repasado. Regenerar la página, en cambio, borraría su calendario.</li>
             </ul>
             <p class="help-note">Las tarjetas y su calendario se sincronizan: lo que repases en el teléfono aparece repasado en el ordenador.</p>
           </section>
@@ -596,7 +608,7 @@
         </dl>
         <h3 class="settings-subtitle">Review</h3>
         <dl class="shortcut-list">
-          <dt><kbd>H</kbd></dt><dd>Show the line it was written on, answer covered</dd>
+          <dt><kbd>H</kbd></dt><dd>A hint — in words first, then the line it was written on</dd>
           <dt><kbd>space</kbd></dt><dd>Show the answer, then grade it <em>Good</em></dd>
           <dt><kbd>1</kbd>–<kbd>4</kbd></dt><dd>Again / Hard / Good / Easy — no <em>Easy</em> once you've had the hint</dd>
         </dl>

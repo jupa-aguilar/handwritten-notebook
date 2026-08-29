@@ -3,6 +3,10 @@ import {
   buildCardPrompt,
   parseCards,
   parseTopic,
+  usableHint,
+  cardsToTopUp,
+  parseTopUp,
+  applyTopUp,
   locateAnchor,
   hintRect,
   cropRect,
@@ -35,11 +39,15 @@ describe('buildCardPrompt', () => {
 describe('parseCards', () => {
   it('digs the JSON out of a fenced, chatty reply', () => {
     const raw = 'Claro, aquí tienes:\n```json\n{"cards":[{"q":"¿Qué?","a":"ATP","anchor":"produce ATP"}]}\n```\nEspero que sirvan.';
-    expect(parseCards(raw)).toEqual([{ q: '¿Qué?', a: 'ATP', anchor: 'produce ATP' }]);
+    expect(parseCards(raw)).toEqual([
+      { q: '¿Qué?', a: 'ATP', hint: '', insight: '', anchor: 'produce ATP' },
+    ]);
   });
 
   it('accepts a bare array, which models return however you ask', () => {
-    expect(parseCards('[{"q":"a","a":"b"}]')).toEqual([{ q: 'a', a: 'b', anchor: '' }]);
+    expect(parseCards('[{"q":"a","a":"b"}]')).toEqual([
+      { q: 'a', a: 'b', hint: '', insight: '', anchor: '' },
+    ]);
   });
 
   it('drops entries missing a question or an answer', () => {
@@ -55,6 +63,83 @@ describe('parseCards', () => {
     expect(parseCards('lo siento, no puedo')).toEqual([]);
     expect(parseCards('')).toEqual([]);
     expect(parseCards('{"cards":[trunca')).toEqual([]);
+  });
+});
+
+describe('parseCards, the hint and the takeaway', () => {
+  it('keeps both when they say something the answer does not', () => {
+    const raw = '{"cards":[{"q":"¿Qué produce?","a":"ATP","hint":"La moneda de la célula","insight":"Por eso muere sin oxígeno."}]}';
+    const [card] = parseCards(raw);
+    expect(card.hint).toBe('La moneda de la célula');
+    expect(card.insight).toBe('Por eso muere sin oxígeno.');
+  });
+
+  it('throws away a hint that hands over the answer', () => {
+    const raw = '{"cards":[{"q":"¿Qué produce?","a":"ATP","hint":"Produce ATP en la mitocondria"}]}';
+    expect(parseCards(raw)[0].hint).toBe('');
+  });
+
+  it('throws away a takeaway that only says the answer again', () => {
+    const raw = '{"cards":[{"q":"¿Qué produce?","a":"ATP","insight":"atp"}]}';
+    expect(parseCards(raw)[0].insight).toBe('');
+  });
+
+  it('leaves them empty on cards that carry neither', () => {
+    const [card] = parseCards('{"cards":[{"q":"a","a":"b"}]}');
+    expect(card.hint).toBe('');
+    expect(card.insight).toBe('');
+  });
+});
+
+describe('usableHint', () => {
+  it('refuses a hint the answer is buried in, accents and case aside', () => {
+    expect(usableHint('Piensa en la RESPIRACIÓN celular', 'respiracion celular')).toBe('');
+  });
+
+  it('keeps one that only circles the answer', () => {
+    expect(usableHint('Lo que la célula gasta para todo', 'ATP')).toBe(
+      'Lo que la célula gasta para todo'
+    );
+  });
+});
+
+describe('topping up existing cards', () => {
+  const deck = [
+    { id: 1, q: '¿Qué produce?', a: 'ATP' },
+    { id: 2, q: '¿Cuántas membranas?', a: 'Dos', hint: 'ya la tiene', insight: 'y esto' },
+    { id: 3, q: '¿Qué ADN?', a: 'Circular', hint: 'solo la pista' },
+  ];
+
+  it('picks only the cards missing one of the two', () => {
+    expect(cardsToTopUp(deck).map((c) => c.id)).toEqual([1, 3]);
+  });
+
+  it('matches by question, not by the order the model replied in', () => {
+    const parsed = [
+      { q: '¿Qué ADN?', hint: 'no es el del núcleo', insight: 'heredado por vía materna.' },
+      { q: '¿Qué produce?', hint: 'la moneda de la célula', insight: 'de ahí su nombre.' },
+    ];
+    const out = applyTopUp(deck, parsed);
+    expect(out.map((c) => c.id)).toEqual([1, 3]);
+    expect(out.find((c) => c.id === 1).hint).toBe('la moneda de la célula');
+    // Its own hint was already there; only the missing half is written.
+    expect(out.find((c) => c.id === 3).hint).toBe('solo la pista');
+    expect(out.find((c) => c.id === 3).insight).toBe('heredado por vía materna.');
+  });
+
+  it('ignores a question the deck never asked', () => {
+    expect(applyTopUp(deck, [{ q: 'inventada', hint: 'x', insight: 'y' }])).toEqual([]);
+  });
+
+  it('still refuses a hint that hands over the answer', () => {
+    const out = applyTopUp(deck, [{ q: '¿Qué produce?', hint: 'es el ATP', insight: 'algo.' }]);
+    expect(out[0].hint).toBe('');
+    expect(out[0].insight).toBe('algo.');
+  });
+
+  it('reads the reply through the same battered-JSON parser', () => {
+    const raw = 'Vale:\n```json\n{"cards":[{"q":"a","hint":"b","insight":"c"}]}\n```';
+    expect(parseTopUp(raw)).toEqual([{ q: 'a', hint: 'b', insight: 'c' }]);
   });
 });
 

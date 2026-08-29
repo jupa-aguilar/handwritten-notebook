@@ -34,13 +34,22 @@ Rules:
 - Never ask for a list to be recited. Ask for one of its items, or for what
   tells them apart.
 - The answer must be short — a phrase or one sentence.
+- "hint" points at the answer without containing it: one line that makes the
+  reader retrieve it rather than recognise it. Never the answer reworded, never
+  a synonym of it, never a word the answer itself uses.
+- "insight" is one sentence adding what the answer does not say: the reason it
+  is so, what it is easily confused with, or what follows from it. It must be
+  supported by this page — never general encouragement, never a restatement of
+  the answer, and never something you know from elsewhere. Leave it empty
+  rather than pad it.
 - "anchor" must be copied verbatim from the page text: the 3-10 consecutive
   words where the answer is written. Never invent or reword an anchor.
 - "topic" names what this page is about in 2-4 words, in the page's language.
 - Skip anything you cannot ask about with confidence. Fewer good cards beats
   filling a quota; an empty list is a valid answer.
 
-Reply with JSON only: {"topic":"…","cards":[{"q":"…","a":"…","anchor":"…"}]}`;
+Reply with JSON only:
+{"topic":"…","cards":[{"q":"…","a":"…","hint":"…","insight":"…","anchor":"…"}]}`;
 
 export function buildCardPrompt(page, limit = CARDS_PER_PAGE) {
   return [
@@ -92,22 +101,39 @@ export function parseTopic(raw) {
   return typeof topic === 'string' ? topic.trim() : '';
 }
 
+const str = (v) => (typeof v === 'string' ? v.trim() : '');
+
+// A hint that hands over the answer is not a hint, and it is the way models
+// fail at this: asked to point at something, they name it. Dropped rather than
+// shown, so the ladder's first step can't be the last one.
+export function usableHint(hint, answer) {
+  const h = foldText(hint || '');
+  const a = foldText(answer || '');
+  if (!h || !a) return '';
+  return h.includes(a) || a.includes(h) ? '' : hint;
+}
+
 export function parseCards(raw) {
   const list = extractCardJson(raw)?.cards || [];
   const seen = new Set();
   const cards = [];
   for (const item of list) {
-    const q = typeof item?.q === 'string' ? item.q.trim() : '';
-    const a = typeof item?.a === 'string' ? item.a.trim() : '';
+    const q = str(item?.q);
+    const a = str(item?.a);
     if (!q || !a) continue;
     // Same question twice is a model looping, not two cards.
     const key = foldText(q);
     if (seen.has(key)) continue;
     seen.add(key);
+    const insight = str(item?.insight);
     cards.push({
       q,
       a,
-      anchor: typeof item?.anchor === 'string' ? item.anchor.trim() : '',
+      hint: usableHint(str(item?.hint), a),
+      // An insight that only says the answer again is the padding the prompt
+      // asked it not to write.
+      insight: foldText(insight) === foldText(a) ? '' : insight,
+      anchor: str(item?.anchor),
     });
   }
   return cards;
@@ -372,6 +398,8 @@ export async function generateForPage(page, notebookId, { signal, model } = {}) 
     q: c.q,
     a: c.a,
     topic,
+    hint: c.hint,
+    insight: c.insight,
     anchor: c.anchor,
     box: locateAnchor(page, c.anchor),
     createdAt: now,
@@ -379,4 +407,80 @@ export async function generateForPage(page, notebookId, { signal, model } = {}) 
     suspended: false,
     ...newSchedule(now),
   }));
+}
+
+// ---------- topping up cards that were made before the fields existed ----------
+//
+// A deck of cards already sat with cannot be regenerated: clearing a page takes
+// its schedule down with the cards. So the hint and the insight are asked for
+// on their own, against the questions that already exist, and written onto the
+// cards in place.
+
+export function cardsToTopUp(cards) {
+  return (cards || []).filter((c) => c?.q && (!c.hint || !c.insight));
+}
+
+const TOP_UP_SYSTEM = `You are given one page of a student's handwritten notebook and the review questions already drawn from it. For each question, write two things.
+
+Rules:
+- Write in the same language as the page.
+- "hint" points at the answer without containing it: one line that makes the
+  reader retrieve it rather than recognise it. Never the answer reworded, never
+  a synonym of it, never a word the answer itself uses.
+- "insight" is one sentence adding what the answer does not say: the reason it
+  is so, what it is easily confused with, or what follows from it. It must be
+  supported by this page — never general encouragement, never a restatement of
+  the answer, and never something you know from elsewhere.
+- Copy each "q" back exactly as it was given. Leave out any question you cannot
+  do this well for; a short list is a valid answer.
+- Invent no new questions and change no answers.
+
+Reply with JSON only: {"cards":[{"q":"…","hint":"…","insight":"…"}]}`;
+
+export function buildTopUpPrompt(page, cards) {
+  const asked = (cards || [])
+    .map((c) => `Q: ${c.q}\nA: ${c.a}`)
+    .join('\n\n');
+  return [
+    { role: 'system', content: TOP_UP_SYSTEM },
+    {
+      role: 'user',
+      content: `Page ${(page.order ?? 0) + 1}.\n\n${page.text || ''}\n\n---\n\n${asked}`,
+    },
+  ];
+}
+
+export function parseTopUp(raw) {
+  const list = extractCardJson(raw)?.cards || [];
+  const out = [];
+  for (const item of list) {
+    const q = str(item?.q);
+    if (!q) continue;
+    out.push({ q, hint: str(item?.hint), insight: str(item?.insight) });
+  }
+  return out;
+}
+
+// Written onto the cards by matching the question, never by position: a model
+// that answers for three of four questions would otherwise shift every hint
+// onto the wrong card, and a hint attached to the wrong question is worse than
+// none. Returns only the cards that actually changed, so the caller writes
+// exactly those — every put is a modifiedAt the card sync has to carry.
+export function applyTopUp(cards, parsed) {
+  const byQuestion = new Map((parsed || []).map((p) => [foldText(p.q), p]));
+  const changed = [];
+  for (const card of cards || []) {
+    const found = byQuestion.get(foldText(card.q || ''));
+    if (!found) continue;
+    const hint = card.hint || usableHint(found.hint, card.a);
+    const insight = card.insight || found.insight;
+    if (hint === (card.hint || '') && insight === (card.insight || '')) continue;
+    changed.push({ ...card, hint, insight });
+  }
+  return changed;
+}
+
+export async function topUpForPage(page, cards, { signal, model } = {}) {
+  const raw = await complete(buildTopUpPrompt(page, cards), { signal, model });
+  return applyTopUp(cards, parseTopUp(raw));
 }
