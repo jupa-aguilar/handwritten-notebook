@@ -7,7 +7,15 @@
 // — the ink they wrote it with, in the margin they wrote it in — instead of a
 // paraphrase produced by a model reading a transcript.
 
-import { listCards, addCards, putCard, deleteCard, deleteCardsForPage } from './db.js';
+import {
+  listCards,
+  addCards,
+  putCard,
+  deleteCard,
+  deleteCardsForPage,
+  bumpReviewDay,
+} from './db.js';
+import { recordAnswer } from './stats.js';
 import { resolveChatModel } from './chat.js';
 import {
   generateForPage,
@@ -104,6 +112,7 @@ function paintDeck() {
   topup.hidden = sitting || !!generating || thin === 0;
   topup.textContent = `💡 Add hints (${thin} card${thin === 1 ? '' : 's'})`;
 
+  $('#review-progress').hidden = sitting;
   $('#review-stop').hidden = sitting || !generating;
 }
 
@@ -395,7 +404,14 @@ async function showAnswer() {
 
 async function gradeCurrent(grade) {
   if (!current || $('#review-answer').hidden) return;
-  const card = review(current, grade, Date.now());
+  // Read before nextCard() resets it: which rung this was answered at is half
+  // of what the tallies are for, and by the time the write lands the ladder
+  // belongs to the next card.
+  const step = hintStep;
+  const card = {
+    ...review(current, grade, Date.now()),
+    stats: recordAnswer(current.stats, grade, step),
+  };
   const at = cards.findIndex((c) => c.id === card.id);
   if (at !== -1) cards[at] = card;
   // A failed card comes back in ten minutes, which is usually inside this
@@ -403,6 +419,7 @@ async function gradeCurrent(grade) {
   // the panel to be opened again.
   if (grade === 'again') queue.push(card);
   await putCard(card);
+  await bumpReviewDay(getContext().id, grade, step);
   onChanged();
   onDueCount(cards.filter((c) => isDue(c)).length);
   nextCard();

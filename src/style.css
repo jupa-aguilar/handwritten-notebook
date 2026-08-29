@@ -2532,3 +2532,172 @@ body.is-mobile.immersive .viewer-toolbar {
     padding: 12px 8px 10px;
   }
 }
+
+/* ---------- the progress report ---------- */
+
+.progress-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0 6px;
+}
+.progress-stat {
+  flex: 1 1 120px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(44, 38, 32, 0.05);
+}
+.progress-stat strong {
+  display: block;
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+.progress-stat span {
+  font-size: 0.75rem;
+  color: rgba(44, 38, 32, 0.55);
+}
+
+/* The three rungs share one palette with the chart below, so a colour means
+   the same thing in both: the further up the ladder, the warmer. */
+.rung-0 { background: #4a7150; }
+.rung-1 { background: #b98a3a; }
+.rung-2 { background: #a8553f; }
+
+.progress-ladder {
+  margin: 10px 0 4px;
+}
+.progress-rung {
+  display: grid;
+  grid-template-columns: 110px 1fr 90px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+}
+.progress-rung-value {
+  text-align: right;
+  color: rgba(44, 38, 32, 0.6);
+}
+.progress-track {
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(44, 38, 32, 0.08);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 6px;
+}
+
+.progress-units {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0;
+}
+.progress-unit.active {
+  background: rgba(44, 38, 32, 0.12);
+}
+
+/* Columns grow from the baseline, so the stack is built bottom-up and the
+   whole row is read as one skyline rather than as separate bars. */
+.progress-chart {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  height: 120px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(44, 38, 32, 0.04);
+}
+.progress-col {
+  flex: 1 1 0;
+  /* Five years across the full width are slabs, not bars. The cap binds only
+     when there are few columns; thirty days never reach it. */
+  max-width: 64px;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  min-width: 4px;
+}
+/* The stack must carry its own full height: the segments are sized as a
+   percentage of it, and a percentage of an auto height is zero — the columns
+   drew nothing at all. column-reverse then stacks them up from the floor. */
+.progress-stack {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-seg {
+  flex: 0 0 auto;
+  min-height: 1px;
+}
+/* A day with nothing on it keeps its slot and shows a floor mark: an absent
+   column would close the gap up and draw a run of days that never happened. */
+.progress-col.empty::after {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(44, 38, 32, 0.12);
+}
+
+.progress-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0 4px;
+  font-size: 0.75rem;
+  color: rgba(44, 38, 32, 0.6);
+}
+.progress-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.progress-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.progress-worst {
+  margin: 8px 0 4px;
+}
+.progress-card {
+  padding: 10px 0;
+  border-top: 1px solid rgba(44, 38, 32, 0.12);
+}
+.progress-card-q {
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+.progress-card-rec {
+  margin: 3px 0 8px;
+  font-size: 0.78rem;
+  color: rgba(44, 38, 32, 0.55);
+}
+.progress-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* Ghost buttons default to the dark toolbar's ink, invisible on the panel —
+   the same correction .modal-actions and .review-tools make. */
+.progress-card-actions .btn.ghost,
+.progress-unit.btn.ghost {
+  color: var(--panel-ink);
+  border-color: rgba(0, 0, 0, 0.25);
+}
+
+@media (max-width: 600px) {
+  .progress-rung {
+    grid-template-columns: 92px 1fr 62px;
+    font-size: 0.78rem;
+  }
+}

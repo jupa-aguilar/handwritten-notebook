@@ -229,3 +229,74 @@ describe('the v5 → v6 upgrade', () => {
     expect(res.cards.map((c) => c.uuid).sort()).toEqual(cards.map((c) => c.uuid).sort());
   });
 });
+
+// The day tallies ride in the same file as the cards, and they are running
+// totals: the merge that is right for a card (newer wins) would throw a whole
+// device's week away here. So one row per device, and only ever your own is
+// rewritten — the property these cases exist to hold down.
+describe('the review-day tallies', () => {
+  const row = (day, device, a, m = [0, 0, 0]) => ({
+    notebookId: 1,
+    device,
+    day,
+    answered: a,
+    missed: m,
+  });
+
+  it("keeps another device's days and never writes over them", async () => {
+    const { applyRemoteHistory } = await loadDb();
+    const { getDeviceId } = await import('../src/usage.js');
+    const me = getDeviceId();
+    await rawPut('reviewDays', [row('2026-08-05', me, [2, 0, 0])]);
+
+    const { history } = await applyRemoteHistory(1, {
+      other: { '2026-08-05': { a: [0, 3, 0], m: [0, 1, 0] } },
+    });
+
+    expect(history[me]['2026-08-05'].a).toEqual([2, 0, 0]);
+    expect(history.other['2026-08-05'].a).toEqual([0, 3, 0]);
+    // And the other device's row is now readable here, so the chart adds up.
+    const stored = await rawAll('reviewDays');
+    expect(stored).toHaveLength(2);
+  });
+
+  it('ignores what the file claims about this device, which is the stale copy', async () => {
+    const { applyRemoteHistory } = await loadDb();
+    const { getDeviceId } = await import('../src/usage.js');
+    const me = getDeviceId();
+    await rawPut('reviewDays', [row('2026-08-05', me, [5, 0, 0])]);
+
+    const { history } = await applyRemoteHistory(1, {
+      [me]: { '2026-08-05': { a: [1, 0, 0], m: [0, 0, 0] } },
+    });
+
+    expect(history[me]['2026-08-05'].a).toEqual([5, 0, 0]);
+  });
+
+  it('asks for an upload when this device reviewed and the file has not heard', async () => {
+    const { applyRemoteHistory } = await loadDb();
+    await rawPut('reviewDays', [row('2026-08-05', (await import('../src/usage.js')).getDeviceId(), [1, 0, 0])]);
+    expect((await applyRemoteHistory(1, {})).changed).toBe(true);
+  });
+
+  it('spends no upload when the file already carries what we have', async () => {
+    const { applyRemoteHistory } = await loadDb();
+    const { getDeviceId } = await import('../src/usage.js');
+    const me = getDeviceId();
+    await rawPut('reviewDays', [row('2026-08-05', me, [1, 2, 0], [1, 0, 0])]);
+    const remote = { [me]: { '2026-08-05': { a: [1, 2, 0], m: [1, 0, 0] } } };
+    expect((await applyRemoteHistory(1, remote)).changed).toBe(false);
+  });
+
+  it('drops rows too old to be answering anybody\'s question', async () => {
+    const { applyRemoteHistory } = await loadDb();
+    const { getDeviceId } = await import('../src/usage.js');
+    const me = getDeviceId();
+    const now = new Date(2026, 7, 5).getTime();
+    await rawPut('reviewDays', [row('2020-01-01', me, [9, 0, 0]), row('2026-08-01', me, [1, 0, 0])]);
+
+    const { history } = await applyRemoteHistory(1, {}, now);
+    expect(Object.keys(history[me])).toEqual(['2026-08-01']);
+    expect(await rawAll('reviewDays')).toHaveLength(1);
+  });
+});

@@ -4,7 +4,8 @@
 //   meta.json        { version, notebooks: { [uuid]: { name, updatedAt, deletedAt? } } }
 //   nb-<uuid>.json   per-notebook manifest: name, updatedAt, pages (text, words, order)
 //   pg-<uuid>.jpg    page images — immutable, uploaded once
-//   cd-<uuid>.json   that notebook's review cards, with their deletions
+//   cd-<uuid>.json   that notebook's review cards, their deletions, and the
+//                    per-day review tallies (one entry per device, summed)
 //
 // Cards sit in a file of their own rather than in the manifest, because the
 // two change on completely different rhythms: grading forty cards in a sitting
@@ -42,6 +43,7 @@ import {
   getSyncedState,
   setSyncedState,
   applyRemoteCards,
+  applyRemoteHistory,
 } from './db.js';
 import { applySharedUsage, withOwnContribution } from './usage.js';
 
@@ -379,16 +381,25 @@ async function syncCards(token, files, nb) {
     remote?.cards || [],
     remote?.tombstones || {}
   );
+  // The day tallies ride in this file rather than one of their own: it is
+  // already re-uploaded every time a card is graded, which is exactly when a
+  // tally moves.
+  const { history, changed: historyChanged } = await applyRemoteHistory(
+    nb.id,
+    remote?.history || {}
+  );
   // Nothing of ours is missing up there, so an upload would only rewrite the
   // same bytes with a newer timestamp.
-  if (!changed && file) return false;
-  if (!cards.length && !Object.keys(tombstones).length) return false;
+  if (!changed && !historyChanged && file) return false;
+  if (!cards.length && !Object.keys(tombstones).length && !Object.keys(history).length) {
+    return false;
+  }
   await uploadFile(
     token,
     files,
     name,
     'application/json',
-    JSON.stringify({ notebook: nb.uuid, updatedAt: Date.now(), cards, tombstones })
+    JSON.stringify({ notebook: nb.uuid, updatedAt: Date.now(), cards, tombstones, history })
   );
   return true;
 }

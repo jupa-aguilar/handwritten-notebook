@@ -13,6 +13,9 @@
 //   cards:              { id, uuid, notebookId, pageId, pageUuid, q, a, box, ...srs }
 //                       review cards drawn from a page
 //   cardTombstones:     { uuid, at }  cards deleted here
+//   reviewDays:         { notebookId, device, day, answered[3], missed[3] }
+//                       what was answered on a given day, and at which rung of
+//                       the hint ladder — one row per device, summed to show
 //
 // Chats are local-only on purpose: they are cheap to regenerate, would bloat
 // every sync manifest, and can contain a stray question the user would rather
@@ -29,6 +32,8 @@
 // had deleted. Same database means they fall together or not at all, and a
 // delete can now share one transaction with its tombstone.
 import { openDB } from 'idb';
+import { getDeviceId } from './usage.js';
+import { dayKey, recordAnswer, normaliseStats } from './stats.js';
 
 // Pre-v3 homes of the stores above, read once by the v3 migration.
 const LEGACY_SYNC_KEYS = [
@@ -68,7 +73,7 @@ function migrateLegacySyncState(tx) {
   }
 }
 
-const dbPromise = openDB('handwritten-notebook', 6, {
+const dbPromise = openDB('handwritten-notebook', 7, {
   async upgrade(db, oldVersion, _newVersion, tx) {
     if (oldVersion < 1) {
       const pages = db.createObjectStore('pages', {
@@ -132,6 +137,15 @@ const dbPromise = openDB('handwritten-notebook', 6, {
           cursor = await cursor.continue();
         }
       }
+    }
+    if (oldVersion < 7) {
+      // One row per device per day, never one row per day: these are running
+      // totals, so a device writing over the shared figure would erase
+      // everybody else's. Same reasoning as usage.js, which says it at length.
+      const days = db.createObjectStore('reviewDays', {
+        keyPath: ['notebookId', 'device', 'day'],
+      });
+      days.createIndex('notebookId', 'notebookId');
     }
   },
 }).then((db) => {
@@ -458,6 +472,7 @@ const CARD_WIRE_FIELDS = [
   'topic',
   'hint',
   'insight',
+  'stats',
   'anchor',
   'box',
   'ease',
@@ -550,6 +565,91 @@ function fromWire(r, pageId, notebookId) {
   for (const k of CARD_WIRE_FIELDS) if (r[k] !== undefined) out[k] = r[k];
   out.modifiedAt ||= out.createdAt || Date.now();
   return out;
+}
+
+// ---------- what was reviewed, and when ----------
+//
+// A day's tally per device, for the same reason usage.js keeps its counters
+// that way: these are running totals, and last-write-wins between two devices
+// would silently throw one device's week away. Each owns one row per day and
+// only ever writes that; every reader sums.
+
+// Three years. Past that the rows are answering a question nobody is asking,
+// and they ride inside a file that is re-uploaded on every grade.
+const DAY_ROW_TTL_DAYS = 365 * 3;
+
+function tooOld(day, now = Date.now()) {
+  return day < dayKey(now - DAY_ROW_TTL_DAYS * 24 * 60 * 60 * 1000);
+}
+
+// One answer, on this device, today.
+export async function bumpReviewDay(notebookId, grade, step, now = Date.now()) {
+  if (notebookId == null) return;
+  const db = await dbPromise;
+  const day = dayKey(now);
+  const device = getDeviceId();
+  const tx = db.transaction('reviewDays', 'readwrite');
+  const existing = await tx.store.get([notebookId, device, day]);
+  const next = recordAnswer(existing, grade, step);
+  await tx.store.put({ notebookId, device, day, ...next });
+  await tx.done;
+}
+
+// Every device's rows for one notebook. Summing them is the caller's business
+// (see bucket() in stats.js), because how they are grouped depends on what is
+// being drawn.
+export async function listReviewDays(notebookId) {
+  if (notebookId == null) return [];
+  const db = await dbPromise;
+  return db.getAllFromIndex('reviewDays', 'notebookId', notebookId);
+}
+
+const historyFromRows = (rows) => {
+  const out = {};
+  for (const r of rows) {
+    (out[r.device] ||= {})[r.day] = { a: r.answered, m: r.missed };
+  }
+  return out;
+};
+
+/**
+ * Merge the history carried in the cards file. Other devices' rows are stored
+ * as they arrive; ours are never taken from the file, because the copy here is
+ * the newer one by construction — this device is the only thing that writes
+ * it. Returns what the file should now hold and whether ours differs from what
+ * it held, which is the only reason to spend an upload on it.
+ */
+export async function applyRemoteHistory(notebookId, remote = {}, now = Date.now()) {
+  const db = await dbPromise;
+  const me = getDeviceId();
+  const tx = db.transaction('reviewDays', 'readwrite');
+
+  for (const [device, days] of Object.entries(remote || {})) {
+    if (device === me) continue;
+    for (const [day, row] of Object.entries(days || {})) {
+      if (tooOld(day, now)) continue;
+      await tx.store.put({
+        notebookId,
+        device,
+        day,
+        ...normaliseStats({ answered: row?.a, missed: row?.m }),
+      });
+    }
+  }
+
+  const mine = [];
+  let cursor = await tx.store.index('notebookId').openCursor(notebookId);
+  while (cursor) {
+    if (tooOld(cursor.value.day, now)) await cursor.delete();
+    else mine.push(cursor.value);
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+
+  const history = historyFromRows(mine);
+  const ours = JSON.stringify(history[me] || {});
+  const theirs = JSON.stringify(remote?.[me] || {});
+  return { history, changed: ours !== theirs };
 }
 
 // ---------- sync support ----------

@@ -12,6 +12,7 @@
 import { complete } from './chat.js';
 import { foldText } from './text.js';
 import { newSchedule } from './srs.js';
+import { describeRecord, emptyStats } from './stats.js';
 
 export const CARDS_PER_PAGE = 4;
 
@@ -483,4 +484,73 @@ export function applyTopUp(cards, parsed) {
 export async function topUpForPage(page, cards, { signal, model } = {}) {
   const raw = await complete(buildTopUpPrompt(page, cards), { signal, model });
   return applyTopUp(cards, parseTopUp(raw));
+}
+
+// ---------- rewriting a card that isn't working ----------
+//
+// The statistics earn their keep here rather than in a pass that judges cards
+// on their own. A model asked to grade its own output is a weak critic, and a
+// low score is ambiguous anyway — the question may be bad, or the material may
+// simply be hard, and only the first says anything about the card. So the
+// record is not used to *decide*; it is handed to the model as the brief for
+// writing a better question about the same material.
+
+const REWRITE_SYSTEM = `A review question drawn from a student's handwritten page is not working. You are given the page, the question, its answer, and how the student has fared with it. Write one replacement.
+
+Rules:
+- Write in the same language as the page.
+- Ask about the same material, not something else on the page.
+- The old question may have failed because it was ambiguous, because it leaned
+  on something not in it, or because it asked for more than one thing at once.
+  Fix that; do not simply reword it.
+- Every question must stand on its own, naming the thing it asks about. The
+  reader has the question and nothing else in front of them.
+- Never ask for a list to be recited. Ask for one of its items, or for what
+  tells them apart.
+- The answer must be short — a phrase or one sentence.
+- "hint" points at the answer without containing it. "insight" adds one
+  sentence the answer does not say, supported by this page.
+- "anchor" must be copied verbatim from the page text: the 3-10 consecutive
+  words where the answer is written.
+
+Reply with JSON only, one card:
+{"cards":[{"q":"…","a":"…","hint":"…","insight":"…","anchor":"…"}]}`;
+
+export function buildRewritePrompt(page, card, record) {
+  const how = describeRecord(record);
+  return [
+    { role: 'system', content: REWRITE_SYSTEM },
+    {
+      role: 'user',
+      content:
+        `Page ${(page.order ?? 0) + 1}.\n\n${page.text || ''}\n\n---\n\n` +
+        `The question that is not working: ${card.q}\n` +
+        `Its answer: ${card.a}\n` +
+        (how ? `The student's record with it: ${how}.\n` : ''),
+    },
+  ];
+}
+
+// The replacement, ready for the store. Its schedule and its tallies start
+// over — it is a different question, and inheriting "due in two months" earned
+// by the one it replaces would be a claim nobody made. Its uuid does not
+// change, so the merge sees one card edited rather than one card orphaned
+// beside a new one.
+export async function rewriteCard(page, card, record, { signal, model } = {}) {
+  const raw = await complete(buildRewritePrompt(page, card, record), { signal, model });
+  const [fresh] = parseCards(raw);
+  if (!fresh) return null;
+  const now = Date.now();
+  return {
+    ...card,
+    q: fresh.q,
+    a: fresh.a,
+    hint: fresh.hint,
+    insight: fresh.insight,
+    anchor: fresh.anchor,
+    pageUuid: page.uuid || card.pageUuid || '',
+    box: locateAnchor(page, fresh.anchor),
+    stats: emptyStats(),
+    ...newSchedule(now),
+  };
 }

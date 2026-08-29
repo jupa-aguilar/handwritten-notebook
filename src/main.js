@@ -50,6 +50,7 @@ import {
 } from './chat.js';
 import { locateAnchor } from './cards.js';
 import { initProof, openProof, closeProof } from './proofpanel.js';
+import { initProgress, openProgress, closeProgress } from './progress.js';
 import { initHelp, openHelp, closeHelp } from './help.js';
 import {
   initReview,
@@ -2997,6 +2998,8 @@ function wire() {
     { el: $('#goto'), close: closeGoto },
     { el: $('#notebooks'), close: () => ($('#notebooks').hidden = true) },
     { el: $('#pages-overview'), close: closePagesOverview },
+    // Before #review: it is opened from there, so Escape has to peel it first.
+    { el: $('#progress'), close: closeProgress },
     { el: $('#review'), close: closeReview },
     { el: $('#proof'), close: closeProof },
     { el: $('#help'), close: closeHelp },
@@ -3215,6 +3218,15 @@ function wire() {
     onChanged: scheduleSync,
     currentPageIndex: () => currentPage,
   });
+
+  initProgress({
+    getContext: () => ({ id: currentNotebookId, pages }),
+    onGoToPage: goToPage,
+    onChanged: scheduleSync,
+    // A rewritten or deleted card changes the deck the review panel is holding.
+    onDeckChanged: refreshDueCount,
+  });
+  $('#review-progress').addEventListener('click', openProgress);
 
   initProof({
     getContext: () => ({ id: currentNotebookId, pages }),
