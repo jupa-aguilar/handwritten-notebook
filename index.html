@@ -254,6 +254,10 @@
         <div id="review-deck">
           <p class="hint">Questions drawn from your own pages. Each answer shows the handwriting it came from, so what you check yourself against is the notebook — not somebody's summary of it. With Drive sync set up, the cards and where each one has got to in its schedule travel between your devices.</p>
           <div id="review-stats" class="review-stats"></div>
+          <label class="review-mode" title="Answer by picking from other answers in this notebook, instead of recalling it">
+            <input id="review-choices-mode" type="checkbox" />
+            <span>Answer from options</span>
+          </label>
         </div>
 
         <div id="review-session" hidden>
@@ -269,6 +273,10 @@
             <figcaption id="review-hint-cap"></figcaption>
           </figure>
           <button id="review-hint" class="btn ghost review-hint" hidden><span id="review-hint-label">Hint</span> <small>h</small></button>
+          <!-- Answers borrowed from other cards in this notebook, never
+               invented: see choices.js. -->
+          <div id="review-choices" class="review-choices" hidden></div>
+          <p id="review-choices-note" class="review-choices-note" hidden></p>
           <button id="review-show" class="btn review-show">Show answer <small>space</small></button>
           <div id="review-answer" class="review-answer" hidden>
             <div id="review-answer-text" class="review-answer-text"></div>
@@ -286,6 +294,7 @@
             </aside>
           </div>
           <div id="review-grades" class="review-grades" hidden></div>
+          <button id="review-next" class="btn review-show" hidden>Next card <small>space</small></button>
           <div class="review-tools">
             <button id="review-goto" class="btn ghost small">Open the page</button>
             <button id="review-drop" class="btn ghost small">Delete this card</button>
@@ -577,6 +586,7 @@
               <li>El número naranja sobre 🎯 es lo que te toca <em>hoy</em>. Sin número, no hay nada pendiente.</li>
               <li>¿Una pregunta mal hecha? <strong>Delete this card</strong>. ¿Una página entera que salió mal? <strong>Clear page N</strong> y genérala otra vez.</li>
               <li><strong>Add hints</strong> aparece si tienes tarjetas de antes de que existieran la pista y el aprendizaje: se los añade sin tocar lo que ya llevas repasado. Regenerar la página, en cambio, borraría su calendario.</li>
+              <li><strong>Answer from options</strong>, en el mazo, cambia la sesión: en vez de recordar, eliges entre cuatro respuestas — y las incorrectas son respuestas <em>tuyas</em> de otras tarjetas, nunca inventadas. Elegir ya califica (aciertas <strong>Good</strong>, fallas <strong>Again</strong>), y las teclas <kbd>1</kbd>–<kbd>4</kbd> eligen. Es una rampa para arrancar: reconocer se recuerda peor que evocar, así que conviene apagarlo cuando el mazo deje de dar miedo.</li>
               <li><strong>📈 Progress</strong> lleva la cuenta de cuánta ayuda necesitaste. El acierto se mantiene plano a propósito —el programador te enseña justo lo que estás por olvidar—, así que lo que se mueve es el escalón: el mismo mazo respondido cada vez con menos ayuda. Ahí están también las tarjetas que te están ganando, con su expediente, y <strong>Rewrite</strong>, que pide una pregunta nueva sobre la misma materia contándole al modelo qué salió mal con la anterior.</li>
             </ul>
             <p class="help-note">Las tarjetas y su calendario se sincronizan: lo que repases en el teléfono aparece repasado en el ordenador.</p>

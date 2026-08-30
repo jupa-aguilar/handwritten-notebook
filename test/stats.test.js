@@ -16,8 +16,8 @@ describe('recordAnswer', () => {
   it('counts the answer against the rung it was given at', () => {
     let s = recordAnswer(emptyStats(), 'good', 0);
     s = recordAnswer(s, 'good', 2);
-    expect(s.answered).toEqual([1, 0, 1]);
-    expect(s.missed).toEqual([0, 0, 0]);
+    expect(s.answered).toEqual([1, 0, 1, 0]);
+    expect(s.missed).toEqual([0, 0, 0, 0]);
   });
 
   it('treats Again as the only miss', () => {
@@ -29,11 +29,11 @@ describe('recordAnswer', () => {
   });
 
   it('survives a card that has never been counted before', () => {
-    expect(recordAnswer(undefined, 'good', 1).answered).toEqual([0, 1, 0]);
+    expect(recordAnswer(undefined, 'good', 1).answered).toEqual([0, 1, 0, 0]);
   });
 
   it('folds a rung it does not have back onto the last one', () => {
-    expect(recordAnswer(emptyStats(), 'good', 9).answered).toEqual([0, 0, 1]);
+    expect(recordAnswer(emptyStats(), 'good', 9).answered).toEqual([0, 0, 0, 1]);
   });
 });
 
@@ -53,12 +53,12 @@ describe('bucket', () => {
   ];
 
   it('adds up the devices that reviewed on the same day', () => {
-    expect(bucket(rows, 'day').get('2026-08-05').answered).toEqual([1, 2, 0]);
+    expect(bucket(rows, 'day').get('2026-08-05').answered).toEqual([1, 2, 0, 0]);
   });
 
   it('rolls days into months and months into years', () => {
-    expect(bucket(rows, 'month').get('2026-08').answered).toEqual([1, 2, 0]);
-    expect(bucket(rows, 'year').get('2026').answered).toEqual([1, 2, 3]);
+    expect(bucket(rows, 'month').get('2026-08').answered).toEqual([1, 2, 0, 0]);
+    expect(bucket(rows, 'year').get('2026').answered).toEqual([1, 2, 3, 0]);
   });
 });
 
@@ -74,8 +74,8 @@ describe('series', () => {
     expect(out.map((d) => d.key)).toEqual(['2026-08-08', '2026-08-09', '2026-08-10']);
     // The two quiet days are present and empty, so the chart can't close the
     // gap up and draw a run that never happened.
-    expect(out[0].answered).toEqual([0, 0, 0]);
-    expect(out[2].answered).toEqual([2, 0, 0]);
+    expect(out[0].answered).toEqual([0, 0, 0, 0]);
+    expect(out[2].answered).toEqual([2, 0, 0, 0]);
   });
 });
 
@@ -118,6 +118,23 @@ describe('struggle', () => {
   it('leaves a card nobody has struggled with out of the list entirely', () => {
     const fine = { stats: { answered: [5, 0, 0], missed: [0, 0, 0] } };
     expect(worstCards([fine, { lapses: 0 }])).toEqual([]);
+  });
+
+  it('does not treat answering from options as the card giving trouble', () => {
+    // A whole sitting in the choice mode lands every answer on the last rung.
+    // If that counted as leaning on help, the mode would put the entire deck
+    // on the list of cards fighting you the first time it was used.
+    const byChoice = { stats: { answered: [0, 0, 0, 6], missed: [0, 0, 0, 0] } };
+    expect(struggle(byChoice)).toBeNull();
+  });
+
+  it('still counts a miss made among options', () => {
+    const missedIt = { stats: { answered: [0, 0, 0, 6], missed: [0, 0, 0, 3] } };
+    const record = struggle(missedIt);
+    expect(record.attempts).toBe(6);
+    expect(record.misses).toBe(3);
+    // Half of them missed, and nothing added for the help itself.
+    expect(record.score).toBeCloseTo(0.5);
   });
 
   it('puts the worst first', () => {

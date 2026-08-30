@@ -604,10 +604,15 @@ export async function listReviewDays(notebookId) {
   return db.getAllFromIndex('reviewDays', 'notebookId', notebookId);
 }
 
+// Normalised on the way out as well as on the way in: a row stored before a
+// rung existed is still the width it was, and letting those go up as they lie
+// would make the shared file ragged — some rows one width, some another,
+// depending on which build last touched them.
 const historyFromRows = (rows) => {
   const out = {};
   for (const r of rows) {
-    (out[r.device] ||= {})[r.day] = { a: r.answered, m: r.missed };
+    const { answered, missed } = normaliseStats({ answered: r.answered, missed: r.missed });
+    (out[r.device] ||= {})[r.day] = { a: answered, m: missed };
   }
   return out;
 };

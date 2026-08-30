@@ -37,7 +37,7 @@ let busy = null; // AbortController while a rewrite is in flight
 
 const UNITS = { day: 30, month: 12, year: 5 };
 // What each rung is called where the reader can see it.
-const RUNG_LABELS = ['On your own', 'After the hint', 'With the line'];
+const RUNG_LABELS = ['On your own', 'After the hint', 'With the line', 'From options'];
 
 // ---------- loading ----------
 

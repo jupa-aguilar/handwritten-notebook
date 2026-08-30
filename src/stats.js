@@ -12,25 +12,39 @@
 // nothing here knows where the numbers came from.
 
 // The rungs of the ladder in review.js: answered cold, after the written hint,
-// after seeing the line it was written on.
-export const RUNGS = 3;
+// after seeing the line it was written on — and, last, picked from a list of
+// options, which is a different kind of help rather than more of the same.
+export const RUNGS = 4;
+
+// Answering among options is a mode the reader turns on for the whole sitting,
+// not something a card drove them to. It counts as an attempt and it counts as
+// a miss, but see struggle(): it must not read as the card giving trouble, or
+// one sitting in that mode would mark the entire deck.
+export const CHOICE_RUNG = 3;
 
 // Again is the only miss. Hard is "that cost me", not "I didn't have it" —
 // which is what it means to the scheduler, and what `lapses` has always
 // counted.
 const isMiss = (grade) => grade === 'again';
 
-const triple = (v) => {
-  const out = [0, 0, 0];
+export const zeros = () => new Array(RUNGS).fill(0);
+
+// Widened to RUNGS whatever arrived: rows written before a rung existed are
+// short, and read as a zero in the new slot. That is what makes adding one a
+// change of code rather than a migration — and it is safe between versions,
+// because a device only ever writes its own rows and so never truncates
+// anybody else's.
+const counts = (v) => {
+  const out = zeros();
   for (let i = 0; i < RUNGS; i++) out[i] = Number(v?.[i]) || 0;
   return out;
 };
 
-export const emptyStats = () => ({ answered: [0, 0, 0], missed: [0, 0, 0] });
+export const emptyStats = () => ({ answered: zeros(), missed: zeros() });
 
 export const normaliseStats = (s) => ({
-  answered: triple(s?.answered),
-  missed: triple(s?.missed),
+  answered: counts(s?.answered),
+  missed: counts(s?.missed),
 });
 
 export const sum = (t) => (t || []).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -71,9 +85,9 @@ export function bucket(rows, unit = 'day') {
   for (const row of rows || []) {
     if (!row?.day) continue;
     const key = bucketKey(row.day, unit);
-    const at = out.get(key) || { key, answered: [0, 0, 0], missed: [0, 0, 0] };
-    const a = triple(row.answered);
-    const m = triple(row.missed);
+    const at = out.get(key) || { key, answered: zeros(), missed: zeros() };
+    const a = counts(row.answered);
+    const m = counts(row.missed);
     for (let i = 0; i < RUNGS; i++) {
       at.answered[i] += a[i];
       at.missed[i] += m[i];
@@ -97,18 +111,18 @@ export function series(rows, unit = 'day', count = 30, now = Date.now()) {
     else if (unit === 'month') at.setMonth(d.getMonth() - i, 1);
     else at.setFullYear(d.getFullYear() - i, 0, 1);
     const key = bucketKey(dayKey(at.getTime()), unit);
-    out.push(filled.get(key) || { key, answered: [0, 0, 0], missed: [0, 0, 0] });
+    out.push(filled.get(key) || { key, answered: zeros(), missed: zeros() });
   }
   return out;
 }
 
 // Everything the header needs from a set of rows or buckets.
 export function summarise(rows) {
-  const answered = [0, 0, 0];
-  const missed = [0, 0, 0];
+  const answered = zeros();
+  const missed = zeros();
   for (const row of rows || []) {
-    const a = triple(row.answered);
-    const m = triple(row.missed);
+    const a = counts(row.answered);
+    const m = counts(row.missed);
     for (let i = 0; i < RUNGS; i++) {
       answered[i] += a[i];
       missed[i] += m[i];
@@ -151,6 +165,11 @@ export function struggle(card) {
     // Needing the line is more trouble than needing the written nudge, which
     // is more trouble than needing nothing. Half-weighted against the miss
     // rate: leaning on a hint is a smaller thing than failing outright.
+    //
+    // The choice rung is left out on purpose. Answering among options is a
+    // decision about the sitting, not something this card did — folding it in
+    // would put every card in the deck on the list the moment somebody used
+    // that mode. Missing among four options still counts, and says plenty.
     const leaning = (s.answered[1] + s.answered[2] * 2) / attempts;
     const score = misses / attempts + leaning * 0.5;
     // Never missed and never needed help: there is no trouble here to report,

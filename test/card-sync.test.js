@@ -253,8 +253,10 @@ describe('the review-day tallies', () => {
       other: { '2026-08-05': { a: [0, 3, 0], m: [0, 1, 0] } },
     });
 
-    expect(history[me]['2026-08-05'].a).toEqual([2, 0, 0]);
-    expect(history.other['2026-08-05'].a).toEqual([0, 3, 0]);
+    expect(history[me]['2026-08-05'].a).toEqual([2, 0, 0, 0]);
+    // A row that arrived from a device without the newest rung is widened
+    // here, not rejected: the extra column simply reads as nothing happened.
+    expect(history.other['2026-08-05'].a).toEqual([0, 3, 0, 0]);
     // And the other device's row is now readable here, so the chart adds up.
     const stored = await rawAll('reviewDays');
     expect(stored).toHaveLength(2);
@@ -270,7 +272,7 @@ describe('the review-day tallies', () => {
       [me]: { '2026-08-05': { a: [1, 0, 0], m: [0, 0, 0] } },
     });
 
-    expect(history[me]['2026-08-05'].a).toEqual([5, 0, 0]);
+    expect(history[me]['2026-08-05'].a).toEqual([5, 0, 0, 0]);
   });
 
   it('asks for an upload when this device reviewed and the file has not heard', async () => {
@@ -283,9 +285,24 @@ describe('the review-day tallies', () => {
     const { applyRemoteHistory } = await loadDb();
     const { getDeviceId } = await import('../src/usage.js');
     const me = getDeviceId();
-    await rawPut('reviewDays', [row('2026-08-05', me, [1, 2, 0], [1, 0, 0])]);
-    const remote = { [me]: { '2026-08-05': { a: [1, 2, 0], m: [1, 0, 0] } } };
+    await rawPut('reviewDays', [row('2026-08-05', me, [1, 2, 0, 0], [1, 0, 0, 0])]);
+    const remote = { [me]: { '2026-08-05': { a: [1, 2, 0, 0], m: [1, 0, 0, 0] } } };
     expect((await applyRemoteHistory(1, remote)).changed).toBe(false);
+  });
+
+  it('spends one upload to widen rows written before a rung existed', async () => {
+    const { applyRemoteHistory } = await loadDb();
+    const { getDeviceId } = await import('../src/usage.js');
+    const me = getDeviceId();
+    await rawPut('reviewDays', [row('2026-08-05', me, [1, 2, 0], [1, 0, 0])]);
+    // The file still holds what the previous build wrote. The counts agree, so
+    // the only difference is the width — worth exactly one upload, after which
+    // the file is normalised and the next run is quiet again.
+    const remote = { [me]: { '2026-08-05': { a: [1, 2, 0], m: [1, 0, 0] } } };
+    const first = await applyRemoteHistory(1, remote);
+    expect(first.changed).toBe(true);
+    expect(first.history[me]['2026-08-05'].a).toEqual([1, 2, 0, 0]);
+    expect((await applyRemoteHistory(1, first.history)).changed).toBe(false);
   });
 
   it('drops rows too old to be answering anybody\'s question', async () => {

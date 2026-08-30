@@ -15,7 +15,8 @@ import {
   deleteCardsForPage,
   bumpReviewDay,
 } from './db.js';
-import { recordAnswer } from './stats.js';
+import { recordAnswer, CHOICE_RUNG } from './stats.js';
+import { buildChoices } from './choices.js';
 import { resolveChatModel } from './chat.js';
 import {
   generateForPage,
@@ -46,7 +47,15 @@ let cropUrl = null; // object URL of the answer image, revoked as we go
 let hintUrl = null; // and of the hint's, which is a different crop of the page
 // How far up the ladder this card has been walked: 0 nothing shown, 1 the
 // written hint, 2 the line it was written on. Anything above 0 withdraws Easy.
+// A card answered from options is CHOICE_RUNG outright — that mode replaces
+// the ladder rather than sitting on it.
 let hintStep = 0;
+// The options on screen and what was picked, or null when this card is being
+// asked the ordinary way.
+let choice = null;
+
+const CHOICES_KEY = 'notebook.reviewChoices';
+const choicesMode = () => localStorage.getItem(CHOICES_KEY) === '1';
 
 const GRADE_LABELS = { again: 'Again', hard: 'Hard', good: 'Good', easy: 'Easy' };
 
@@ -264,6 +273,7 @@ function startSession() {
 function endSession() {
   queue = [];
   current = null;
+  choice = null;
   releaseCrop();
   releaseHint();
   $('#review-session').hidden = true;
@@ -298,7 +308,69 @@ function nextCard() {
   hintStep = 0;
   $('#review-hint-text').hidden = true;
   $('#review-hint-crop').hidden = true;
-  paintHintButton();
+  $('#review-next').hidden = true;
+  paintChoices();
+  if (!choice) paintHintButton();
+}
+
+// With the mode on, the card is answered by picking. Null when this notebook
+// can't supply enough believable decoys — that card is asked the ordinary way,
+// and says so, or it would look as though the mode had switched itself off.
+function paintChoices() {
+  const box = $('#review-choices');
+  const note = $('#review-choices-note');
+  box.replaceChildren();
+  box.hidden = true;
+  note.hidden = true;
+  choice = null;
+  if (!choicesMode()) return;
+
+  const built = buildChoices(current, cards);
+  if (!built) {
+    note.textContent =
+      'Not enough other answers in this notebook to build options for this one, so it is asked outright.';
+    note.hidden = false;
+    return;
+  }
+
+  choice = { ...built, picked: null };
+  for (const [i, text] of built.options.entries()) {
+    const btn = document.createElement('button');
+    btn.className = 'btn ghost review-choice';
+    btn.dataset.index = String(i);
+    const key = document.createElement('small');
+    key.textContent = String(i + 1);
+    const label = document.createElement('span');
+    label.textContent = text;
+    btn.append(key, label);
+    btn.addEventListener('click', () => pick(i));
+    box.appendChild(btn);
+  }
+  box.hidden = false;
+  // Nothing to reveal until something is chosen; the ladder is off, because
+  // the options are already the help.
+  $('#review-show').hidden = true;
+  $('#review-hint').hidden = true;
+}
+
+// Choosing is answering. The card grades itself on the way out — there is
+// nothing left to assess about how it went.
+async function pick(index) {
+  if (!choice || choice.picked !== null) return;
+  choice.picked = index;
+  hintStep = CHOICE_RUNG;
+
+  for (const btn of $('#review-choices').querySelectorAll('.review-choice')) {
+    const i = Number(btn.dataset.index);
+    btn.disabled = true;
+    btn.classList.toggle('correct', i === choice.correct);
+    btn.classList.toggle('wrong', i === index && index !== choice.correct);
+  }
+
+  await showAnswer({ grades: false });
+  const next = $('#review-next');
+  next.hidden = false;
+  next.focus();
 }
 
 // Whether there is a line worth showing: the card knows where its answer was
@@ -365,7 +437,7 @@ async function showHint() {
   }
 }
 
-async function showAnswer() {
+async function showAnswer({ grades = true } = {}) {
   if (!current || !$('#review-answer').hidden) return;
   $('#review-answer').hidden = false;
   $('#review-show').hidden = true;
@@ -383,8 +455,13 @@ async function showAnswer() {
 
   // Label each grade with what it costs you: "Good — 15 d" is the difference
   // between a scheduler you trust and four buttons you press at random.
-  const grades = $('#review-grades');
-  grades.replaceChildren();
+  const buttons = $('#review-grades');
+  buttons.replaceChildren();
+  if (!grades) {
+    buttons.hidden = true;
+    await paintCrop(current);
+    return;
+  }
   for (const grade of offeredGrades()) {
     const btn = document.createElement('button');
     btn.className = `btn review-grade grade-${grade}`;
@@ -395,9 +472,9 @@ async function showAnswer() {
     when.textContent = formatInterval(nextInterval(current, grade));
     btn.append(label, when);
     btn.addEventListener('click', () => gradeCurrent(grade));
-    grades.appendChild(btn);
+    buttons.appendChild(btn);
   }
-  grades.hidden = false;
+  buttons.hidden = false;
 
   await paintCrop(current);
 }
@@ -557,6 +634,16 @@ export function initReview(opts) {
   $('#review-stop').addEventListener('click', () => generating?.abort());
   $('#review-start').addEventListener('click', startSession);
   $('#review-hint').addEventListener('click', showHint);
+  // Choosing already said how it went, so this only moves on.
+  $('#review-next').addEventListener('click', () => {
+    if (choice?.picked === null) return;
+    gradeCurrent(choice.picked === choice.correct ? 'good' : 'again');
+  });
+  const mode = $('#review-choices-mode');
+  mode.checked = choicesMode();
+  mode.addEventListener('change', () => {
+    localStorage.setItem(CHOICES_KEY, mode.checked ? '1' : '0');
+  });
   $('#review-show').addEventListener('click', showAnswer);
   $('#review-goto').addEventListener('click', gotoCurrentPage);
   $('#review-drop').addEventListener('click', dropCurrent);
@@ -571,7 +658,11 @@ export function initReview(opts) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault();
-      if ($('#review-answer').hidden) showAnswer();
+      // In the choice mode space never grades: the answer was already given by
+      // picking, and taking it as "good" would score a wrong pick as right.
+      if (choice) {
+        if (choice.picked !== null) $('#review-next').click();
+      } else if ($('#review-answer').hidden) showAnswer();
       else gradeCurrent('good');
       return;
     }
@@ -581,6 +672,15 @@ export function initReview(opts) {
       return;
     }
     const n = Number(e.key);
+    // Before anything is picked the numbers choose an option; the grades are
+    // not on screen to be pressed.
+    if (choice && choice.picked === null) {
+      if (n >= 1 && n <= choice.options.length) {
+        e.preventDefault();
+        pick(n - 1);
+      }
+      return;
+    }
     if (n >= 1 && n <= 4 && !$('#review-answer').hidden) {
       e.preventDefault();
       // Indexed into what is on screen, so 4 does nothing on a card whose

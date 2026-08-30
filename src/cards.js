@@ -34,7 +34,10 @@ Rules:
   could answer.
 - Never ask for a list to be recited. Ask for one of its items, or for what
   tells them apart.
-- The answer must be short — a phrase or one sentence.
+- The answer must be the shortest thing that is still the answer: a term, a
+  number, a name. Write a sentence only when nothing shorter will do — a
+  sentence cannot be recalled word for word, so failing to produce it says
+  nothing about whether the reader knew it.
 - "hint" points at the answer without containing it: one line that makes the
   reader retrieve it rather than recognise it. Never the answer reworded, never
   a synonym of it, never a word the answer itself uses.
@@ -507,7 +510,10 @@ Rules:
   reader has the question and nothing else in front of them.
 - Never ask for a list to be recited. Ask for one of its items, or for what
   tells them apart.
-- The answer must be short — a phrase or one sentence.
+- The answer must be the shortest thing that is still the answer: a term, a
+  number, a name. Write a sentence only when nothing shorter will do — a
+  sentence cannot be recalled word for word, so failing to produce it says
+  nothing about whether the reader knew it.
 - "hint" points at the answer without containing it. "insight" adds one
   sentence the answer does not say, supported by this page.
 - "anchor" must be copied verbatim from the page text: the 3-10 consecutive
