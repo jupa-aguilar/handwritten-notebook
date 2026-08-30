@@ -503,6 +503,28 @@ export function focusNote(pages, focus = []) {
   );
 }
 
+// A passage the reader marked in the transcription panel, carried with the
+// question so "why is this?" has a referent.
+//
+// Capped, because this rides on top of a system prompt that already holds as
+// much of the notebook as fits: half a page pasted in would push the whole
+// thing against the model's window. What gets cut is said in the card above
+// the input, so nobody is surprised by an answer about the first half.
+export const PASSAGE_LIMIT = 1200;
+
+export function passageNote(passage) {
+  const text = String(passage || '').trim().replace(/\s+/g, ' ');
+  if (!text) return '';
+  const cut = text.length > PASSAGE_LIMIT;
+  const shown = cut ? `${text.slice(0, PASSAGE_LIMIT)}…` : text;
+  return (
+    `\n\n[Marked passage, from the app — not part of the question: the reader has ` +
+    `singled out this text on the page${cut ? ' (truncated)' : ''}. Answer about it ` +
+    `unless the question points somewhere else, and say so if it does not contain ` +
+    `the answer rather than filling the gap from elsewhere.\n\n"${shown}"]`
+  );
+}
+
 // ---------- rendering ----------
 
 // Local models answer in Markdown; render a small safe subset (headings,
@@ -870,6 +892,10 @@ async function send() {
     const outgoing = priorMsgs.map((m) => ({ ...m }));
     const last = outgoing[outgoing.length - 1];
     if (last?.role === 'user') last.content += focusNote(pages, focus);
+    // Same treatment, same reason: it tags the copy that goes out, so the
+    // stored history never accumulates it and every turn carries the passage
+    // that is pinned *now*.
+    if (last?.role === 'user') last.content += passageNote(subject);
     // Qwen's soft switch has to stay at the very end of the message.
     if (!isThinkingOn() && /qwen/i.test(model) && last?.role === 'user') {
       last.content += ' /no_think';
@@ -969,6 +995,28 @@ export function openChat() {
   return setChatHidden(false);
 }
 
+// The passage the reader marked, if any. Held in memory only: it is the most
+// ephemeral thing here, and persisting it would mean carrying state per
+// notebook for something two gestures put back.
+let subject = '';
+
+function paintSubject() {
+  const box = $('#chat-subject');
+  $('#chat-subject-text').textContent = subject;
+  box.hidden = !subject;
+}
+
+// Called when something is marked in the text panel. Opening the chat and
+// landing in the input is the point — the reader has a question in mind.
+export function setSubject(text) {
+  subject = String(text || '').trim().replace(/\s+/g, ' ');
+  paintSubject();
+  if (subject) {
+    setChatHidden(false);
+    $('#chat-input').focus();
+  }
+}
+
 // The keyboard has no idea which of the two states the panel is in.
 export function toggleChat() {
   return setChatHidden($('#chat').hidden === false);
@@ -985,6 +1033,10 @@ export function chatFocusChanged() {
 // Called by main.js whenever another notebook is loaded, so an open chat
 // switches to that notebook's conversation and context.
 export async function chatNotebookChanged() {
+  // Cleared whether or not the chat is open: the passage came off a page of
+  // the notebook being left behind.
+  subject = '';
+  paintSubject();
   if (!getContext || $('#chat').hidden) return;
   setMarksOpen(false); // another notebook, another set of marked messages
   render();
@@ -997,6 +1049,8 @@ export function initChat(opts) {
   if (opts.onSpendChanged) onSpendChanged = opts.onSpendChanged;
   if (opts.onGoToPage) onGoToPage = opts.onGoToPage;
   if (opts.onVisibilityChanged) onVisibilityChanged = opts.onVisibilityChanged;
+
+  $('#chat-subject-clear').addEventListener('click', () => setSubject(''));
 
   // Delegated: reply bubbles are rebuilt on every streamed token, so a
   // listener bound to the buttons themselves would be discarded immediately.

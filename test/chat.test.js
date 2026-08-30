@@ -5,6 +5,8 @@ import {
   chatWorksWithoutLocalServer,
   buildSystemPrompt,
   focusNote,
+  passageNote,
+  PASSAGE_LIMIT,
   setOpenAiKey,
   setChatServerUrl,
 } from '../src/chat.js';
@@ -375,5 +377,37 @@ describe('renderMarkdown', () => {
 
   it('is empty for empty input', () => {
     expect(renderMarkdown('')).toBe('');
+  });
+});
+
+describe('passageNote', () => {
+  it('carries the marked text and says it is the app talking', () => {
+    const note = passageNote('El sistema operativo traduce esas direcciones.');
+    expect(note).toContain('"El sistema operativo traduce esas direcciones."');
+    // Marked as the app's aside, or the model reads it as part of the question.
+    expect(note).toContain('from the app');
+    expect(note).toContain('not part of the question');
+  });
+
+  it('has nothing to say about nothing', () => {
+    expect(passageNote('')).toBe('');
+    expect(passageNote('   \n  ')).toBe('');
+    expect(passageNote(undefined)).toBe('');
+  });
+
+  it('cuts a selection too long to ride on top of the notebook', () => {
+    const long = 'palabra '.repeat(500);
+    const note = passageNote(long);
+    expect(note.length).toBeLessThan(PASSAGE_LIMIT + 500);
+    // And says so, rather than quietly answering about the first half.
+    expect(note).toContain('truncated');
+  });
+
+  it('leaves a passage that fits alone', () => {
+    expect(passageNote('corto')).not.toContain('truncated');
+  });
+
+  it('flattens the line breaks a selection drags in', () => {
+    expect(passageNote('una\nlínea\n\ny otra')).toContain('"una línea y otra"');
   });
 });

@@ -40,6 +40,7 @@ import {
   initChat,
   openChat,
   toggleChat,
+  setSubject,
   chatNotebookChanged,
   chatFocusChanged,
   getStoredChatServerUrl,
@@ -3294,6 +3295,35 @@ function wire() {
 
   $('#panel-toggle').addEventListener('click', togglePanel);
   $('#panel-close').addEventListener('click', () => setPanelHidden(true));
+
+  // Marking a passage to ask the chat about. The bar shows only while
+  // something inside the transcription is selected; the listener is on the
+  // document because that is the only place selectionchange fires.
+  const askBar = $('#panel-ask');
+  const selectedInPanel = () => {
+    const sel = document.getSelection();
+    if (!sel || sel.isCollapsed) return '';
+    const body = $('#panel-body');
+    const within = body.contains(sel.anchorNode) && body.contains(sel.focusNode);
+    return within ? sel.toString().trim() : '';
+  };
+  // Kept from the last time there was one, because pressing the button throws
+  // the selection away before the click is delivered — reading it in the
+  // handler found nothing every time.
+  let marked = '';
+  document.addEventListener('selectionchange', () => {
+    const passage = selectedInPanel();
+    if (passage) marked = passage;
+    askBar.hidden = !passage;
+  });
+  $('#panel-ask-btn').addEventListener('click', () => {
+    if (!marked) return;
+    setSubject(marked);
+    askBar.hidden = true;
+    // On a phone the panel is the whole screen, so it has to get out of the
+    // way before the chat — also the whole screen — can be typed into.
+    if (IS_MOBILE) setPanelHidden(true);
+  });
 
   initChat({
     getContext: () => ({

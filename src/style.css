@@ -2821,3 +2821,57 @@ body.is-mobile.immersive .viewer-toolbar {
     font-size: 0.78rem;
   }
 }
+
+/* ---------- marking a passage to ask about ---------- */
+
+/* At the foot of the panel, not beside the selection: on iOS a long press
+   raises the system's own Copy / Look Up menu exactly there, and anything
+   floating by the text would be underneath it. */
+.panel-ask {
+  flex: 0 0 auto;
+  padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(44, 38, 32, 0.15);
+  background: var(--panel-bg, #f7f3ea);
+  text-align: center;
+}
+.panel-ask .btn {
+  width: 100%;
+}
+
+/* The passage itself, above the box you type in. One line, because it is a
+   reminder of what you marked and not the thing you are reading. */
+.chat-subject {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 10px 6px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border-left: 3px solid var(--accent);
+  background: rgba(44, 38, 32, 0.06);
+  font-size: 0.82rem;
+}
+.chat-subject-label {
+  flex: none;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(44, 38, 32, 0.5);
+}
+.chat-subject-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(44, 38, 32, 0.8);
+}
+.chat-subject-clear {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: rgba(44, 38, 32, 0.55);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0 2px;
+}
