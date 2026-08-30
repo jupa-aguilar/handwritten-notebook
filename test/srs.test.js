@@ -122,9 +122,28 @@ describe('the queue', () => {
     expect(isDue({ due: 0, suspended: true }, 1)).toBe(false);
   });
 
-  it('puts the longest-waiting card first', () => {
+  it('takes everything due and nothing that is not', () => {
     const cards = [{ due: 300 }, { due: 100 }, { due: 200 }, { due: 9e12 }];
-    expect(dueCards(cards, 1000).map((c) => c.due)).toEqual([100, 200, 300]);
+    const out = dueCards(cards, 1000, () => 0);
+    expect(out.map((c) => c.due).sort((a, b) => a - b)).toEqual([100, 200, 300]);
+  });
+
+  it('shuffles, so a page\'s cards do not arrive in a block', () => {
+    // Cards are made a page at a time and fall due together; in date order the
+    // first few would tell the reader what the rest are about.
+    const cards = Array.from({ length: 8 }, (_, i) => ({ id: i, due: i }));
+    const orders = new Set(
+      [0, 0.3, 0.6, 0.9].map((r) => dueCards(cards, 1000, () => r).map((c) => c.id).join())
+    );
+    expect(orders.size).toBeGreaterThan(1);
+  });
+
+  it('keeps every card exactly once however it lands', () => {
+    const cards = Array.from({ length: 8 }, (_, i) => ({ id: i, due: i }));
+    for (const r of [0, 0.3, 0.6, 0.9]) {
+      const out = dueCards(cards, 1000, () => r);
+      expect(new Set(out.map((c) => c.id)).size).toBe(8);
+    }
   });
 });
 

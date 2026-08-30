@@ -113,10 +113,26 @@ export function isDue(card, now = Date.now()) {
   return !card.suspended && (card.due || 0) <= now;
 }
 
-// The queue for one sitting: everything due, oldest first, so a card waiting a
-// week is not stuck behind one that came due a minute ago.
-export function dueCards(cards, now = Date.now()) {
-  return cards.filter((c) => isDue(c, now)).sort((a, b) => (a.due || 0) - (b.due || 0));
+// The queue for one sitting: everything due, in a fresh order every time.
+//
+// This used to hand them over oldest first, which sounds like the careful
+// choice and isn't. Cards are made a page at a time, so they graduate together
+// and fall due together — in date order you answer four questions about one
+// page in a row, and by the fourth the three before it have told you what the
+// page is about. That is the context answering, not the reader. (It told on
+// itself in the choice mode, where the decoys come from the same page: the
+// same handful of answers kept coming back as options.)
+//
+// Its own shuffle rather than a shared one: the scheduler has no business
+// importing the multiple-choice builder for six lines of Fisher-Yates, and
+// this codebase has no bag-of-helpers module to put it in.
+export function dueCards(cards, now = Date.now(), rng = Math.random) {
+  const due = cards.filter((c) => isDue(c, now));
+  for (let i = due.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [due[i], due[j]] = [due[j], due[i]];
+  }
+  return due;
 }
 
 // How a due count should read on a badge. Beyond three digits the number stops
