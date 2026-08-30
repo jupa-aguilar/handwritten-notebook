@@ -560,3 +560,80 @@ export async function rewriteCard(page, card, record, { signal, model } = {}) {
     ...newSchedule(now),
   };
 }
+
+// ---------- decoys the notebook cannot supply ----------
+//
+// The options in the choice mode are other answers the reader wrote, which
+// costs nothing and cannot teach them an invention. But a page does not always
+// hold three answers that have anything to do with a given question — and a
+// decoy about nothing is worse than no decoy, because the right option then
+// stands out without being read. For those, and only those, the model is asked
+// to write three.
+
+const DECOY_SYSTEM = `You are given one page of a student's handwritten notebook and questions drawn from it. For each question, write three wrong answers.
+
+Rules:
+- Write in the same language as the page.
+- Each wrong answer must be about what the question asks, and must be clearly
+  wrong to somebody who studied the page. Never a different subject; never a
+  detail from elsewhere on the page that answers nothing.
+- Never write something that is true. These sit beside the student's own notes
+  and will be read as if they came from them.
+- Match the shape and length of the real answer: if it is one term, write
+  terms; if it is a clause, write clauses.
+- Copy each "q" back exactly as it was given. Leave out any question you cannot
+  do this well for.
+
+Reply with JSON only: {"cards":[{"q":"…","decoys":["…","…","…"]}]}`;
+
+export function buildDecoyPrompt(page, cards) {
+  const asked = (cards || []).map((c) => `Q: ${c.q}\nA: ${c.a}`).join('\n\n');
+  return [
+    { role: 'system', content: DECOY_SYSTEM },
+    {
+      role: 'user',
+      content: `Page ${(page.order ?? 0) + 1}.\n\n${page.text || ''}\n\n---\n\n${asked}`,
+    },
+  ];
+}
+
+export function parseDecoys(raw) {
+  const list = extractCardJson(raw)?.cards || [];
+  const out = [];
+  for (const item of list) {
+    const q = str(item?.q);
+    const decoys = (Array.isArray(item?.decoys) ? item.decoys : []).map(str).filter(Boolean);
+    if (q && decoys.length) out.push({ q, decoys });
+  }
+  return out;
+}
+
+// Matched by question rather than by position, for the reason applyTopUp is:
+// a model that answers for three of four would otherwise hand every card the
+// decoys meant for another one. A decoy that repeats the answer is dropped —
+// offering the right answer twice is the one mistake that makes the question
+// unanswerable.
+export function applyDecoys(cards, parsed) {
+  const byQuestion = new Map((parsed || []).map((p) => [foldText(p.q), p]));
+  const changed = [];
+  for (const card of cards || []) {
+    const found = byQuestion.get(foldText(card.q || ''));
+    if (!found) continue;
+    const answer = foldText(card.a || '');
+    const decoys = [];
+    for (const d of found.decoys) {
+      const folded = foldText(d);
+      if (!folded || folded === answer) continue;
+      if (decoys.some((k) => foldText(k) === folded)) continue;
+      decoys.push(d);
+    }
+    if (!decoys.length) continue;
+    changed.push({ ...card, decoys });
+  }
+  return changed;
+}
+
+export async function writeDecoysForPage(page, cards, { signal, model } = {}) {
+  const raw = await complete(buildDecoyPrompt(page, cards), { signal, model });
+  return applyDecoys(cards, parseDecoys(raw));
+}

@@ -16,7 +16,7 @@ import {
   bumpReviewDay,
 } from './db.js';
 import { recordAnswer, CHOICE_RUNG } from './stats.js';
-import { buildChoices } from './choices.js';
+import { buildChoices, cardsNeedingDecoys } from './choices.js';
 import { resolveChatModel } from './chat.js';
 import {
   generateForPage,
@@ -24,6 +24,7 @@ import {
   hintRect,
   cardsToTopUp,
   topUpForPage,
+  writeDecoysForPage,
 } from './cards.js';
 import { cropHint, cropAnswer } from './crop.js';
 import { review, nextInterval, dueCards, isDue, formatInterval, GRADES } from './srs.js';
@@ -121,6 +122,13 @@ function paintDeck() {
   topup.hidden = sitting || !!generating || thin === 0;
   topup.textContent = `💡 Add hints (${thin} card${thin === 1 ? '' : 's'})`;
 
+  // Only worth offering while the choice mode is on: it is the only thing
+  // that spends these, and a button for a mode you are not using is noise.
+  const needy = choicesMode() ? cardsNeedingDecoys(cards).length : 0;
+  const decoys = $('#review-decoys');
+  decoys.hidden = sitting || !!generating || needy === 0;
+  decoys.textContent = `🎲 Better options (${needy} card${needy === 1 ? '' : 's'})`;
+
   $('#review-progress').hidden = sitting;
   $('#review-stop').hidden = sitting || !generating;
 }
@@ -195,15 +203,22 @@ async function generate() {
 // their own and written onto the cards in place. Deliberately putCard and
 // onChanged, never touchNotebook: cards ride in a file of their own, and a
 // hint must not drag a manifest full of page text up to Drive.
-async function topUp() {
+// A pass over the deck that asks the model for something the cards are
+// missing, a page at a time — the model is being shown that page's text, so
+// grouping by page is both cheaper and the only way the request makes sense.
+//
+// Shared by the two passes that fill fields in rather than making cards:
+// hints and takeaways, and decoys for the choice mode. Both write with
+// putCard and onChanged and never touchNotebook, because cards ride in a file
+// of their own and a hint must not drag a manifest full of page text to Drive.
+async function fillIn({ pick, forPage, verb }) {
   if (generating) return;
   const { pages } = getContext();
-  const thin = cardsToTopUp(cards);
-  if (!thin.length) return;
+  const wanted = pick(cards);
+  if (!wanted.length) return;
 
-  // One request per page, since the model is being shown that page's text.
   const byPage = new Map();
-  for (const card of thin) {
+  for (const card of wanted) {
     if (!byPage.has(card.pageId)) byPage.set(card.pageId, []);
     byPage.get(card.pageId).push(card);
   }
@@ -232,7 +247,7 @@ async function topUp() {
     if (signal.aborted) break;
     setStatus(`Reading page ${page.order + 1} — ${i + 1} of ${todo.length}, ${filled} cards so far…`);
     try {
-      const updated = await topUpForPage(page, group, { signal, model });
+      const updated = await forPage(page, group, { signal, model });
       for (const card of updated) {
         const at = cards.findIndex((c) => c.id === card.id);
         if (at !== -1) cards[at] = card;
@@ -242,7 +257,7 @@ async function topUp() {
       if (updated.length) onChanged();
     } catch (err) {
       if (signal.aborted) break;
-      console.error('Could not top up page', page.order + 1, err);
+      console.error(`Could not ${verb} page`, page.order + 1, err);
       failed++;
     }
     paintDeck();
@@ -257,6 +272,18 @@ async function topUp() {
   );
   paintDeck();
 }
+
+// A card already sat with cannot be regenerated — clearing a page takes its
+// schedule down with the cards — so the hint and the takeaway are asked for on
+// their own and written onto the cards in place.
+const topUp = () =>
+  fillIn({ pick: cardsToTopUp, forPage: topUpForPage, verb: 'top up' });
+
+// And where the notebook holds no answer with anything to do with a question,
+// the wrong options are asked for rather than scraped together from whatever
+// happens to be on the page.
+const writeDecoys = () =>
+  fillIn({ pick: cardsNeedingDecoys, forPage: writeDecoysForPage, verb: 'write decoys for' });
 
 // ---------- the sitting ----------
 
@@ -631,6 +658,7 @@ export function initReview(opts) {
   $('#review-close').addEventListener('click', () => setReviewOpen(false));
   $('#review-generate').addEventListener('click', generate);
   $('#review-topup').addEventListener('click', topUp);
+  $('#review-decoys').addEventListener('click', writeDecoys);
   $('#review-stop').addEventListener('click', () => generating?.abort());
   $('#review-start').addEventListener('click', startSession);
   $('#review-hint').addEventListener('click', showHint);
@@ -643,6 +671,7 @@ export function initReview(opts) {
   mode.checked = choicesMode();
   mode.addEventListener('change', () => {
     localStorage.setItem(CHOICES_KEY, mode.checked ? '1' : '0');
+    paintDeck(); // the decoy pass is only offered while the mode is on
   });
   $('#review-show').addEventListener('click', showAnswer);
   $('#review-goto').addEventListener('click', gotoCurrentPage);

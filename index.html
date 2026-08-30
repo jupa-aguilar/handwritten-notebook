@@ -309,6 +309,7 @@
           <div id="review-status" class="pages-status" hidden></div>
           <button id="review-clear-page" class="btn ghost" hidden title="Drop the cards drawn from the page you have open, so it can be generated again"></button>
           <button id="review-progress" class="btn ghost" title="How this deck is going, and which cards are fighting you">📈 Progress</button>
+          <button id="review-decoys" class="btn ghost" hidden title="Ask for wrong options where the notebook has no relevant answers to offer"></button>
           <button id="review-topup" class="btn ghost" hidden title="Add a hint and a takeaway to cards made before they existed, without touching their schedule"></button>
           <button id="review-stop" class="btn ghost" hidden>■ Stop</button>
           <button id="review-generate" class="btn" hidden></button>
@@ -587,6 +588,7 @@
               <li>¿Una pregunta mal hecha? <strong>Delete this card</strong>. ¿Una página entera que salió mal? <strong>Clear page N</strong> y genérala otra vez.</li>
               <li><strong>Add hints</strong> aparece si tienes tarjetas de antes de que existieran la pista y el aprendizaje: se los añade sin tocar lo que ya llevas repasado. Regenerar la página, en cambio, borraría su calendario.</li>
               <li><strong>Answer from options</strong>, en el mazo, cambia la sesión: en vez de recordar, eliges entre cuatro respuestas — y las incorrectas son respuestas <em>tuyas</em> de otras tarjetas, nunca inventadas. Elegir ya califica (aciertas <strong>Good</strong>, fallas <strong>Again</strong>), y las teclas <kbd>1</kbd>–<kbd>4</kbd> eligen. Es una rampa para arrancar: reconocer se recuerda peor que evocar, así que conviene apagarlo cuando el mazo deje de dar miedo.</li>
+              <li>Si en una página no hay respuestas que tengan que ver con la pregunta, los señuelos salen flojos y la correcta canta. Con el modo encendido aparece <strong>🎲 Better options</strong>, que se los pide al modelo sólo para esas tarjetas y los guarda.</li>
               <li><strong>📈 Progress</strong> lleva la cuenta de cuánta ayuda necesitaste. El acierto se mantiene plano a propósito —el programador te enseña justo lo que estás por olvidar—, así que lo que se mueve es el escalón: el mismo mazo respondido cada vez con menos ayuda. Ahí están también las tarjetas que te están ganando, con su expediente, y <strong>Rewrite</strong>, que pide una pregunta nueva sobre la misma materia contándole al modelo qué salió mal con la anterior.</li>
             </ul>
             <p class="help-note">Las tarjetas y su calendario se sincronizan: lo que repases en el teléfono aparece repasado en el ordenador.</p>

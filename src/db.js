@@ -472,6 +472,7 @@ const CARD_WIRE_FIELDS = [
   'topic',
   'hint',
   'insight',
+  'decoys',
   'stats',
   'anchor',
   'box',

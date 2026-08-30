@@ -131,11 +131,26 @@ describe('the queue', () => {
   it('shuffles, so a page\'s cards do not arrive in a block', () => {
     // Cards are made a page at a time and fall due together; in date order the
     // first few would tell the reader what the rest are about.
-    const cards = Array.from({ length: 8 }, (_, i) => ({ id: i, due: i }));
+    const cards = Array.from({ length: 8 }, (_, i) => ({ id: i, pageId: i, due: i }));
     const orders = new Set(
       [0, 0.3, 0.6, 0.9].map((r) => dueCards(cards, 1000, () => r).map((c) => c.id).join())
     );
     expect(orders.size).toBeGreaterThan(1);
+  });
+
+  it('deals a page\'s cards apart instead of letting them clump', () => {
+    // Four cards to a page, which is how they are made and why they clump.
+    const cards = Array.from({ length: 24 }, (_, i) => ({ id: i, pageId: Math.floor(i / 4), due: i }));
+    const out = dueCards(cards, 1e12);
+    const together = out.filter((c, i) => i && c.pageId === out[i - 1].pageId);
+    expect(together).toEqual([]);
+  });
+
+  it('falls back to plain chance when there is nothing to spread', () => {
+    // Every card from one page: there is no arrangement that separates them,
+    // and refusing to deal would be worse than dealing.
+    const cards = Array.from({ length: 6 }, (_, i) => ({ id: i, pageId: 1, due: i }));
+    expect(dueCards(cards, 1e12)).toHaveLength(6);
   });
 
   it('keeps every card exactly once however it lands', () => {

@@ -2,7 +2,7 @@
 // a generated question has. They are: offering an option that is also correct,
 // and giving the answer away by its shape.
 import { describe, it, expect } from 'vitest';
-import { buildChoices } from '../src/choices.js';
+import { buildChoices, cardsNeedingDecoys } from '../src/choices.js';
 
 // A deck where every distractor is plausible: same page, same subject.
 const deck = [
@@ -97,5 +97,50 @@ describe('buildChoices', () => {
       const { options, correct } = buildChoices(card, deck, { rng: () => r });
       expect(options[correct]).toBe('ATP');
     }
+  });
+});
+
+// The flaw the first version had: same-page decoys that answer nothing like
+// the question, so the right option stands out without being read.
+describe('relevance to the question', () => {
+  const page = [
+    { id: 1, pageId: 8, q: '¿Qué diferencia hay entre replicación y backup?',
+      a: 'La replicación aumenta la disponibilidad, pero no reemplaza al backup' },
+    { id: 2, pageId: 8, q: '¿Qué se comparte?', a: 'CPU y RAM de varios servidores' },
+    { id: 3, pageId: 8, q: '¿Qué se puede agregar en caliente?', a: 'Agregar RAM, VCPU, disco o red sin apagar' },
+    { id: 4, pageId: 8, q: '¿Qué permite vGPU?', a: 'Particionar una GPU potente entre varias cargas' },
+  ];
+
+  it('says so when the only decoys available are about something else', () => {
+    const built = buildChoices(page[0], page, { rng: still });
+    expect(built.weak).toBe(true);
+  });
+
+  it('prefers an answer that talks about the question over one that merely shares a page', () => {
+    const withRelevant = [
+      ...page,
+      { id: 9, pageId: 30, a: 'El backup reemplaza a la replicación cuando falla el disco' },
+    ];
+    const { options } = buildChoices(page[0], withRelevant, { rng: still });
+    expect(options).toContain('El backup reemplaza a la replicación cuando falla el disco');
+  });
+
+  it('is not weak once the card carries decoys written for it', () => {
+    const armed = { ...page[0], decoys: ['Son lo mismo', 'El backup da disponibilidad', 'Ninguna de las dos'] };
+    const built = buildChoices(armed, [armed, ...page.slice(1)], { rng: still });
+    expect(built.weak).toBe(false);
+    expect(built.options).toContain('Son lo mismo');
+  });
+
+  it('picks out exactly the cards a model call would be worth spending on', () => {
+    const ids = cardsNeedingDecoys(page).map((c) => c.id);
+    expect(ids).toContain(1);
+  });
+
+  it('leaves alone a card that already has its own decoys', () => {
+    const armed = page.map((c) =>
+      c.id === 1 ? { ...c, decoys: ['a', 'b', 'c'] } : c
+    );
+    expect(cardsNeedingDecoys(armed).map((c) => c.id)).not.toContain(1);
   });
 });

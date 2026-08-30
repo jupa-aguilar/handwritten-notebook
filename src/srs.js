@@ -113,26 +113,59 @@ export function isDue(card, now = Date.now()) {
   return !card.suspended && (card.due || 0) <= now;
 }
 
-// The queue for one sitting: everything due, in a fresh order every time.
-//
-// This used to hand them over oldest first, which sounds like the careful
-// choice and isn't. Cards are made a page at a time, so they graduate together
-// and fall due together — in date order you answer four questions about one
-// page in a row, and by the fourth the three before it have told you what the
-// page is about. That is the context answering, not the reader. (It told on
-// itself in the choice mode, where the decoys come from the same page: the
-// same handful of answers kept coming back as options.)
-//
 // Its own shuffle rather than a shared one: the scheduler has no business
 // importing the multiple-choice builder for six lines of Fisher-Yates, and
 // this codebase has no bag-of-helpers module to put it in.
+function shuffle(list, rng) {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// The queue for one sitting: everything due, dealt so that cards from one page
+// land as far from each other as they can.
+//
+// It used to hand them over oldest first, and cards are made a page at a time
+// — so they graduate together, fall due together, and arrived in a block. By
+// the fourth question about a page the three before it had said what the page
+// is about, which is the context answering rather than the reader.
+//
+// A plain shuffle fixed the block and not the feeling: measured over twenty
+// thousand sittings of a hundred-odd cards it is uniform to within noise, and
+// uniform means two cards from one page still land side by side about once
+// every forty pairs — often enough to notice, and to suspect the shuffle. So
+// the cards are not shuffled into a line but dealt from piles, one page per
+// pile, always from the fullest and never the same pile twice running while
+// another can still give. Chance within each page, spread between them.
 export function dueCards(cards, now = Date.now(), rng = Math.random) {
   const due = cards.filter((c) => isDue(c, now));
-  for (let i = due.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [due[i], due[j]] = [due[j], due[i]];
+  if (due.length < 3) return shuffle(due, rng);
+
+  const piles = new Map();
+  for (const card of shuffle(due, rng)) {
+    const key = card.pageId ?? '';
+    if (!piles.has(key)) piles.set(key, []);
+    piles.get(key).push(card);
   }
-  return due;
+
+  const decks = shuffle([...piles.values()], rng);
+  const out = [];
+  let last = null;
+  while (out.length < due.length) {
+    const holding = decks.filter((d) => d.length);
+    // Anything but the pile just dealt from, unless it is the only one left
+    // with cards in it.
+    const eligible = holding.filter((d) => d !== last);
+    const from = (eligible.length ? eligible : holding).reduce((a, b) =>
+      b.length > a.length ? b : a
+    );
+    out.push(from.pop());
+    last = from;
+  }
+  return out;
 }
 
 // How a due count should read on a badge. Beyond three digits the number stops

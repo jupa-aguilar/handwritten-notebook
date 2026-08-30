@@ -57,51 +57,99 @@ function shuffled(list, rng) {
   return out;
 }
 
+// Words worth matching on. Short ones are the scaffolding every sentence has
+// — de, la, que — and matching on those would make everything look relevant.
+const TERMS_FROM = 4;
+const terms = (s) => new Set(words(s).filter((w) => w.length >= TERMS_FROM));
+
+// How much a candidate answer has to do with what is being asked. Coming off
+// the same page is not enough, and that was the flaw the first version had:
+// "CPU y RAM de varios servidores" sits on the same page as "¿qué diferencia
+// hay entre replicación y backup?" and answers nothing like it, so the right
+// option stood out without being read. What makes a decoy work is speaking
+// about the same thing as the question.
+function relevance(text, card) {
+  const asked = terms(`${card?.q || ''} ${card?.a || ''}`);
+  if (!asked.size) return 0;
+  let shared = 0;
+  for (const w of terms(text)) if (asked.has(w)) shared++;
+  return shared;
+}
+
+// How many of a card's own written decoys to keep before filling from the
+// deck. All of them, when it has them: they were written for this question.
+export function storedDecoys(card) {
+  return (card?.decoys || []).map((d) => String(d || '').trim()).filter(Boolean);
+}
+
 /**
- * `{ options, correct }` — the answers to offer and which index is right — or
- * null when no honest question can be built, in which case the caller should
- * fall back to asking for the answer outright.
+ * `{ options, correct, weak }` — the answers to offer, which index is right,
+ * and whether the decoys had to be scraped together from unrelated answers —
+ * or null when no honest question can be built, in which case the caller
+ * should fall back to asking for the answer outright.
  */
 export function buildChoices(card, deck, { count = CHOICE_COUNT, rng = Math.random } = {}) {
   const answer = (card?.a || '').trim();
   if (!answer) return null;
 
   const pool = [];
+  // Decoys written for this question come first and are never called weak.
+  for (const text of storedDecoys(card)) {
+    if (!tooClose(text, answer)) pool.push({ text, relevance: Infinity, rank: -1, card });
+  }
   for (const other of deck || []) {
     if (other === card || (card?.id != null && other?.id === card.id)) continue;
     const text = (other?.a || '').trim();
     if (!text || tooClose(text, answer)) continue;
-    pool.push({ text, card: other });
+    pool.push({
+      text,
+      relevance: relevance(text, card),
+      // Same page next: those answers are about the same material. Then the
+      // same topic, then anywhere in the notebook.
+      rank:
+        other.pageId != null && other.pageId === card.pageId
+          ? 0
+          : other.topic && other.topic === card.topic
+            ? 1
+            : 2,
+      card: other,
+    });
   }
 
-  // Same page first: those answers are about the same material, so they are
-  // believable without being true, which is the whole job of a decoy. Then the
-  // same topic, then anywhere in the notebook.
-  //
-  // And within that, the closest in length. On a deck where some answers are a
-  // single term and others a whole line, three short decoys around a long
-  // answer give it away by its shape, before a word has been read.
-  const rank = (o) =>
-    o.card.pageId != null && o.card.pageId === card.pageId
-      ? 0
-      : o.card.topic && o.card.topic === card.topic
-        ? 1
-        : 2;
+  // Relevance outranks the page, because a decoy from elsewhere that talks
+  // about the question beats one from the same page that doesn't. Length
+  // breaks the ties: on a deck where some answers are a term and others a
+  // whole line, three short decoys around a long answer give it away by its
+  // shape before a word is read.
   pool.sort(
     (a, b) =>
-      rank(a) - rank(b) ||
+      b.relevance - a.relevance ||
+      a.rank - b.rank ||
       Math.abs(a.text.length - answer.length) - Math.abs(b.text.length - answer.length)
   );
 
   const decoys = [];
+  let weak = false;
   for (const candidate of pool) {
     if (decoys.length >= count - 1) break;
     // Two decoys saying the same thing waste an option and read as a mistake.
     if (decoys.some((d) => tooClose(d, candidate.text))) continue;
+    if (!candidate.relevance) weak = true;
     decoys.push(candidate.text);
   }
   if (decoys.length < count - 1) return null;
 
   const options = shuffled([answer, ...decoys], rng);
-  return { options, correct: options.indexOf(answer) };
+  return { options, correct: options.indexOf(answer), weak };
+}
+
+// Cards the notebook cannot furnish a believable question for: no options at
+// all, or options with nothing to do with what is asked. These are the ones
+// worth spending a model call on.
+export function cardsNeedingDecoys(deck) {
+  return (deck || []).filter((card) => {
+    if (storedDecoys(card).length >= CHOICE_COUNT - 1) return false;
+    const built = buildChoices(card, deck, { rng: () => 0 });
+    return !built || built.weak;
+  });
 }

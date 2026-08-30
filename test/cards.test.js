@@ -7,6 +7,8 @@ import {
   cardsToTopUp,
   parseTopUp,
   applyTopUp,
+  parseDecoys,
+  applyDecoys,
   locateAnchor,
   hintRect,
   cropRect,
@@ -341,5 +343,48 @@ describe('pagesToGenerate', () => {
 
   it('skips pages that already have cards, so a second run pays for less', () => {
     expect(pagesToGenerate(pages, [{ pageId: 1 }]).map((p) => p.id)).toEqual([4]);
+  });
+});
+
+describe('decoys written for a question', () => {
+  const deck = [
+    { id: 1, q: '¿Qué diferencia hay?', a: 'La replicación no reemplaza al backup' },
+    { id: 2, q: '¿Qué se comparte?', a: 'CPU y RAM' },
+  ];
+
+  it('reads them out of a battered reply', () => {
+    const raw = 'Claro:\n```json\n{"cards":[{"q":"a","decoys":["x","y","z"]}]}\n```';
+    expect(parseDecoys(raw)).toEqual([{ q: 'a', decoys: ['x', 'y', 'z'] }]);
+  });
+
+  it('ignores an entry with no usable decoys at all', () => {
+    expect(parseDecoys('{"cards":[{"q":"a","decoys":[]},{"q":"b"}]}')).toEqual([]);
+  });
+
+  it('matches by question, not by the order the model replied in', () => {
+    const out = applyDecoys(deck, [
+      { q: '¿Qué se comparte?', decoys: ['Disco y red', 'Sólo la GPU', 'Nada'] },
+      { q: '¿Qué diferencia hay?', decoys: ['Son lo mismo', 'El backup es más rápido', 'Ninguna'] },
+    ]);
+    expect(out.map((c) => c.id)).toEqual([1, 2]);
+    expect(out.find((c) => c.id === 1).decoys).toContain('Son lo mismo');
+  });
+
+  it('throws away a decoy that is the answer, which would make the question unanswerable', () => {
+    const out = applyDecoys(deck, [
+      { q: '¿Qué se comparte?', decoys: ['cpu y ram', 'Disco y red', 'Sólo la GPU'] },
+    ]);
+    expect(out[0].decoys).toEqual(['Disco y red', 'Sólo la GPU']);
+  });
+
+  it('throws away a repeat, which wastes an option', () => {
+    const out = applyDecoys(deck, [
+      { q: '¿Qué se comparte?', decoys: ['Disco y red', 'disco y red', 'Sólo la GPU'] },
+    ]);
+    expect(out[0].decoys).toEqual(['Disco y red', 'Sólo la GPU']);
+  });
+
+  it('ignores a question the deck never asked', () => {
+    expect(applyDecoys(deck, [{ q: 'inventada', decoys: ['a', 'b', 'c'] }])).toEqual([]);
   });
 });
