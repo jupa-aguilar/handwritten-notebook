@@ -2822,6 +2822,15 @@ body.is-mobile.immersive .viewer-toolbar {
   }
 }
 
+/* With a spread open the panel holds two transcriptions; the second page's
+   heading needs a line above it or the two run together as one wall. */
+.panel-body .panel-meta + .transcript + .panel-meta,
+.panel-body .transcript ~ .panel-meta {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(44, 38, 32, 0.15);
+}
+
 /* ---------- finding something on the page you have open ---------- */
 
 .panel-find {

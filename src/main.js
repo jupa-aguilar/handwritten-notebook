@@ -654,9 +654,14 @@ function updatePanel() {
   updateBookmarkButtons(); // every page change funnels through here
   chatFocusChanged(); // …including the chat's "reading p. 7–8" anchor
   const body = $('#panel-body');
-  const page = pages[currentPage];
-  if (!page) {
+  // Both halves of the spread, not just the left one. The panel was the last
+  // place still assuming a single page: with 3–4 open it showed only 3, so
+  // looking for something written on 4 found nothing and looked like a broken
+  // search rather than a panel showing half of what is on screen.
+  const shown = visiblePages();
+  if (!shown.length) {
     body.innerHTML = '';
+    paintFind();
     return;
   }
   // The page-local find wins over the notebook-wide search when it has
@@ -664,7 +669,13 @@ function updatePanel() {
   // rather than an answer.
   const find = $('#panel-find').value.trim();
   const query = find || $('#search').value.trim();
-  let html = `<div class="panel-meta">Page ${currentPage + 1} of ${pages.length}</div>`;
+  body.innerHTML = shown.map((page) => transcriptSection(page, query)).join('');
+  paintFind();
+}
+
+function transcriptSection(page, query) {
+  const n = pages.indexOf(page) + 1;
+  let html = `<div class="panel-meta">Page ${n} of ${pages.length}</div>`;
   if (page.ocrStatus === 'skipped') {
     html += `<div class="panel-note">Transcription is turned off, so page text and search aren't available yet.</div>`;
   } else if (page.ocrStatus === 'pending') {
@@ -674,21 +685,15 @@ function updatePanel() {
       page.error || 'unknown error'
     )}</div>
       <div class="panel-actions">
-        <button id="retry-page" class="btn small">Retry this page</button>
-        <button id="retry-all" class="btn ghost small">Retry all failed</button>
+        <button class="btn small retry-page" data-id="${page.id}">Retry this page</button>
+        <button class="btn ghost small retry-all">Retry all failed</button>
       </div>`;
   } else if (!page.text) {
     html += `<div class="panel-note">No text detected on this page.</div>`;
   } else {
     html += `<pre class="transcript">${highlight(page.text, query)}</pre>`;
   }
-  body.innerHTML = html;
-
-  const retryPage = body.querySelector('#retry-page');
-  if (retryPage) retryPage.addEventListener('click', () => retryFailed(page.id));
-  const retryAll = body.querySelector('#retry-all');
-  if (retryAll) retryAll.addEventListener('click', () => retryFailed());
-  paintFind();
+  return html;
 }
 
 // Which of the page's matches is being looked at. Reset whenever the text
@@ -697,8 +702,8 @@ let findAt = 0;
 
 // The marks are drawn by highlight() either way; this only says which one is
 // the current one, counts them, and puts it on screen. Panels do not scroll
-// themselves, which is the whole of the complaint: the hit was marked and left
-// wherever it happened to be, often below the fold.
+// themselves, which was the whole of the complaint: the hit was marked and
+// left wherever it happened to be, often below the fold.
 function paintFind({ scroll = true } = {}) {
   const marks = [...$('#panel-body').querySelectorAll('mark')];
   const count = $('#panel-find-count');
@@ -3329,6 +3334,14 @@ function wire() {
 
   $('#panel-toggle').addEventListener('click', togglePanel);
   $('#panel-close').addEventListener('click', () => setPanelHidden(true));
+
+  // Delegated, because the panel's contents are rebuilt on every page turn —
+  // and there are now as many of these as there are pages on screen.
+  $('#panel-body').addEventListener('click', (e) => {
+    const one = e.target.closest('.retry-page');
+    if (one) return retryFailed(Number(one.dataset.id));
+    if (e.target.closest('.retry-all')) retryFailed();
+  });
 
   const findBox = $('#panel-find');
   let findTimer;
