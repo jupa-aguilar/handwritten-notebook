@@ -73,7 +73,7 @@ function migrateLegacySyncState(tx) {
   }
 }
 
-const dbPromise = openDB('handwritten-notebook', 7, {
+const dbPromise = openDB('handwritten-notebook', 8, {
   async upgrade(db, oldVersion, _newVersion, tx) {
     if (oldVersion < 1) {
       const pages = db.createObjectStore('pages', {
@@ -146,6 +146,13 @@ const dbPromise = openDB('handwritten-notebook', 7, {
         keyPath: ['notebookId', 'device', 'day'],
       });
       days.createIndex('notebookId', 'notebookId');
+    }
+    if (oldVersion < 8) {
+      // So a page's uuid can be read without its image. A key cursor over an
+      // index hands back the key itself and never deserialises the record,
+      // which for a notebook of a hundred photographs is the difference
+      // between a few hundred bytes and every one of them.
+      tx.objectStore('pages').createIndex('nbUuid', ['notebookId', 'uuid']);
     }
   },
 }).then((db) => {
@@ -241,6 +248,32 @@ export async function getPages(notebookId) {
   const db = await dbPromise;
   const all = await db.getAllFromIndex('pages', 'notebookId', notebookId);
   return all.sort((a, b) => a.order - b.order);
+}
+
+/**
+ * Every page's uuid and local id, without reading a single image. Used by the
+ * sync's check for images Drive is missing: it only needs to compare names,
+ * and getPages() would have loaded the whole notebook's photographs to do it.
+ *
+ * Pages from before sync existed have no uuid and so no entry in the compound
+ * index. That is right: they have no file on Drive to be missing either, and
+ * ensureSyncIds() gives them one before any of this runs.
+ */
+export async function getPage(id) {
+  const db = await dbPromise;
+  return db.get('pages', id);
+}
+
+export async function listPageIds(notebookId) {
+  const db = await dbPromise;
+  const out = [];
+  const range = IDBKeyRange.bound([notebookId, ''], [notebookId, '\uffff']);
+  let cursor = await db.transaction('pages').store.index('nbUuid').openKeyCursor(range);
+  while (cursor) {
+    out.push({ uuid: cursor.key[1], id: cursor.primaryKey });
+    cursor = await cursor.continue();
+  }
+  return out;
 }
 
 export async function countPages(notebookId) {
@@ -728,7 +761,30 @@ export async function getSyncedState(uuid) {
 
 export async function setSyncedState(uuid, localAt, remoteAt) {
   const db = await dbPromise;
-  return db.put('syncState', { uuid, localAt, remoteAt, at: Date.now() });
+  const prev = (await db.get('syncState', uuid)) || {};
+  return db.put('syncState', { ...prev, uuid, localAt, remoteAt, at: Date.now() });
+}
+
+/**
+ * What this notebook's cards look like right now, cheaply enough to ask on
+ * every sync: how many there are and the newest edit among them. Together
+ * they catch every local change worth an upload — an edit or a grade moves
+ * the timestamp, and a deletion moves the count, which nothing else would
+ * show since the card is gone.
+ */
+export async function cardsFingerprint(notebookId) {
+  const db = await dbPromise;
+  const cards = await db.getAllFromIndex('cards', 'notebookId', notebookId);
+  let max = 0;
+  for (const c of cards) max = Math.max(max, c.modifiedAt || 0);
+  return { count: cards.length, max };
+}
+
+/** Remembered beside the notebook's own sync state; see syncCards. */
+export async function setCardsSynced(uuid, cards) {
+  const db = await dbPromise;
+  const prev = (await db.get('syncState', uuid)) || { uuid, localAt: 0, remoteAt: 0 };
+  return db.put('syncState', { ...prev, uuid, cards, at: Date.now() });
 }
 
 // Give every notebook and page a stable cross-device uuid (pre-sync records

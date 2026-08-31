@@ -34,6 +34,8 @@ import {
   listNotebooks,
   getNotebook,
   getPages,
+  getPage,
+  listPageIds,
   ensureSyncIds,
   applyRemoteNotebook,
   deleteNotebookByUuid,
@@ -44,6 +46,8 @@ import {
   setSyncedState,
   applyRemoteCards,
   applyRemoteHistory,
+  cardsFingerprint,
+  setCardsSynced,
 } from './db.js';
 import { applySharedUsage, withOwnContribution } from './usage.js';
 
@@ -204,14 +208,17 @@ async function driveFetch(url, init, what) {
   throw last;
 }
 
-// All appDataFolder files as a Map name -> { id }.
+// All appDataFolder files as a Map name -> { id, modifiedTime }. The time
+// comes along for the ride: it is what lets syncCards skip a file nobody has
+// touched, rather than downloading every notebook's cards on every run to
+// find that out.
 async function listAppFiles(token) {
   const map = new Map();
   let pageToken;
   do {
     const q = new URLSearchParams({
       spaces: 'appDataFolder',
-      fields: 'nextPageToken,files(id,name)',
+      fields: 'nextPageToken,files(id,name,modifiedTime)',
       pageSize: '1000',
     });
     if (pageToken) q.set('pageToken', pageToken);
@@ -411,6 +418,24 @@ async function deleteRemoteNotebook(token, files, uuid) {
 async function syncCards(token, files, nb) {
   const name = `cd-${nb.uuid}.json`;
   const file = files.get(name);
+
+  // Nothing has moved on either side, so there is nothing to reconcile. This
+  // file used to be downloaded every run for every notebook on the grounds
+  // that it was small; it stopped being small once a card carried a hint, a
+  // takeaway, decoys and its tallies, and the day history began growing a row
+  // a day.
+  const state = await getSyncedState(nb.uuid);
+  const mine = await cardsFingerprint(nb.id);
+  if (
+    file &&
+    state?.cards &&
+    state.cards.remoteAt === file.modifiedTime &&
+    state.cards.count === mine.count &&
+    state.cards.max === mine.max
+  ) {
+    return false;
+  }
+
   let remote = null;
   if (file) {
     try {
@@ -432,8 +457,15 @@ async function syncCards(token, files, nb) {
     remote?.history || {}
   );
   // Nothing of ours is missing up there, so an upload would only rewrite the
-  // same bytes with a newer timestamp.
-  if (!changed && !historyChanged && file) return false;
+  // same bytes with a newer timestamp. Remember what we saw, so the next run
+  // can tell at a glance that this file is still the one we know.
+  if (!changed && !historyChanged && file) {
+    await setCardsSynced(nb.uuid, {
+      remoteAt: file.modifiedTime,
+      ...(await cardsFingerprint(nb.id)),
+    });
+    return false;
+  }
   if (!cards.length && !Object.keys(tombstones).length && !Object.keys(history).length) {
     return false;
   }
@@ -444,6 +476,10 @@ async function syncCards(token, files, nb) {
     'application/json',
     JSON.stringify({ notebook: nb.uuid, updatedAt: Date.now(), cards, tombstones, history })
   );
+  // The file just written has a modifiedTime we would need another request to
+  // learn, so the mark is left unset: the next run downloads once, finds
+  // nothing to do, and records it then.
+  await setCardsSynced(nb.uuid, { remoteAt: null, ...(await cardsFingerprint(nb.id)) });
   return true;
 }
 
@@ -581,12 +617,15 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
     const entry = meta.notebooks[nb.uuid];
     if (!entry || entry.deletedAt) continue; // not published, or deleted
     try {
-      const gaps = (await getPages(nb.id)).filter(
-        (p) => p.uuid && p.blob && !files.has(`pg-${p.uuid}`)
-      );
-      for (const [i, p] of gaps.entries()) {
+      // Names only: listPageIds reads the uuids straight out of an index
+      // without touching the images. getPages() was loading every photograph
+      // in the notebook, on every sync, to compare a handful of strings.
+      const gaps = (await listPageIds(nb.id)).filter((p) => !files.has(`pg-${p.uuid}`));
+      for (const [i, gap] of gaps.entries()) {
         onStatus(`Restoring “${nb.name}” — image ${i + 1}/${gaps.length}…`);
-        await uploadFile(token, files, `pg-${p.uuid}`, p.mediaType || 'image/jpeg', p.blob);
+        const page = await getPage(gap.id); // now, and only for the ones missing
+        if (!page?.blob) continue;
+        await uploadFile(token, files, `pg-${gap.uuid}`, page.mediaType || 'image/jpeg', page.blob);
       }
       if (gaps.length) result.restored.push(nb.name);
     } catch (err) {

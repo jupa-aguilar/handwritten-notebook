@@ -317,3 +317,75 @@ describe('the review-day tallies', () => {
     expect(await rawAll('reviewDays')).toHaveLength(1);
   });
 });
+
+// The cards file was downloaded every run for every notebook. Small once;
+// not once a card carries a hint, a takeaway, decoys and its tallies, with a
+// day of history added daily.
+describe('knowing when the cards file need not be opened', () => {
+  // addCards assigns the key itself, so the fixture must arrive without one.
+  const fresh = (over) => {
+    const { id, ...rest } = localCard(over);
+    return rest;
+  };
+
+  it('reports what would make an upload worth it', async () => {
+    const { cardsFingerprint, addCards } = await loadDb();
+    await addCards([fresh({ uuid: 'c1', modifiedAt: 500 })]);
+    await addCards([fresh({ uuid: 'c2', modifiedAt: 900 })]);
+    expect(await cardsFingerprint(1)).toEqual({ count: 2, max: 900 });
+  });
+
+  it('notices an edit through the timestamp', async () => {
+    const { cardsFingerprint, addCards, putCard } = await loadDb();
+    await addCards([fresh({ uuid: 'c1', modifiedAt: 500 })]);
+    const before = await cardsFingerprint(1);
+    const [card] = await rawAll('cards');
+    await putCard(card); // putCard is the one place modifiedAt is set
+    const after = await cardsFingerprint(1);
+    expect(after.count).toBe(before.count);
+    expect(after.max).toBeGreaterThan(before.max);
+  });
+
+  it('notices a deletion through the count, which no timestamp would show', async () => {
+    // The card is gone, so the newest surviving edit can only go backwards or
+    // stay put — the count is the only thing that moves.
+    const { cardsFingerprint, addCards, deleteCard } = await loadDb();
+    await addCards([fresh({ uuid: 'c1', modifiedAt: 500 })]);
+    await addCards([fresh({ uuid: 'c2', modifiedAt: 400 })]);
+    const before = await cardsFingerprint(1);
+    const gone = (await rawAll('cards')).find((c) => c.uuid === 'c2');
+    await deleteCard(gone.id);
+    expect(await cardsFingerprint(1)).toEqual({ count: before.count - 1, max: before.max });
+  });
+
+  it('keeps the mark beside the notebook\'s own state rather than replacing it', async () => {
+    const { setSyncedState, setCardsSynced, getSyncedState } = await loadDb();
+    await setSyncedState('nb-1', 111, 222);
+    await setCardsSynced('nb-1', { remoteAt: 'T', count: 3, max: 9 });
+    const st = await getSyncedState('nb-1');
+    expect(st.localAt).toBe(111);
+    expect(st.remoteAt).toBe(222);
+    expect(st.cards).toEqual({ remoteAt: 'T', count: 3, max: 9 });
+  });
+
+  it('survives the notebook state being written afterwards', async () => {
+    const { setSyncedState, setCardsSynced, getSyncedState } = await loadDb();
+    await setCardsSynced('nb-1', { remoteAt: 'T', count: 3, max: 9 });
+    await setSyncedState('nb-1', 111, 222);
+    expect((await getSyncedState('nb-1')).cards).toEqual({ remoteAt: 'T', count: 3, max: 9 });
+  });
+});
+
+describe('reading page uuids without their images', () => {
+  it('hands back every page, and no blob with it', async () => {
+    const { listPageIds } = await loadDb();
+    await rawPut('pages', [
+      localPage({ id: 7, uuid: 'pg-7', notebookId: 1 }),
+      localPage({ id: 8, uuid: 'pg-8', notebookId: 1 }),
+      localPage({ id: 9, uuid: 'pg-9', notebookId: 2 }),
+    ]);
+    const out = await listPageIds(1);
+    expect(out.map((p) => p.uuid).sort()).toEqual(['pg-1', 'pg-7', 'pg-8']);
+    expect(out.every((p) => !('blob' in p))).toBe(true);
+  });
+});
