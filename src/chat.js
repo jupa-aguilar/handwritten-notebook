@@ -512,25 +512,20 @@ export function focusNote(pages, focus = []) {
 // the input, so nobody is surprised by an answer about the first half.
 export const PASSAGE_LIMIT = 1200;
 
-export function passageNote(passage, { explaining = false } = {}) {
-  const text = String(passage || '').trim().replace(/\s+/g, ' ');
+export function passageNote(passage) {
+  const text = trimPassage(passage);
   if (!text) return '';
   const cut = text.length > PASSAGE_LIMIT;
   const shown = cut ? `${text.slice(0, PASSAGE_LIMIT)}…` : text;
-  // Staying inside the passage is right when the reader asked a question about
-  // it. It is exactly wrong when they asked for it to be explained with an
-  // everyday analogy — an analogy is by definition from outside, and asking
-  // for both at once is why the first version of this came back without one.
-  const bounds = explaining
-    ? `Explain it, and go outside it freely for anything that makes it land.`
-    : `Answer about it unless the question points somewhere else, and say so if ` +
-      `it does not contain the answer rather than filling the gap from elsewhere.`;
   return (
     `\n\n[Marked passage, from the app — not part of the question: the reader has ` +
-    `singled out this text on the page${cut ? ' (truncated)' : ''}. ${bounds}` +
-    `\n\n"${shown}"]`
+    `singled out this text on the page${cut ? ' (truncated)' : ''}. Answer about it ` +
+    `unless the question points somewhere else, and say so if it does not contain ` +
+    `the answer rather than filling the gap from elsewhere.\n\n"${shown}"]`
   );
 }
+
+const trimPassage = (p) => String(p || '').trim().replace(/\s+/g, ' ');
 
 // ---------- rendering ----------
 
@@ -902,7 +897,7 @@ async function send() {
     // Same treatment, same reason: it tags the copy that goes out, so the
     // stored history never accumulates it and every turn carries the passage
     // that is pinned *now*.
-    if (last?.role === 'user') last.content += passageNote(subject, { explaining: pendingExplain });
+    if (last?.role === 'user') last.content += passageNote(subject);
     // Spent here, once: cleared whatever happens next, so a failed request
     // cannot leave the next ordinary question wearing it.
     const explaining = pendingExplain;
@@ -911,20 +906,23 @@ async function send() {
     if (!isThinkingOn() && /qwen/i.test(model) && last?.role === 'user') {
       last.content += ' /no_think';
     }
-    const sent = [
-      {
-        role: 'system',
-        content:
-          buildSystemPrompt(
-            name,
-            pages,
-            text,
-            contextCharBudget(contextLength, priorMsgs, backend().hosted),
-            focus
-          ) + (explaining ? explainNote() : ''),
-      },
-      ...outgoing,
-    ];
+    // An explain turn is sent on its own: its prompt, the passage, and no
+    // conversation behind it. Everything else goes the usual way.
+    const sent = explaining
+      ? explainPrompt(subject)
+      : [
+          {
+            role: 'system',
+            content: buildSystemPrompt(
+              name,
+              pages,
+              text,
+              contextCharBudget(contextLength, priorMsgs, backend().hosted),
+              focus
+            ),
+          },
+          ...outgoing,
+        ];
     // Reasoning models spend long stretches on hidden thinking before the
     // first visible word. Stream that thinking live (LM Studio-style, just
     // the rolling tail) so the wait reads as progress, not a hang; the
@@ -1060,31 +1058,41 @@ const EXPLAIN_SHOWN = 'Explícame este pasaje.';
 // follow-up should not come back as another lecture.
 let pendingExplain = false;
 
-// The instruction cannot simply ride in the tail of a user message, which is
-// where it started and why the first answers ignored it. The system prompt
-// above it sets a persona ("the reading assistant built into a notebook app"),
-// a format (cite every claim as "(p. 3)") and a tone, and those won every
-// time: what came back was a good notebook answer with page citations, five
-// headings and no analogy at all — none of which was asked for.
+// Explaining a passage is a different job from answering about the notebook,
+// and it needs a prompt of its own rather than a rider on the notebook's.
 //
-// So it goes into the system message instead, appended at the very end so the
-// cacheable prefix is untouched, and it says plainly which of the defaults it
-// relieves. Anything it does not name stays in force.
-export function explainNote(instruction = EXPLAIN_INSTRUCTION) {
-  return (
-    `\n\n[The reader pressed "Explain this" on the passage quoted in their ` +
-    `message. For this reply only, that replaces how you would normally ` +
-    `answer:\n` +
-    `- Do not cite pages, and do not use the "(p. 3)" form at all. This is not ` +
-    `a lookup; citations would break the shape asked for below.\n` +
-    `- Do not confine yourself to the notebook. The analogy is meant to come ` +
-    `from ordinary life outside it — that is the point of the request.\n` +
-    `- No headings and no lists. Three short paragraphs is a ceiling, not a ` +
-    `target, and the order asked for is the whole of the format.\n` +
-    `- Plain words. Where a technical term is unavoidable, say what it means ` +
-    `in the same breath.\n\n` +
-    `The request, in the reader's own words:\n${instruction}]`
-  );
+// It was tried both cheaper ways first. In the tail of the user message it was
+// ignored outright — the system prompt above it sets a persona ("the reading
+// assistant built into a notebook app"), a citation format and a tone, and
+// those won. Appended to the end of that system prompt it was ignored too,
+// and this time the evidence was flat: the reply still ended in (p. 4: "…"),
+// against an instruction two lines long saying never to write that. The
+// reason is position. That prompt carries the whole notebook, up to a hundred
+// and twenty thousand characters of it, and an instruction after all of that
+// weighs nothing beside the persona declared in its opening lines.
+//
+// So this turn gets a short prompt with the passage in it and no notebook at
+// all. It costs the prompt cache for that one request and buys the request
+// being obeyed; it is also far cheaper to send. What it gives up is the rest
+// of the notebook, which an explanation of one passage does not need — and
+// the follow-up, asked the ordinary way, has it all back.
+export function explainPrompt(passage, instruction = EXPLAIN_INSTRUCTION) {
+  return [
+    {
+      role: 'system',
+      content: [
+        "You are an expert teacher explaining one passage from a student's own notebook.",
+        'Do the request below and nothing else. It is the whole of the format.',
+        'Never cite a page and never write "(p. 3)" or anything like it: this is not a lookup, and a citation breaks the shape being asked for.',
+        'No headings, no bullet lists, no bold labels. Prose.',
+        'Ordinary words. Where a technical term cannot be avoided, say what it means in the same breath.',
+        'Reply in the same language as the passage.',
+        '',
+        instruction,
+      ].join('\n'),
+    },
+    { role: 'user', content: `The passage:\n\n"${trimPassage(passage).slice(0, PASSAGE_LIMIT)}"` },
+  ];
 }
 
 // Pin the passage and ask for it to be explained, without waiting for anything

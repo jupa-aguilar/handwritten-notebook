@@ -6,7 +6,7 @@ import {
   buildSystemPrompt,
   focusNote,
   passageNote,
-  explainNote,
+  explainPrompt,
   PASSAGE_LIMIT,
   setOpenAiKey,
   setChatServerUrl,
@@ -413,40 +413,40 @@ describe('passageNote', () => {
   });
 });
 
-// The first version of Explain this came back with page citations, five
-// headings and no analogy — none of it asked for. The instruction was riding
-// in the tail of a user message, under a system prompt that sets the persona,
-// the citation format and the tone, and it lost to all three.
-describe('explainNote', () => {
-  it('relieves the defaults it would otherwise be fighting', () => {
-    const note = explainNote('EL PROMPT');
-    expect(note).toContain('Do not cite pages');
-    expect(note).toContain('(p. 3)');
-    expect(note).toContain('outside');
-    expect(note).toContain('No headings and no lists');
+// Explain this was ignored twice before this shape: in the tail of a user
+// message, and appended to the end of the notebook's system prompt. The second
+// failure is the one that settled it — the reply still ended in (p. 4: "…")
+// against an instruction saying never to write that, because the instruction
+// sat behind a hundred thousand characters of transcription.
+describe('explainPrompt', () => {
+  const [system, user] = explainPrompt('Todo el sistema operativo es un único programa.', 'EL PROMPT');
+
+  it('is a prompt of its own, with the passage and no notebook', () => {
+    expect(system.role).toBe('system');
+    expect(user.role).toBe('user');
+    expect(user.content).toContain('Todo el sistema operativo es un único programa.');
   });
 
-  it('carries the request itself, in the reader\'s words', () => {
-    expect(explainNote('EL PROMPT')).toContain('EL PROMPT');
+  it('forbids the citation form the notebook prompt insists on', () => {
+    expect(system.content).toContain('(p. 3)');
+    expect(system.content).toContain('Never cite a page');
   });
 
-  it('says the relief is for this reply only', () => {
-    expect(explainNote('x')).toContain('For this reply only');
-  });
-});
-
-describe('passageNote while explaining', () => {
-  it('stops forbidding what the analogy needs', () => {
-    // An everyday analogy is by definition from outside the passage; asking
-    // for one while forbidding it is why the first answers had none.
-    const asking = passageNote('un pasaje');
-    const explaining = passageNote('un pasaje', { explaining: true });
-    expect(asking).toContain('rather than filling the gap from elsewhere');
-    expect(explaining).not.toContain('rather than filling the gap from elsewhere');
-    expect(explaining).toContain('go outside it freely');
+  it('rules out the headings and lists that kept coming back', () => {
+    expect(system.content).toContain('No headings, no bullet lists');
   });
 
-  it('still delivers the passage either way', () => {
-    expect(passageNote('un pasaje', { explaining: true })).toContain('"un pasaje"');
+  it("carries the request in the reader's own words", () => {
+    expect(system.content).toContain('EL PROMPT');
+  });
+
+  it('caps a passage too long to send whole', () => {
+    const [, big] = explainPrompt('palabra '.repeat(500), 'x');
+    expect(big.content.length).toBeLessThan(PASSAGE_LIMIT + 200);
+  });
+
+  it('flattens the line breaks a selection drags in', () => {
+    const [, flat] = explainPrompt('una\nlínea\n\ny otra', 'x');
+    expect(flat.content).toContain('"una línea y otra"');
   });
 });
