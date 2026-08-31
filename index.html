@@ -110,6 +110,15 @@
           <button id="proof-btn" class="btn ghost small" title="Check this transcription against the handwriting">✨ Check</button>
           <button id="panel-close" class="btn ghost small" aria-label="Close panel">✕</button>
         </div>
+        <!-- Finding something on the page you have open. The box in the
+             toolbar answers a different question — which pages mention this —
+             and leaves you to hunt down the hit by eye once you are there. -->
+        <div class="panel-find">
+          <input id="panel-find" type="search" placeholder="Find on this page…" autocomplete="off" />
+          <span id="panel-find-count" class="panel-find-count"></span>
+          <button id="panel-find-prev" class="btn ghost small" title="Previous match" aria-label="Previous match">⟨</button>
+          <button id="panel-find-next" class="btn ghost small" title="Next match" aria-label="Next match">⟩</button>
+        </div>
         <div id="panel-body" class="panel-body"></div>
         <!-- Fixed at the foot rather than floating by the selection: on iOS a
              long press brings up the system's own Copy/Look Up menu right
@@ -612,7 +621,8 @@
             <h3>Chat</h3>
             <p>Pregunta sobre lo que hay escrito en el cuaderno. Responde a partir de las páginas transcritas, y cuando cita una, el número de página es un enlace que te lleva allí.</p>
             <p>Necesita un modelo: una clave de OpenAI en <strong>⚙</strong>, o LM Studio corriendo en tu ordenador (gratis y sin salir de casa). Con la clave, cada mensaje cuesta unos céntimos y el gasto se ve dentro de <strong>☁</strong>.</p>
-            <p>¿Quieres preguntar por un párrafo concreto? Selecciónalo en <strong>📖 Text</strong> y elige: <strong>🎓 Explain this</strong> pide ahí mismo una explicación llana, con una analogía cotidiana y en tres párrafos, sin que escribas nada; <strong>💬 Ask about this</strong> se queda esperando a que preguntes tú. En ambos casos el pasaje queda como una tarjetita sobre la caja de escribir, y todas tus preguntas se responden sobre él hasta que lo quites con la ✕. En el teléfono se selecciona manteniendo pulsado.</p>
+            <p><strong>Find on this page</strong>, arriba del panel, busca dentro de la transcripción que tienes delante — la caja de la barra superior contesta otra pregunta: <em>qué páginas</em> lo mencionan. El contador dice cuántas hay, <kbd>enter</kbd> salta a la siguiente (con <kbd>shift</kbd>, a la anterior) y el panel se desplaza hasta ella. La actual va en naranja; las demás quedan marcadas para que veas dónde caen.</p>
+          <p>¿Quieres preguntar por un párrafo concreto? Selecciónalo en <strong>📖 Text</strong> y elige: <strong>🎓 Explain this</strong> pide ahí mismo una explicación llana, con una analogía cotidiana y en tres párrafos, sin que escribas nada; <strong>💬 Ask about this</strong> se queda esperando a que preguntes tú. En ambos casos el pasaje queda como una tarjetita sobre la caja de escribir, y todas tus preguntas se responden sobre él hasta que lo quites con la ✕. En el teléfono se selecciona manteniendo pulsado.</p>
           <p class="help-note">Si no menciona ninguna página, responde sobre la que estás mirando. Las conversaciones se guardan por cuaderno, pero <em>no</em> se sincronizan.</p>
           </section>
 

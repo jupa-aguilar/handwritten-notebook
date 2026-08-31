@@ -2822,6 +2822,44 @@ body.is-mobile.immersive .viewer-toolbar {
   }
 }
 
+/* ---------- finding something on the page you have open ---------- */
+
+.panel-find {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(44, 38, 32, 0.12);
+}
+#panel-find {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--panel-ink);
+  font-size: 0.85rem;
+}
+.panel-find-count {
+  flex: none;
+  font-size: 0.72rem;
+  color: rgba(44, 38, 32, 0.5);
+  white-space: nowrap;
+}
+/* Ghost buttons are inked for the dark toolbar; see the note in .panel-ask. */
+.panel-find .btn.ghost {
+  color: var(--panel-ink);
+  border-color: rgba(0, 0, 0, 0.25);
+  padding: 4px 8px;
+}
+/* One mark is the one you are on. The rest stay marked, so you can see how
+   many there are and where they sit without stepping through them. */
+.transcript mark.current {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* ---------- marking a passage to ask about ---------- */
 
 /* At the foot of the panel, not beside the selection: on iOS a long press

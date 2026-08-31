@@ -659,7 +659,11 @@ function updatePanel() {
     body.innerHTML = '';
     return;
   }
-  const query = $('#search').value.trim();
+  // The page-local find wins over the notebook-wide search when it has
+  // something in it: two sets of marks on the same text would be a puzzle
+  // rather than an answer.
+  const find = $('#panel-find').value.trim();
+  const query = find || $('#search').value.trim();
   let html = `<div class="panel-meta">Page ${currentPage + 1} of ${pages.length}</div>`;
   if (page.ocrStatus === 'skipped') {
     html += `<div class="panel-note">Transcription is turned off, so page text and search aren't available yet.</div>`;
@@ -684,6 +688,35 @@ function updatePanel() {
   if (retryPage) retryPage.addEventListener('click', () => retryFailed(page.id));
   const retryAll = body.querySelector('#retry-all');
   if (retryAll) retryAll.addEventListener('click', () => retryFailed());
+  paintFind();
+}
+
+// Which of the page's matches is being looked at. Reset whenever the text
+// under it changes, since the count it indexes into has changed with it.
+let findAt = 0;
+
+// The marks are drawn by highlight() either way; this only says which one is
+// the current one, counts them, and puts it on screen. Panels do not scroll
+// themselves, which is the whole of the complaint: the hit was marked and left
+// wherever it happened to be, often below the fold.
+function paintFind({ scroll = true } = {}) {
+  const marks = [...$('#panel-body').querySelectorAll('mark')];
+  const count = $('#panel-find-count');
+  const active = $('#panel-find').value.trim();
+
+  if (!marks.length) {
+    count.textContent = active ? 'none' : '';
+    return;
+  }
+  findAt = ((findAt % marks.length) + marks.length) % marks.length;
+  marks.forEach((m, i) => m.classList.toggle('current', i === findAt));
+  count.textContent = `${findAt + 1} of ${marks.length}`;
+  if (scroll) marks[findAt].scrollIntoView({ block: 'center' });
+}
+
+function stepFind(by) {
+  findAt += by;
+  paintFind();
 }
 
 async function retryFailed(onlyId) {
@@ -3296,6 +3329,28 @@ function wire() {
 
   $('#panel-toggle').addEventListener('click', togglePanel);
   $('#panel-close').addEventListener('click', () => setPanelHidden(true));
+
+  const findBox = $('#panel-find');
+  let findTimer;
+  findBox.addEventListener('input', () => {
+    clearTimeout(findTimer);
+    findTimer = setTimeout(() => {
+      findAt = 0; // a different query, a different set of matches
+      updatePanel();
+    }, 120);
+  });
+  findBox.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      stepFind(e.shiftKey ? -1 : 1);
+    } else if (e.key === 'Escape') {
+      findBox.value = '';
+      findAt = 0;
+      updatePanel();
+    }
+  });
+  $('#panel-find-next').addEventListener('click', () => stepFind(1));
+  $('#panel-find-prev').addEventListener('click', () => stepFind(-1));
 
   // Marking a passage to ask the chat about. The bar shows only while
   // something inside the transcription is selected; the listener is on the
