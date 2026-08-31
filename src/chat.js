@@ -964,7 +964,24 @@ async function send() {
     if (!reply.content) {
       msgs.pop();
       div.remove();
+    } else if (!reply.content.trim()) {
+      // Tokens arrived carrying nothing but whitespace. The bubble is kept —
+      // it was paid for — but a blank one reads as a failure with no
+      // explanation, which is precisely what it is, so it says so.
+      reply.error = true;
+      reply.content = 'The model sent an empty reply. Nothing was answered — try again.';
+      div.classList.add('error');
+      div.classList.remove('md');
+      div.textContent = reply.content;
+      attachMark(div, reply);
     } else {
+      // Something came through that the markdown rendered away to nothing.
+      // Whatever it made of it, the text itself arrived: show it as it came,
+      // rather than leaving a bubble with no words in it.
+      if (!div.textContent.trim()) {
+        div.classList.remove('md');
+        div.textContent = reply.content;
+      }
       attachMark(div, reply); // the stream's innerHTML writes ate the first one
     }
     streamCtrl = null;
