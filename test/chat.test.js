@@ -6,6 +6,7 @@ import {
   buildSystemPrompt,
   focusNote,
   passageNote,
+  explainNote,
   PASSAGE_LIMIT,
   setOpenAiKey,
   setChatServerUrl,
@@ -409,5 +410,43 @@ describe('passageNote', () => {
 
   it('flattens the line breaks a selection drags in', () => {
     expect(passageNote('una\nlínea\n\ny otra')).toContain('"una línea y otra"');
+  });
+});
+
+// The first version of Explain this came back with page citations, five
+// headings and no analogy — none of it asked for. The instruction was riding
+// in the tail of a user message, under a system prompt that sets the persona,
+// the citation format and the tone, and it lost to all three.
+describe('explainNote', () => {
+  it('relieves the defaults it would otherwise be fighting', () => {
+    const note = explainNote('EL PROMPT');
+    expect(note).toContain('Do not cite pages');
+    expect(note).toContain('(p. 3)');
+    expect(note).toContain('outside');
+    expect(note).toContain('No headings and no lists');
+  });
+
+  it('carries the request itself, in the reader\'s words', () => {
+    expect(explainNote('EL PROMPT')).toContain('EL PROMPT');
+  });
+
+  it('says the relief is for this reply only', () => {
+    expect(explainNote('x')).toContain('For this reply only');
+  });
+});
+
+describe('passageNote while explaining', () => {
+  it('stops forbidding what the analogy needs', () => {
+    // An everyday analogy is by definition from outside the passage; asking
+    // for one while forbidding it is why the first answers had none.
+    const asking = passageNote('un pasaje');
+    const explaining = passageNote('un pasaje', { explaining: true });
+    expect(asking).toContain('rather than filling the gap from elsewhere');
+    expect(explaining).not.toContain('rather than filling the gap from elsewhere');
+    expect(explaining).toContain('go outside it freely');
+  });
+
+  it('still delivers the passage either way', () => {
+    expect(passageNote('un pasaje', { explaining: true })).toContain('"un pasaje"');
   });
 });
