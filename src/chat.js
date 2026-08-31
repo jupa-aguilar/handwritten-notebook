@@ -853,7 +853,12 @@ async function connect() {
 async function send() {
   const input = $('#chat-input');
   const text = input.value.trim();
-  if (!text || streamCtrl || !serverOk) return;
+  // A refused send takes the explain with it: leaving it armed would put the
+  // next unrelated question through the teacher's prompt instead.
+  if (!text || streamCtrl || !serverOk) {
+    pendingExplain = false;
+    return;
+  }
   const { name, pages, focus = [] } = getContext();
   const msgs = history();
 
@@ -1007,7 +1012,10 @@ async function setChatHidden(hidden) {
     render(); // draw immediately; the stored thread arrives a tick later
     await loadHistory(getContext().id);
     render();
-    connect(); // re-probe every open — the server may have started/stopped
+    // Awaited, so anything that opens the chat in order to send something
+    // knows whether there is a backend by the time it looks. explainSubject
+    // asked a beat too early and always got "no".
+    await connect(); // re-probe every open — the server may have started/stopped
   }
 }
 
@@ -1097,31 +1105,32 @@ export function explainPrompt(passage, instruction = EXPLAIN_INSTRUCTION) {
 
 // Pin the passage and ask for it to be explained, without waiting for anything
 // to be typed.
-export function explainSubject(text) {
-  setSubject(text);
+export async function explainSubject(text) {
+  // Awaited: opening the chat re-probes the backend, and until that settles
+  // serverOk reads false. Checking it in the same breath as opening meant the
+  // press never armed the explain at all — the question was left in the box
+  // and went out, when sent by hand, as an ordinary one against the notebook
+  // prompt. Which is exactly what came back: citations and no analogy.
+  await setSubject(text);
   if (!subject) return;
   const input = $('#chat-input');
+  input.value = EXPLAIN_SHOWN;
+  autosize(input);
   // Nothing to send it to: leave the question written rather than swallowing
   // the press and looking broken.
-  if (!serverOk) {
-    input.value = EXPLAIN_SHOWN;
-    autosize(input);
-    return;
-  }
+  if (!serverOk) return;
   pendingExplain = true;
-  input.value = EXPLAIN_SHOWN;
   send();
 }
 
 // Called when something is marked in the text panel. Opening the chat and
 // landing in the input is the point — the reader has a question in mind.
-export function setSubject(text) {
-  subject = String(text || '').trim().replace(/\s+/g, ' ');
+export async function setSubject(text) {
+  subject = trimPassage(text);
   paintSubject();
-  if (subject) {
-    setChatHidden(false);
-    $('#chat-input').focus();
-  }
+  if (!subject) return;
+  await setChatHidden(false);
+  $('#chat-input').focus();
 }
 
 // The keyboard has no idea which of the two states the panel is in.
