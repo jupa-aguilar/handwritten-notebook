@@ -436,6 +436,14 @@ describe('explainPrompt', () => {
     expect(system.content).toContain('No headings, no bullet lists');
   });
 
+  it('asks for the gloss everywhere, not only where it comes easily', () => {
+    // The first answer that obeyed the rest still ended on three unexplained
+    // terms, all of them lifted from the passage — which is exactly the kind
+    // that reads as the subject rather than as jargon and so slips through.
+    expect(system.content).toContain('every paragraph including the last');
+    expect(system.content).toContain('lifted straight from the passage');
+  });
+
   it("carries the request in the reader's own words", () => {
     expect(system.content).toContain('EL PROMPT');
   });

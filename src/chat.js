@@ -1093,7 +1093,7 @@ export function explainPrompt(passage, instruction = EXPLAIN_INSTRUCTION) {
         'Do the request below and nothing else. It is the whole of the format.',
         'Never cite a page and never write "(p. 3)" or anything like it: this is not a lookup, and a citation breaks the shape being asked for.',
         'No headings, no bullet lists, no bold labels. Prose.',
-        'Ordinary words. Where a technical term cannot be avoided, say what it means in the same breath.',
+        'Ordinary words, in every paragraph including the last. Where a technical term cannot be avoided, say what it means in the same breath — especially a term lifted straight from the passage, which is the kind that slips through unexplained because it reads as the subject rather than as jargon.',
         'Reply in the same language as the passage.',
         '',
         instruction,
