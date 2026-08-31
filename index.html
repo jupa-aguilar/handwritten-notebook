@@ -34,8 +34,30 @@
         <button id="notebooks-btn" class="btn ghost" title="Notebooks" aria-label="Notebooks">📚</button>
         <span id="current-notebook" class="current-notebook"></span>
 
+        <div class="search-wrap">
+          <input
+            id="search"
+            type="search"
+            placeholder="Search all pages…"
+            autocomplete="off"
+          />
+          <span id="search-count" class="search-count"></span>
+        </div>
+
         <span id="ocr-status" class="ocr-status"></span>
         <button id="transcribe-now" class="btn" hidden>Transcribe pages</button>
+
+          <nav id="reading-bar" class="reading-bar" aria-label="Reading tools">
+            <button id="pages-btn" class="read-btn" title="All pages"><span class="read-icon">🗂</span><span class="read-label">Pages</span></button>
+            <button id="zoom-btn" class="read-btn" title="Zoom in to read (Z)"><span class="read-icon">🔍</span><span class="read-label">Zoom</span></button>
+            <button id="panel-toggle" class="read-btn" title="Show page text"><span class="read-icon">📖</span><span class="read-label">Text</span></button>
+            <button id="chat-btn" class="read-btn" title="Chat about this notebook"><span class="read-icon">💬</span><span class="read-label">Chat</span></button>
+            <button id="review-btn" class="read-btn" title="Review cards drawn from these pages (R)"><span class="read-icon">🎯</span><span class="read-label">Review</span><span id="review-badge" class="read-badge" hidden></span></button>
+            <div class="bm-wrap">
+              <button id="bookmark-toggle" class="read-btn" title="Bookmark this page (B)" aria-pressed="false"><span class="read-icon">🔖</span><span class="read-label">Mark</span></button>
+              <button id="bookmarks-btn" class="read-btn read-btn-more" title="Show bookmarks" aria-label="Show bookmarks">▾</button>
+            </div>
+          </nav>
 
         <div class="toolbar-actions">
           <label class="btn" for="file-input" title="Add pages">＋<span class="btn-label"> Add pages</span></label>
@@ -50,21 +72,10 @@
             </div>
           </div>
           <button id="update-btn" class="btn" hidden title="A newer version has been downloaded — reload to use it">⟳ Update</button>
-          <button id="slim-btn" class="btn ghost" title="Collapse the toolbar (T)" aria-label="Collapse the toolbar">⌃</button>
           <button id="fullscreen-btn" class="btn ghost" title="Full screen (F)" aria-label="Full screen">⛶</button>
           <button id="help-btn" class="btn ghost" title="How this app works" aria-label="Guide">?</button>
           <button id="settings-btn" class="btn ghost" title="Settings" aria-label="Settings">⚙</button>
         </div>
-      </div>
-
-      <div class="search-wrap">
-        <input
-          id="search"
-          type="search"
-          placeholder="Search all pages…"
-          autocomplete="off"
-        />
-        <span id="search-count" class="search-count"></span>
       </div>
     </header>
 
@@ -82,18 +93,6 @@
         <!-- The reading tools, floating over the page rather than competing
              with the notebook's name for room in the top bar. On phones this
              docks to the bottom edge, within thumb reach. -->
-        <nav id="reading-bar" class="reading-bar" aria-label="Reading tools">
-          <span class="read-grip" title="Drag to move — double-click to recentre" aria-hidden="true"></span>
-          <button id="pages-btn" class="read-btn" title="All pages"><span class="read-icon">🗂</span><span class="read-label">Pages</span></button>
-          <button id="zoom-btn" class="read-btn" title="Zoom in to read (Z)"><span class="read-icon">🔍</span><span class="read-label">Zoom</span></button>
-          <button id="panel-toggle" class="read-btn" title="Show page text"><span class="read-icon">📖</span><span class="read-label">Text</span></button>
-          <button id="chat-btn" class="read-btn" title="Chat about this notebook"><span class="read-icon">💬</span><span class="read-label">Chat</span></button>
-          <button id="review-btn" class="read-btn" title="Review cards drawn from these pages (R)"><span class="read-icon">🎯</span><span class="read-label">Review</span><span id="review-badge" class="read-badge" hidden></span></button>
-          <div class="bm-wrap">
-            <button id="bookmark-toggle" class="read-btn" title="Bookmark this page (B)" aria-pressed="false"><span class="read-icon">🔖</span><span class="read-label">Mark</span></button>
-            <button id="bookmarks-btn" class="read-btn read-btn-more" title="Show bookmarks" aria-label="Show bookmarks">▾</button>
-          </div>
-        </nav>
 
         <div id="pager" class="pager" hidden>
           <button id="first" class="pager-btn" title="First page (Home)" aria-label="First page">⏮</button>
@@ -527,7 +526,7 @@
 
           <section class="help-section" id="help-read">
             <h3>Leer</h3>
-            <p>En escritorio las páginas se pasan como un libro; en el teléfono se lee directamente en el visor, a pantalla completa. Las cinco herramientas de lectura viven en la barra flotante:</p>
+            <p>En escritorio las páginas se pasan como un libro; en el teléfono se lee directamente en el visor, a pantalla completa. Las herramientas de lectura son las mismas en los dos sitios; lo que cambia es dónde viven:</p>
             <div class="help-sample" aria-hidden="true">
               <div class="reading-bar help-bar">
                 <span class="read-grip"></span>
@@ -538,15 +537,14 @@
                 <span class="read-btn"><span class="read-icon">🎯</span><span class="read-label">Review</span><span class="read-badge">3</span></span>
                 <span class="read-btn"><span class="read-icon">🔖</span><span class="read-label">Mark</span></span>
               </div>
-              <span class="help-caption">En escritorio se arrastra por los puntos; en el teléfono se ancla abajo</span>
+              <span class="help-caption">Así se ve en el teléfono, anclada abajo; en escritorio son sólo los iconos, arriba en la barra</span>
             </div>
             <ul class="help-steps">
               <li><strong>Doble tap</strong> (o doble clic) sobre la página amplía en ese punto; otro doble tap vuelve a ajustarla.</li>
               <li><strong>Desliza</strong> con un dedo para pasar de página; con la página ampliada, un dedo la mueve.</li>
               <li><strong>Pellizca</strong> para ampliar y reducir dentro del visor.</li>
               <li>El número de página, abajo, abre <em>ir a la página…</em> si lo pulsas.</li>
-              <li>En escritorio la barra se recoge sola en un <strong>círculo</strong> cuando eliges una herramienta o cuando dejas el ratón lejos unos segundos. El círculo lleva el icono de la vista en la que estás, se arrastra a donde quieras y se abre con un clic. Doble clic en los puntos para volver a centrarla.</li>
-              <li><kbd>t</kbd> recoge la barra de arriba a una tira fina y le devuelve ese alto a la página. Se queda como la dejes. <kbd>⌘F</kbd> la despliega otra vez, porque la búsqueda vive ahí.</li>
+              <li>En escritorio estas herramientas viven en la barra de arriba, como iconos sin etiqueta —el nombre sale al posar el ratón— junto a la búsqueda y a ＋ ☁ ⛶ ? ⚙. Todo en una sola fila, para que nada flote encima de lo que estás leyendo; si la ventana se estrecha, la fila salta a dos líneas en vez de esconder nada.</li>
             </ul>
             <p class="help-note">Con <strong>Mark</strong> pones un marcador en la página que estás leyendo; el <strong>▾</strong> de al lado abre la lista para saltar entre ellos.</p>
           </section>
@@ -666,7 +664,6 @@
           <dt><kbd>B</kbd></dt><dd>Bookmark this page</dd>
           <dt><kbd>C</kbd></dt><dd>Show / hide the chat</dd>
           <dt><kbd>R</kbd></dt><dd>Review cards from these pages</dd>
-          <dt><kbd>T</kbd></dt><dd>Collapse the toolbar to a strip</dd>
           <dt><kbd>Z</kbd></dt><dd>Zoom in to read</dd>
           <dt><kbd>F</kbd></dt><dd>Full screen</dd>
         </dl>

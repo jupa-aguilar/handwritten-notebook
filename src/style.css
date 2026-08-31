@@ -79,38 +79,36 @@ body {
   gap: 12px;
 }
 
-/* Slim: the toolbar down to a strip, so the page gets the height back. Not on
-   phones, which have their own immersive mode with a different layout — the
-   two would fight over the same element.
+/* One compressed row on desktop, search and reading tools included, so the
+   page keeps the height a second row would have taken. It wraps rather than
+   squeezing: on a narrow window the tools drop to a line of their own, which
+   costs a row only when there is no other way.
 
-   What stays is chosen, not left over: the notebook's name so you know which
-   one is open, and #ocr-status and #transcribe-now because that is where sync
-   trouble and the call to transcribe are announced. Something that only takes
-   room when it has something to say costs nothing the rest of the time, and
-   hiding it would hide exactly what needs seeing. The search row goes: ⌘F
-   brings the whole toolbar back for it. */
-body:not(.is-mobile).slim .toolbar {
-  padding-top: calc(4px + env(safe-area-inset-top, 0px));
-  padding-bottom: 4px;
-  gap: 0;
+   Phones keep the two-row toolbar and the docked bar at the foot: a thumb
+   needs the target size, and there is no width up here to spare. */
+body:not(.is-mobile) .toolbar {
+  padding-top: calc(6px + env(safe-area-inset-top, 0px));
+  padding-bottom: 6px;
 }
-body:not(.is-mobile).slim .search-wrap {
-  display: none;
+body:not(.is-mobile) .toolbar-main {
+  flex-wrap: wrap;
+  row-gap: 6px;
 }
-body:not(.is-mobile).slim .toolbar .btn {
-  padding: 4px 9px;
+body:not(.is-mobile) .toolbar .btn {
+  padding: 5px 10px;
   font-size: 0.85rem;
 }
-body:not(.is-mobile).slim .btn-label {
-  display: none;
+body:not(.is-mobile) .current-notebook {
+  font-size: 1rem;
 }
-body:not(.is-mobile).slim .current-notebook {
-  font-size: 0.95rem;
+body:not(.is-mobile) #search {
+  width: 200px;
+  padding: 5px 10px;
 }
-/* Nothing to collapse on a phone: the toolbar there is already one row, and
-   ⛶ immersive is that platform's answer. */
-body.is-mobile #slim-btn {
-  display: none;
+/* The actions stay pinned right on the first line; the tools sit beside them
+   and are the ones that drop when the row runs out. */
+body:not(.is-mobile) .reading-bar {
+  margin-left: auto;
 }
 
 .brand {
@@ -347,12 +345,9 @@ body.is-mobile #slim-btn {
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
-.reading-bar.placed {
-  transform: none; /* left/top now come from the stored position */
-  bottom: auto;
-}
 
-/* The grip. Two columns of dots, the usual "you can move this" sign. */
+/* The grip. Two columns of dots, the usual "you can move this" sign — kept
+   only for the guide's sample of the phone's bar; nothing drags any more. */
 .read-grip {
   align-self: center;
   width: 14px;
@@ -368,45 +363,32 @@ body.is-mobile #slim-btn {
   background-size: 5px 6px;
   background-position: center;
 }
-/* Collapsed: a circle, parked where you left it. It is the resting state, not
-   an exception — the bar is a launcher, so it opens, does its job and goes
-   back to being a dot on the page. Entered by dragging, by choosing a tool,
-   and by leaving it alone; clicking it opens the bar again.
+/* On desktop the tools live in the toolbar row, so they cost the page nothing
+   — no floating panel over what you are reading, and nothing to move out of
+   the way. They lose their words there: with labels they would not fit beside
+   the search, and the titles carry the names.
 
-   The icon inside is the tool in use, which is what keeps the circle from
-   being an anonymous blob: this bar is the only thing that says which view
-   you are in, and collapsing it would take that with it. */
-.reading-bar.collapsed {
-  cursor: grab;
-  border-radius: 50%;
-  padding: 3px;
-}
-.reading-bar.collapsed .read-btn:not(.last-used),
-.reading-bar.collapsed .read-grip {
-  display: none;
-}
-/* Mark and its caret sit in a wrapper. Hiding the buttons inside it leaves the
-   wrapper itself at zero width — and the flex gap either side of nothing is
-   still a gap, which made the circle two pixels wider than it was tall. */
-.reading-bar.collapsed .bm-wrap:not(:has(.last-used)) {
-  display: none;
-}
-.reading-bar.collapsed .read-btn.last-used {
-  width: 42px;
-  height: 42px;
-  min-width: 0;
+   Not the guide's sample, which keeps the phone's look because that is what
+   it is illustrating. */
+body:not(.is-mobile) .reading-bar:not(.help-bar) {
+  position: static;
+  transform: none;
   padding: 0;
-  border-radius: 50%;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.1);
-  pointer-events: none; /* the circle is one target: press it to open */
+  gap: 2px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
 }
-/* No room for a word in a circle, and none needed — the icon is the label. */
-.reading-bar.collapsed .read-btn.last-used .read-label {
+body:not(.is-mobile) .reading-bar:not(.help-bar) .read-label {
   display: none;
 }
-.reading-bar.collapsed .read-btn.last-used .read-icon {
-  font-size: 1.25rem;
+body:not(.is-mobile) .reading-bar:not(.help-bar) .read-btn {
+  min-width: 0;
+  padding: 5px 8px;
+}
+body:not(.is-mobile) .reading-bar:not(.help-bar) .read-icon {
+  font-size: 1.1rem;
 }
 .read-btn {
   display: flex;
@@ -702,8 +684,10 @@ body.is-mobile #slim-btn {
 
 /* ---------- text / search panel ---------- */
 
+/* One width for whichever panel is open. They were 340 and 360, and the book
+   twitched by twenty pixels every time you swapped Text for Chat. */
 .panel {
-  width: 340px;
+  width: 360px;
   background: var(--panel);
   color: var(--panel-ink);
   display: flex;
@@ -1296,7 +1280,7 @@ kbd {
 /* ---------- chat panel (local model via LM Studio) ---------- */
 
 .chat-panel {
-  width: 360px;
+  /* width comes from .panel — see the note there */
 }
 .chat-head {
   gap: 8px;
@@ -1888,11 +1872,6 @@ body.is-mobile .bm-item {
 /* Docked, so there is nowhere to drag it to. */
 body.is-mobile .read-grip {
   display: none;
-}
-/* A position dragged on the desktop must not follow the bar to the phone. */
-body.is-mobile .reading-bar.placed {
-  left: 0;
-  top: auto;
 }
 /* On a phone these are not panels beside the page, they are screens of their
    own: the transcript, the chat and the bookmarks list each take the whole
