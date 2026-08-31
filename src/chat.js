@@ -896,6 +896,10 @@ async function send() {
     // stored history never accumulates it and every turn carries the passage
     // that is pinned *now*.
     if (last?.role === 'user') last.content += passageNote(subject);
+    // Spent here, once: cleared whatever happens next, so a failed request
+    // cannot leave the next ordinary question wearing it.
+    if (last?.role === 'user') last.content += pendingInstruction;
+    pendingInstruction = '';
     // Qwen's soft switch has to stay at the very end of the message.
     if (!isThinkingOn() && /qwen/i.test(model) && last?.role === 'user') {
       last.content += ' /no_think';
@@ -1004,6 +1008,49 @@ function paintSubject() {
   const box = $('#chat-subject');
   $('#chat-subject-text').textContent = subject;
   box.hidden = !subject;
+}
+
+// How the reader wants a passage explained, written by them. It refers to the
+// marked passage rather than carrying it, because passageNote already delivers
+// that — a placeholder with half a paragraph pushed into it reads badly and
+// says the same thing twice.
+const EXPLAIN_INSTRUCTION =
+  'Actúa como un profesor experto y explícame el concepto del pasaje marcado de la ' +
+  'forma más sencilla, clara y memorable posible, utilizando la técnica Feynman: usa ' +
+  'un lenguaje directo, evita modismos técnicos y emplea una analogía o metáfora ' +
+  'cotidiana que conecte la idea central con algo que yo ya conozca bien. Para ' +
+  'asegurar que la explicación sea concisa y no se me olvide jamás, estructura la ' +
+  'respuesta en un máximo de tres párrafos breves donde primero me des la idea básica ' +
+  'sin rodeos, luego la metáfora visual para recordarlo y finalmente el porqué o la ' +
+  'clave fundamental de su funcionamiento.';
+
+// What the bubble says instead. The instruction above is what the model reads,
+// but a transcript with that wall of text repeated at every explanation is a
+// transcript nobody can skim — and the split between what is stored and what
+// is sent is already how the reading position and the passage travel.
+const EXPLAIN_SHOWN = 'Explícame este pasaje.';
+
+// An instruction riding on the next outgoing message and no further. Unlike
+// the passage, which stays pinned, this belongs to the one question it was
+// pressed for: a follow-up should not be answered as another Feynman lecture.
+let pendingInstruction = '';
+
+// Pin the passage and ask for it to be explained, without waiting for anything
+// to be typed.
+export function explainSubject(text) {
+  setSubject(text);
+  if (!subject) return;
+  const input = $('#chat-input');
+  // Nothing to send it to: leave the question written rather than swallowing
+  // the press and looking broken.
+  if (!serverOk) {
+    input.value = EXPLAIN_SHOWN;
+    autosize(input);
+    return;
+  }
+  pendingInstruction = `\n\n${EXPLAIN_INSTRUCTION}`;
+  input.value = EXPLAIN_SHOWN;
+  send();
 }
 
 // Called when something is marked in the text panel. Opening the chat and

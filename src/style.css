@@ -2834,8 +2834,20 @@ body.is-mobile.immersive .viewer-toolbar {
   background: var(--panel-bg, #f7f3ea);
   text-align: center;
 }
+.panel-ask {
+  display: flex;
+  gap: 8px;
+}
+/* Ghost buttons are inked for the dark toolbar and vanish on a light panel.
+   This is the twelfth place having to say so — the default is wrong for the
+   common case and the correction should move into .btn.ghost itself, with the
+   dark bars opting out. Not while passing through. */
+.panel-ask .btn.ghost {
+  color: var(--panel-ink);
+  border-color: rgba(0, 0, 0, 0.25);
+}
 .panel-ask .btn {
-  width: 100%;
+  flex: 1;
 }
 
 /* The passage itself, above the box you type in. One line, because it is a

@@ -41,6 +41,7 @@ import {
   openChat,
   toggleChat,
   setSubject,
+  explainSubject,
   chatNotebookChanged,
   chatFocusChanged,
   getStoredChatServerUrl,
@@ -3316,14 +3317,16 @@ function wire() {
     if (passage) marked = passage;
     askBar.hidden = !passage;
   });
-  $('#panel-ask-btn').addEventListener('click', () => {
+  const useMarked = (send) => () => {
     if (!marked) return;
-    setSubject(marked);
+    send(marked);
     askBar.hidden = true;
     // On a phone the panel is the whole screen, so it has to get out of the
-    // way before the chat — also the whole screen — can be typed into.
+    // way before the chat — also the whole screen — can be read.
     if (IS_MOBILE) setPanelHidden(true);
-  });
+  };
+  $('#panel-ask-btn').addEventListener('click', useMarked(setSubject));
+  $('#panel-explain-btn').addEventListener('click', useMarked(explainSubject));
 
   initChat({
     getContext: () => ({
