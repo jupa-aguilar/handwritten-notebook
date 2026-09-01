@@ -415,7 +415,7 @@ async function deleteRemoteNotebook(token, files, uuid) {
 // One notebook's review cards. Cheap enough to reconcile on every run: the
 // file is a few kilobytes, and its own timestamps decide everything, so there
 // is no per-notebook synced state to keep for it.
-async function syncCards(token, files, nb) {
+async function syncCards(token, files, nb, onStatus = () => {}) {
   const name = `cd-${nb.uuid}.json`;
   const file = files.get(name);
 
@@ -436,6 +436,11 @@ async function syncCards(token, files, nb) {
     return false;
   }
 
+  // Announced here rather than by the caller, so a run with nothing to do
+  // stays quiet. Naming every notebook before finding out there was nothing
+  // in it made a sync that touched no file look exactly like one that
+  // reconciled them all.
+  onStatus(`Syncing cards for “${nb.name}”…`);
   let remote = null;
   if (file) {
     try {
@@ -637,8 +642,7 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
   // page arrived in this very run has to find it.
   for (const nb of await listNotebooks()) {
     try {
-      onStatus(`Syncing cards for “${nb.name}”…`);
-      if (await syncCards(token, files, nb)) result.cards.push(nb.uuid);
+      if (await syncCards(token, files, nb, onStatus)) result.cards.push(nb.uuid);
     } catch (err) {
       // A card file is worth less than the notebook it belongs to: never fail
       // a sync that already moved pages over a review schedule.
