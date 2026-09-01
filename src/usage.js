@@ -23,8 +23,16 @@ const OTHERS_KEY = 'notebook.usageOthers'; // last known totals from other devic
 // stable system prompt worth having — see buildSystemPrompt in chat.js.
 const PRICE_PER_MTOK = { input: 1.0, cachedInput: 0.1, output: 6.0 };
 
-export function thisMonth() {
-  return new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+// The month the reader is having, not the one UTC is having. toISOString()
+// was rolling these counters over at 21:00 on the last day of the month for
+// anyone three hours west of it: the stored figures still said August, this
+// said September, and every one of them read as expired — a hundred pages of
+// transcription and a month of chat, apparently gone, three hours early.
+//
+// Same reasoning as dayKey() in stats.js, and the same fix.
+export function thisMonth(ts = Date.now()) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 // Identifies this browser profile in the shared tally. Not an identity: it
@@ -54,6 +62,16 @@ const emptyOcr = () => ({ month: thisMonth(), count: 0 });
 export function getOwnOcr() {
   const u = readJson(OCR_KEY, null);
   return u && u.month === thisMonth() && typeof u.count === 'number' ? u : emptyOcr();
+}
+
+/**
+ * The stored tally exactly as it is, month and all. getOwnOcr() hides an older
+ * month behind a zero, which is right for counting and wrong for explaining:
+ * "0 / 1000" on the first of the month reads as a figure that went missing.
+ */
+export function ownOcrRecord() {
+  const u = readJson(OCR_KEY, null);
+  return u && typeof u.count === 'number' ? u : null;
 }
 
 export function bumpOcr() {

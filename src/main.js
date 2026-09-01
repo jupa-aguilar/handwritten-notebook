@@ -34,7 +34,7 @@ import {
 } from './text.js';
 import { buildZip } from './zip.js';
 import { buildPdf } from './pdf.js';
-import { bumpOcr, getTotals, resetOwnUsage } from './usage.js';
+import { bumpOcr, getTotals, resetOwnUsage, ownOcrRecord, thisMonth } from './usage.js';
 import { formatDueCount } from './srs.js';
 import {
   initChat,
@@ -830,6 +830,21 @@ function updateUsageDisplay() {
   const lines = [];
   if (TRANSCRIPTION_ENABLED) {
     lines.push(`<div>Pages transcribed: <strong>${t.ocr}</strong> / ${FREE_TIER}</div>`);
+    // A zero on the first of the month looks exactly like a count that went
+    // missing. Say where the last one went, so it reads as the calendar
+    // turning over rather than as lost data.
+    const last = ownOcrRecord();
+    if (t.ocr === 0 && last && last.count > 0 && last.month !== thisMonth()) {
+      const [y, m] = last.month.split('-').map(Number);
+      const when = new Date(y, m - 1, 1).toLocaleDateString([], {
+        month: 'long',
+        year: 'numeric',
+      });
+      lines.push(
+        `<div class="usage-detail">None yet this month — the free tier starts over on ` +
+          `the 1st. Last counted: ${last.count} in ${when}.</div>`
+      );
+    }
   }
   if (t.messages > 0) {
     // Below a cent, a rounded figure would read as free; show it as such.
@@ -839,6 +854,14 @@ function updateUsageDisplay() {
       `<div class="usage-detail">${t.input.toLocaleString()} input · ` +
         `${t.cachedInput.toLocaleString()} cached · ` +
         `${t.output.toLocaleString()} output tokens</div>`
+    );
+  } else if (!getOpenAiKey()) {
+    // Nothing was recorded and nothing could have been: a local model reports
+    // no token counts, so there is no spend to show. Saying "hasn't been
+    // used" would be a claim about the reader rather than about what is
+    // known here.
+    lines.push(
+      '<div class="usage-detail">The chat is answering from your own machine, so there is nothing to bill.</div>'
     );
   } else {
     lines.push('<div class="usage-detail">The chat hasn\'t been used this month.</div>');

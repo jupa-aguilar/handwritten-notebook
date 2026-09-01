@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   getDeviceId,
+  thisMonth,
   getOwnOcr,
   bumpOcr,
   getOwnSpend,
@@ -214,5 +215,29 @@ describe('resetOwnUsage', () => {
 describe('ownContribution', () => {
   it('carries the month, so a stale entry can be spotted', () => {
     expect(ownContribution().month).toBe(thisMonth());
+  });
+});
+
+// The counters are scoped to a month, so where that month begins decides when
+// a hundred pages of transcription appear to vanish.
+describe('when the month turns over', () => {
+  it('follows the reader\'s calendar, not UTC\'s', () => {
+    // 21:42 on the last day of August, three hours west of UTC — where it is
+    // already September the first. The counters say August and must keep
+    // saying it for another three hours.
+    const late = Date.parse('2026-08-31T21:42:00-03:00');
+    const d = new Date(late);
+    const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    expect(thisMonth(late)).toBe(local);
+    // And the trap it fell into: UTC has already moved on.
+    if (d.getTimezoneOffset() > 0) {
+      expect(thisMonth(late)).not.toBe(new Date(late).toISOString().slice(0, 7));
+    }
+  });
+
+  it('does turn over when the reader\'s own month does', () => {
+    const before = Date.parse('2026-08-31T12:00:00Z');
+    const after = Date.parse('2026-09-01T12:00:00Z');
+    expect(thisMonth(before)).not.toBe(thisMonth(after));
   });
 });
