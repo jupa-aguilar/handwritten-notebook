@@ -65,8 +65,16 @@
           <div class="sync-wrap">
             <button id="sync-btn" class="btn ghost" title="Sync notebooks across devices via your Google Drive" aria-label="Sync"><span id="sync-icon" class="sync-icon">☁</span></button>
             <div id="usage-pop" class="usage-pop" hidden>
-              <div class="usage-pop-head">This month</div>
+              <div class="usage-pop-head">Usage</div>
               <div id="usage" class="usage"></div>
+              <button
+                id="usage-clear"
+                class="usage-clear"
+                hidden
+                title="Zero the chat total — press it after topping up your OpenAI balance"
+              >
+                Start the chat total over
+              </button>
               <button id="sync-now" class="btn small">☁ Sync now</button>
               <div id="build-stamp" class="build-stamp"></div>
             </div>

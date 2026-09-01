@@ -34,7 +34,15 @@ import {
 } from './text.js';
 import { buildZip } from './zip.js';
 import { buildPdf } from './pdf.js';
-import { bumpOcr, getTotals, resetOwnUsage, ownOcrRecord, thisMonth } from './usage.js';
+import {
+  bumpOcr,
+  getTotals,
+  clearOwnSpend,
+  spendResetAt,
+  resetOwnUsage,
+  ownOcrRecord,
+  thisMonth,
+} from './usage.js';
 import { formatDueCount } from './srs.js';
 import {
   initChat,
@@ -821,6 +829,13 @@ function setOcrStatus(text) {
 // Both meters, inside the ☁ popover. They're reference figures — how much of
 // the Vision free tier is left, what the chat has cost — so they're a click
 // away instead of holding a permanent slice of the toolbar.
+//
+// The two are counted over different spans and the copy has to say so: the
+// free tier renews on the 1st, an OpenAI balance is topped up when it runs
+// down. See the header of usage.js.
+const longDate = (ts) =>
+  new Date(ts).toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' });
+
 function updateUsageDisplay() {
   const el = $('#usage');
   if (!el) return;
@@ -829,7 +844,10 @@ function updateUsageDisplay() {
   const t = getTotals();
   const lines = [];
   if (TRANSCRIPTION_ENABLED) {
-    lines.push(`<div>Pages transcribed: <strong>${t.ocr}</strong> / ${FREE_TIER}</div>`);
+    lines.push(
+      `<div>Pages transcribed this month: ` +
+        `<span class="usage-figure"><strong>${t.ocr}</strong> / ${FREE_TIER}</span></div>`
+    );
     // A zero on the first of the month looks exactly like a count that went
     // missing. Say where the last one went, so it reads as the calendar
     // turning over rather than as lost data.
@@ -846,6 +864,7 @@ function updateUsageDisplay() {
       );
     }
   }
+  $('#usage-clear').hidden = t.messages === 0;
   if (t.messages > 0) {
     // Below a cent, a rounded figure would read as free; show it as such.
     const shown = t.dollars < 0.01 ? '&lt;$0.01' : `$${t.dollars.toFixed(2)}`;
@@ -854,6 +873,14 @@ function updateUsageDisplay() {
       `<div class="usage-detail">${t.input.toLocaleString()} input · ` +
         `${t.cachedInput.toLocaleString()} cached · ` +
         `${t.output.toLocaleString()} output tokens</div>`
+    );
+    // Nothing about this figure happens on the 1st: it is what the balance has
+    // paid for since it was last topped up, which is the number worth knowing
+    // when deciding whether to top it up again.
+    const from = t.since ? ` since ${longDate(t.since)}` : '';
+    lines.push(
+      `<div class="usage-detail">Everything the chat has cost${from} — your OpenAI ` +
+        `balance is spent, not renewed monthly.</div>`
     );
   } else if (!getOpenAiKey()) {
     // Nothing was recorded and nothing could have been: a local model reports
@@ -864,7 +891,16 @@ function updateUsageDisplay() {
       '<div class="usage-detail">The chat is answering from your own machine, so there is nothing to bill.</div>'
     );
   } else {
-    lines.push('<div class="usage-detail">The chat hasn\'t been used this month.</div>');
+    // Not "this month": the balance this would be spending has no month. Once
+    // the total has been started over the zero has a date to be read against —
+    // without one it would look like the same lie in a different hat.
+    const reset = spendResetAt();
+    lines.push(
+      reset
+        ? `<div class="usage-detail">Nothing since the total was started over on ` +
+            `${longDate(reset)}.</div>`
+        : '<div class="usage-detail">The chat has not been used yet.</div>'
+    );
   }
   // Say where the figures come from: without sync they only know this device,
   // which is exactly the misreading this is meant to prevent.
@@ -3255,6 +3291,16 @@ function wire() {
   $('#sync-now').addEventListener('click', () => {
     $('#usage-pop').hidden = true;
     doSync(true);
+  });
+  // Asks first: the reset travels to the other devices on the next sync, and
+  // what it clears can't be looked up again from here.
+  $('#usage-clear').addEventListener('click', () => {
+    if (!confirm('Start the chat total over from today, on this and every synced device?')) {
+      return;
+    }
+    clearOwnSpend();
+    updateUsageDisplay();
+    scheduleSync();
   });
   document.addEventListener('pointerdown', (e) => {
     const pop = $('#usage-pop');

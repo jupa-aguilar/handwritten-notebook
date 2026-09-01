@@ -10,6 +10,7 @@ import {
   bumpOcr,
   getOwnSpend,
   recordSpend,
+  clearOwnSpend,
   resetOwnUsage,
   getTotals,
   ownContribution,
@@ -75,15 +76,38 @@ describe('this device on its own', () => {
     expect(getOwnSpend().messages).toBe(0);
   });
 
-  it('starts over when the stored month is not this one', () => {
+  it('starts the page count over when the stored month is not this one', () => {
     bumpOcr();
-    recordSpend({ prompt_tokens: 5000, completion_tokens: 500 });
     const ocr = JSON.parse(localStorage.getItem('notebook.usage'));
     localStorage.setItem('notebook.usage', JSON.stringify({ ...ocr, month: '2020-01' }));
-    const spend = JSON.parse(localStorage.getItem('notebook.chatSpend'));
-    localStorage.setItem('notebook.chatSpend', JSON.stringify({ ...spend, month: '2020-01' }));
     expect(getOwnOcr().count).toBe(0);
-    expect(getOwnSpend().messages).toBe(0);
+  });
+
+  // The bill this one counts against is topped up, not renewed. A tally that
+  // went back to zero on the 1st reported "the chat hasn't been used" over
+  // money that was still owed.
+  it('carries the chat total across the turn of the month', () => {
+    recordSpend({ prompt_tokens: 5000, completion_tokens: 500 });
+    const spend = JSON.parse(localStorage.getItem('notebook.chatSpend'));
+    localStorage.setItem('notebook.chatSpend', JSON.stringify({ ...spend, since: 0 }));
+    expect(getOwnSpend().messages).toBe(1);
+    expect(getOwnSpend().input).toBe(5000);
+  });
+
+  // What the monthly tally left behind: figures with a month and no start.
+  it('dates a record from before the change by the month it was counted in', () => {
+    localStorage.setItem(
+      'notebook.chatSpend',
+      JSON.stringify({ month: '2026-08', input: 900, cachedInput: 0, output: 100, messages: 3 })
+    );
+    expect(getOwnSpend().messages).toBe(3);
+    expect(getOwnSpend().since).toBe(new Date(2026, 7, 1).getTime());
+  });
+
+  it('dates the chat figures from the first message, not from the 1st', () => {
+    expect(getTotals().since).toBe(0);
+    recordSpend({ prompt_tokens: 10, completion_tokens: 1 });
+    expect(getTotals().since).toBeGreaterThan(0);
   });
 
   it('survives corrupt storage', () => {
@@ -137,15 +161,18 @@ describe('adding devices together', () => {
     expect(getTotals().otherDevices).toBe(0);
   });
 
-  it('ignores entries left over from a previous month', () => {
+  // The halves of an entry expire differently: the free tier renews on the
+  // 1st, the OpenAI balance does not.
+  it("ignores last month's pages but still counts last month's spend", () => {
     applySharedUsage({
       devices: {
-        stale: otherDevice({ month: '2020-01', ocr: 999 }),
-        live: otherDevice({ ocr: 7 }),
+        stale: otherDevice({ month: '2020-01', ocr: 999, messages: 4 }),
+        live: otherDevice({ ocr: 7, messages: 1 }),
       },
     });
     expect(getTotals().ocr).toBe(7);
-    expect(getTotals().otherDevices).toBe(1);
+    expect(getTotals().messages).toBe(5);
+    expect(getTotals().otherDevices).toBe(2);
   });
 
   it('copes with a missing or malformed shared file', () => {
@@ -175,15 +202,24 @@ describe('what this device writes to the shared file', () => {
     expect(shared.devices.other).toEqual({ month: thisMonth(), ocr: 42, input: 9 });
   });
 
-  it('drops entries from previous months so the file cannot grow forever', () => {
+  it('drops devices that went quiet so the file cannot grow forever', () => {
     const shared = withOwnContribution({
       devices: {
-        stale: { month: '2020-01', ocr: 1 },
+        dormant: { month: '2020-01', ocr: 1 },
         live: { month: thisMonth(), ocr: 2 },
       },
     });
-    expect(shared.devices.stale).toBeUndefined();
+    expect(shared.devices.dormant).toBeUndefined();
     expect(shared.devices.live).toBeDefined();
+  });
+
+  // Pruning by the month would throw away a device's running chat total on the
+  // 1st, which is the one thing that total exists to survive.
+  it('keeps a device that reported recently even from another month', () => {
+    const shared = withOwnContribution({
+      devices: { away: { month: '2020-01', ocr: 1, messages: 8, at: Date.now() - 86_400_000 } },
+    });
+    expect(shared.devices.away).toBeDefined();
   });
 
   it('starts a file from nothing', () => {
@@ -201,6 +237,65 @@ describe('what this device writes to the shared file', () => {
   });
 });
 
+// Starting the total over on one device has to reach the others: it is one
+// balance, and a device that kept counting would report a bill already paid.
+describe('starting the chat total over', () => {
+  const otherDevice = (over = {}) => ({
+    month: thisMonth(),
+    ocr: 0,
+    input: 1000,
+    cachedInput: 0,
+    output: 100,
+    messages: 5,
+    at: Date.now(),
+    ...over,
+  });
+
+  it('zeroes the chat figures and leaves the pages alone', () => {
+    bumpOcr();
+    recordSpend({ prompt_tokens: 5000, completion_tokens: 500 });
+    applySharedUsage({ devices: { other: otherDevice() } });
+    clearOwnSpend();
+    expect(getTotals().messages).toBe(0);
+    expect(getTotals().dollars).toBe(0);
+    expect(getTotals().ocr).toBe(1);
+  });
+
+  it('carries the stamp into the shared file', () => {
+    const at = clearOwnSpend();
+    expect(withOwnContribution(null).spendResetAt).toBe(at);
+  });
+
+  it('takes on a reset made on another device', () => {
+    recordSpend({ prompt_tokens: 5000, completion_tokens: 500 });
+    const at = Date.now();
+    applySharedUsage({ spendResetAt: at, devices: {} });
+    expect(getOwnSpend().messages).toBe(0);
+    expect(getOwnSpend().since).toBe(at);
+  });
+
+  it('stops counting entries written before the reset', () => {
+    const at = Date.now();
+    applySharedUsage({
+      spendResetAt: at,
+      devices: {
+        settled: otherDevice({ at: at - 1000, messages: 9 }),
+        fresh: otherDevice({ at: at + 1000, messages: 2 }),
+      },
+    });
+    expect(getTotals().messages).toBe(2);
+  });
+
+  // The order that matters: adopting the reset after building the entry would
+  // upload the settled figures under a fresh timestamp, and every other device
+  // would count them all over again.
+  it('zeroes this device before writing its entry', () => {
+    recordSpend({ prompt_tokens: 5000, completion_tokens: 500 });
+    const shared = withOwnContribution({ spendResetAt: Date.now(), devices: {} });
+    expect(shared.devices[getDeviceId()].messages).toBe(0);
+  });
+});
+
 describe('resetOwnUsage', () => {
   it('clears this device and its memory of the others', () => {
     bumpOcr();
@@ -215,6 +310,11 @@ describe('resetOwnUsage', () => {
 describe('ownContribution', () => {
   it('carries the month, so a stale entry can be spotted', () => {
     expect(ownContribution().month).toBe(thisMonth());
+  });
+
+  it('carries when its chat figures started, so they can be dated', () => {
+    recordSpend({ prompt_tokens: 10, completion_tokens: 1 });
+    expect(ownContribution().since).toBe(getOwnSpend().since);
   });
 });
 

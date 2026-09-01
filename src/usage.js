@@ -1,5 +1,13 @@
-// What this account has consumed this month: pages sent to Google Vision, and
-// what the hosted chat has cost.
+// What this account has consumed: pages sent to Google Vision, and what the
+// hosted chat has cost.
+//
+// The two are counted over different spans, because they are refilled
+// differently. Vision's free tier renews on the 1st, so the page count is
+// scoped to the month and a zero there is the truth. OpenAI's is a balance
+// that is topped up, not renewed: nothing about it happens on the 1st, so the
+// chat's figures run from the last top-up and only a press zeroes them.
+// Expiring them by the calendar had the popover announcing "the chat hasn't
+// been used" over money that was still owed.
 //
 // Both quotas are shared — the Vision free tier belongs to a Cloud project,
 // the chat spend to an OpenAI account — so a per-device tally is not just
@@ -17,7 +25,14 @@
 const DEVICE_KEY = 'notebook.deviceId';
 const OCR_KEY = 'notebook.usage';
 const SPEND_KEY = 'notebook.chatSpend';
+const SPEND_RESET_KEY = 'notebook.chatSpendReset'; // when the chat total was last zeroed
 const OTHERS_KEY = 'notebook.usageOthers'; // last known totals from other devices
+
+// A device that hasn't reported in half a year isn't coming back, and its
+// spend was billed long ago. Without a cutoff the shared file would grow a
+// dead entry per browser profile, forever — and the month it used to be pruned
+// by can't do that job now that a device's spend outlives its month.
+const DORMANT_MS = 180 * 24 * 60 * 60 * 1000;
 
 // Per million tokens, as published 2026-07. Cached input is what makes a
 // stable system prompt worth having — see buildSystemPrompt in chat.js.
@@ -33,6 +48,14 @@ const PRICE_PER_MTOK = { input: 1.0, cachedInput: 0.1, output: 6.0 };
 export function thisMonth(ts = Date.now()) {
   const d = new Date(ts);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// The first instant of a stored `YYYY-MM`, in the reader's own calendar. Dates
+// the figures written back when the spend expired monthly and so carried no
+// start of its own.
+function monthStart(month) {
+  const [y, m] = String(month || '').split('-').map(Number);
+  return y && m ? new Date(y, m - 1, 1).getTime() : 0;
 }
 
 // Identifies this browser profile in the shared tally. Not an identity: it
@@ -80,17 +103,58 @@ export function bumpOcr() {
   localStorage.setItem(OCR_KEY, JSON.stringify(u));
 }
 
-const emptySpend = () => ({
-  month: thisMonth(),
+const emptySpend = (since = 0) => ({
+  since,
   input: 0,
   cachedInput: 0,
   output: 0,
   messages: 0,
 });
 
+/** When this device's chat figures started counting; 0 if they never have. */
+export function spendResetAt() {
+  return Number(localStorage.getItem(SPEND_RESET_KEY)) || 0;
+}
+
 export function getOwnSpend() {
   const s = readJson(SPEND_KEY, null);
-  return s && s.month === thisMonth() && typeof s.input === 'number' ? s : emptySpend();
+  if (!s || typeof s.input !== 'number') return emptySpend(spendResetAt());
+  return {
+    // Records written while the tally was monthly carry a `month` and no
+    // start. That money was still spent, so keep the figures and date them
+    // from the month they were counted in rather than dropping them.
+    since: typeof s.since === 'number' ? s.since : monthStart(s.month),
+    input: s.input,
+    cachedInput: s.cachedInput || 0,
+    output: s.output || 0,
+    messages: s.messages || 0,
+  };
+}
+
+/**
+ * Start the chat total again — what you press after topping up the balance it
+ * is measuring. Stamped rather than merely cleared, so that the other devices
+ * can tell a reset from a device that simply hasn't spent anything: they zero
+ * themselves on their next sync and stop counting entries older than the stamp.
+ */
+export function clearOwnSpend(at = Date.now()) {
+  localStorage.setItem(SPEND_RESET_KEY, String(at));
+  localStorage.setItem(SPEND_KEY, JSON.stringify(emptySpend(at)));
+  const others = getOthers();
+  localStorage.setItem(
+    OTHERS_KEY,
+    JSON.stringify({ ...others, since: 0, input: 0, cachedInput: 0, output: 0, messages: 0 })
+  );
+  return at;
+}
+
+// Take on a reset made on another device. Runs before this device reads the
+// shared file *and* before it writes to it: writing first would put the
+// settled figures back up under a fresh timestamp, and every other device
+// would count the paid bill all over again.
+function adoptSpendReset(shared) {
+  const theirs = Number(shared?.spendResetAt) || 0;
+  return theirs > spendResetAt() ? clearOwnSpend(theirs) : spendResetAt();
 }
 
 // `usage` as the API reports it. Cached prompt tokens are counted separately
@@ -100,6 +164,7 @@ export function recordSpend(usage) {
   const cached = usage.prompt_tokens_details?.cached_tokens || 0;
   const prompt = usage.prompt_tokens || 0;
   const s = getOwnSpend();
+  if (!s.since) s.since = Date.now();
   s.input += Math.max(0, prompt - cached);
   s.cachedInput += cached;
   s.output += usage.completion_tokens || 0;
@@ -111,6 +176,7 @@ export function recordSpend(usage) {
 export function resetOwnUsage() {
   localStorage.removeItem(OCR_KEY);
   localStorage.removeItem(SPEND_KEY);
+  localStorage.removeItem(SPEND_RESET_KEY);
   localStorage.removeItem(OTHERS_KEY);
 }
 
@@ -120,6 +186,7 @@ const emptyOthers = () => ({
   month: thisMonth(),
   devices: 0,
   ocr: 0,
+  since: 0,
   input: 0,
   cachedInput: 0,
   output: 0,
@@ -128,7 +195,10 @@ const emptyOthers = () => ({
 
 function getOthers() {
   const o = readJson(OTHERS_KEY, null);
-  return o && o.month === thisMonth() && typeof o.ocr === 'number' ? o : emptyOthers();
+  if (!o || typeof o.ocr !== 'number') return emptyOthers();
+  // The page count belongs to the month it was recorded in; the spend does
+  // not, so only half of this record expires.
+  return { ...emptyOthers(), ...o, ocr: o.month === thisMonth() ? o.ocr : 0 };
 }
 
 /**
@@ -140,8 +210,12 @@ export function getTotals() {
   const own = getOwnOcr();
   const spend = getOwnSpend();
   const others = getOthers();
+  // The earliest start either side knows of: the chat figures are everything
+  // since then, which is not the same as everything this month.
+  const starts = [spend.since, others.since].filter(Boolean);
   const t = {
     ocr: own.count + others.ocr,
+    since: starts.length ? Math.min(...starts) : 0,
     input: spend.input + others.input,
     cachedInput: spend.cachedInput + others.cachedInput,
     output: spend.output + others.output,
@@ -167,27 +241,44 @@ export function ownContribution() {
     cachedInput: spend.cachedInput,
     output: spend.output,
     messages: spend.messages,
+    since: spend.since,
     at: Date.now(),
   };
 }
 
+// When an entry was written. Entries from before the spend outlived its month
+// carry no timestamp of their own, so fall back to the month they claim.
+function entryAt(entry) {
+  return typeof entry.at === 'number' ? entry.at : monthStart(entry.month);
+}
+
 /**
  * Fold the shared file into the local view. Takes the whole `{ devices: {} }`
- * map, drops this device's own entry (already counted) and anything left over
- * from a previous month, and stores the rest as the "others" total.
+ * map, drops this device's own entry (already counted), and stores the rest as
+ * the "others" total. An entry's page count is only good for the month it was
+ * written in; its spend is good until somebody starts the total over.
  */
 export function applySharedUsage(shared) {
+  const resetAt = adoptSpendReset(shared);
   const me = getDeviceId();
   const month = thisMonth();
   const totals = emptyOthers();
   for (const [id, entry] of Object.entries(shared?.devices || {})) {
-    if (id === me || !entry || entry.month !== month) continue;
-    totals.devices += 1;
-    totals.ocr += entry.ocr || 0;
-    totals.input += entry.input || 0;
-    totals.cachedInput += entry.cachedInput || 0;
-    totals.output += entry.output || 0;
-    totals.messages += entry.messages || 0;
+    if (id === me || !entry) continue;
+    const thisMonths = entry.month === month;
+    // An entry older than the reset describes a bill already settled; it stops
+    // counting until that device gets round to syncing a zeroed one.
+    const spendCounts = entryAt(entry) >= resetAt;
+    if (thisMonths) totals.ocr += entry.ocr || 0;
+    if (spendCounts) {
+      totals.input += entry.input || 0;
+      totals.cachedInput += entry.cachedInput || 0;
+      totals.output += entry.output || 0;
+      totals.messages += entry.messages || 0;
+      const since = typeof entry.since === 'number' ? entry.since : monthStart(entry.month);
+      if (since && (!totals.since || since < totals.since)) totals.since = since;
+    }
+    if (thisMonths || spendCounts) totals.devices += 1;
   }
   localStorage.setItem(OTHERS_KEY, JSON.stringify(totals));
   return totals;
@@ -195,15 +286,19 @@ export function applySharedUsage(shared) {
 
 /** The shared file with this device's entry brought up to date. */
 export function withOwnContribution(shared) {
+  // Before the entry is built, not after: a reset arriving from another device
+  // has to zero this one's figures or they go straight back up.
+  const resetAt = adoptSpendReset(shared);
   const next = shared && typeof shared === 'object' ? { ...shared } : {};
   next.version = 1;
+  if (resetAt) next.spendResetAt = resetAt;
   next.devices = { ...(next.devices || {}) };
   next.devices[getDeviceId()] = ownContribution();
-  // Forget devices that haven't reported since last month; the file would
-  // otherwise grow a dead entry per browser profile, forever.
-  const month = thisMonth();
+  // Forget devices that went quiet months ago; the file would otherwise grow a
+  // dead entry per browser profile, forever.
+  const cutoff = Date.now() - DORMANT_MS;
   for (const [id, entry] of Object.entries(next.devices)) {
-    if (entry?.month !== month) delete next.devices[id];
+    if (!entry || entryAt(entry) < cutoff) delete next.devices[id];
   }
   return next;
 }
