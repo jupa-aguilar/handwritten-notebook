@@ -92,6 +92,7 @@ const JPEG_QUALITY = 0.85;
 const KEY_STORAGE = 'notebook.googleVisionKey';
 const CURRENT_KEY = 'notebook.currentId';
 const POSITIONS_KEY = 'notebook.positions'; // { [notebookId]: lastPageIndex }
+const KEY_TIP_KEY = 'notebook.keyTipDismissed';
 const FREE_TIER = 1000; // Google Cloud Vision free pages per month
 
 // Both automations are opt-in, and default to off for the same reason: a batch
@@ -752,7 +753,7 @@ async function runOcrQueue({ manual = false } = {}) {
 
       const apiKey = getApiKey();
       if (!apiKey) {
-        setOcrStatus('Add an API key to transcribe pages →');
+        showKeyTip();
         break;
       }
 
@@ -820,6 +821,37 @@ function updateOcrCue() {
   btn.title = getApiKey()
     ? `Send ${pending} page(s) to Google Cloud Vision`
     : 'Add a Vision API key in ⚙ Settings first';
+}
+
+// Without a key the app reads and marks pages but can't search inside them, so
+// it is worth saying once — and only once. It used to be status text in the
+// toolbar row, which meant it shared a slot with transcription progress and
+// could not be got rid of; a dismissal is remembered, since the ⚙ it points at
+// is two feet away and the guide says the same thing at more length.
+function showKeyTip() {
+  const tip = $('#key-tip');
+  if (!tip || localStorage.getItem(KEY_TIP_KEY) === '1' || getApiKey()) return;
+  tip.hidden = false;
+  placeKeyTip();
+}
+
+// Narrow screens lay it across the window rather than under the ⚙ (see the
+// media query), so it needs a top: the toolbar's height varies with how the
+// title wraps and whether the row has broken in two.
+function placeKeyTip() {
+  const tip = $('#key-tip');
+  if (!tip || tip.hidden) return;
+  tip.style.top =
+    window.innerWidth <= 600
+      ? `${Math.round($('.toolbar').getBoundingClientRect().bottom + 8)}px`
+      : '';
+}
+
+function hideKeyTip({ remember = false } = {}) {
+  const tip = $('#key-tip');
+  if (!tip) return;
+  tip.hidden = true;
+  if (remember) localStorage.setItem(KEY_TIP_KEY, '1');
 }
 
 function setOcrStatus(text) {
@@ -918,6 +950,16 @@ function updateUsageDisplay() {
     'warn',
     TRANSCRIPTION_ENABLED && t.ocr >= FREE_TIER * 0.8 && t.ocr < FREE_TIER
   );
+}
+
+// The divider before the app's actions only means anything while they share a
+// line with the reading tools. Compare tops rather than widths: what settles it
+// is where the group ended up, not the arithmetic that put it there.
+function syncActionsRule() {
+  const actions = $('.toolbar-actions');
+  const first = $('#notebooks-btn');
+  if (!actions || !first) return;
+  actions.classList.toggle('own-row', actions.offsetTop > first.offsetTop);
 }
 
 function toggleUsagePop() {
@@ -1148,6 +1190,7 @@ function saveSettings() {
   setOpenAiKey($('#openai-key').value.trim());
   setChatServerUrl($('#lmstudio-url').value.trim());
   updateChatAvailability();
+  if (key) hideKeyTip();
   closeSettings();
   // Resume pending transcriptions now that a key exists — but only if that was
   // asked for; otherwise just re-label the ＋Transcribe button.
@@ -3096,6 +3139,13 @@ function wire() {
     if (e.key === '?') $('#shortcuts').hidden = !$('#shortcuts').hidden;
   });
 
+  // The rule between the reading tools and the app's own actions has to go
+  // when the toolbar wraps; the toolbar's height is what changes when it does.
+  new ResizeObserver(() => {
+    syncActionsRule();
+    placeKeyTip();
+  }).observe($('.toolbar-main'));
+
   // Reposition highlight boxes whenever the book area changes size — window
   // resize, fullscreen toggles, or the text panel opening/closing. The observer
   // fires after layout settles, so StPageFlip (which refits on window 'resize')
@@ -3283,6 +3333,12 @@ function wire() {
   });
 
   $('#settings-btn').addEventListener('click', openSettings);
+  // Pressing the tip does the thing it asks for; ✕ says don't ask again.
+  $('#key-tip-open').addEventListener('click', () => {
+    hideKeyTip();
+    openSettings();
+  });
+  $('#key-tip-close').addEventListener('click', () => hideKeyTip({ remember: true }));
   $('#settings-save').addEventListener('click', saveSettings);
   $('#settings-cancel').addEventListener('click', closeSettings);
   // ☁ opens the meters; syncing is the button inside, so a stray click on the
@@ -3351,14 +3407,13 @@ async function init() {
   showBuildStamp();
   watchForUpdates();
   wire();
+  syncActionsRule();
   await ensureNotebook();
   await loadCurrentNotebook();
   updateUsageDisplay();
 
   if (TRANSCRIPTION_ENABLED) {
-    if (!getApiKey()) {
-      setOcrStatus('Add an API key to transcribe pages →');
-    }
+    if (!getApiKey()) showKeyTip();
     // Resume transcription for any pages left pending from a previous session
     // — or, with automatic transcription off, just offer it on the button.
     if (pages.some((p) => p.ocrStatus === 'pending')) runOcrQueue();
@@ -3402,7 +3457,7 @@ function watchForUpdates() {
   if (!navigator.serviceWorker.controller) return;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     btn.hidden = false;
-    setOcrStatus('A new version is ready — press ⟳ Update');
+    setOcrStatus('A new version is ready — press ⟳ to reload');
   });
   // A window left open for days would otherwise never ask.
   navigator.serviceWorker.ready

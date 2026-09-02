@@ -60,8 +60,9 @@
           </nav>
 
         <div class="toolbar-actions">
-          <label class="btn" for="file-input" title="Add pages">＋<span class="btn-label"> Add pages</span></label>
+          <label class="btn ghost add-btn" for="file-input" title="Add pages" aria-label="Add pages">＋</label>
           <input id="file-input" type="file" accept="image/*" multiple hidden />
+          <button id="update-btn" class="btn ghost" hidden title="A newer version has been downloaded — reload to use it" aria-label="Update">⟳</button>
           <div class="sync-wrap">
             <button id="sync-btn" class="btn ghost" title="Sync notebooks across devices via your Google Drive" aria-label="Sync"><span id="sync-icon" class="sync-icon">☁</span></button>
             <div id="usage-pop" class="usage-pop" hidden>
@@ -79,10 +80,17 @@
               <div id="build-stamp" class="build-stamp"></div>
             </div>
           </div>
-          <button id="update-btn" class="btn" hidden title="A newer version has been downloaded — reload to use it">⟳ Update</button>
           <button id="fullscreen-btn" class="btn ghost" title="Full screen (F)" aria-label="Full screen">⛶</button>
           <button id="help-btn" class="btn ghost" title="How this app works" aria-label="Guide">?</button>
-          <button id="settings-btn" class="btn ghost" title="Settings" aria-label="Settings">⚙</button>
+          <div class="tip-wrap">
+            <button id="settings-btn" class="btn ghost" title="Settings" aria-label="Settings">⚙</button>
+            <div id="key-tip" class="tip" role="status" hidden>
+              <button id="key-tip-open" class="tip-text">
+                Add a Vision API key to transcribe your pages
+              </button>
+              <button id="key-tip-close" class="tip-close" aria-label="Dismiss">✕</button>
+            </div>
+          </div>
         </div>
       </div>
     </header>
@@ -93,7 +101,7 @@
       <div class="book-area">
         <div id="empty" class="empty">
           <p>Your notebook is empty.</p>
-          <p>Click <strong>＋ Add pages</strong> to upload your scanned notes.</p>
+          <p>Click <strong>＋</strong> in the toolbar to upload your scanned notes.</p>
         </div>
         <div id="book" class="book"></div>
         <div id="highlights" class="highlights" aria-hidden="true"></div>
@@ -518,11 +526,11 @@
         <div class="help-body" id="help-body">
           <section class="help-section" id="help-start">
             <h3>Empezar</h3>
-            <p>Sube fotos o escaneos de tus páginas con <strong>＋ Add pages</strong>. Se guardan en este dispositivo, no en un servidor: la app funciona sin conexión y tus apuntes no salen de aquí salvo que actives la sincronización.</p>
+            <p>Sube fotos o escaneos de tus páginas con el <strong>＋</strong> de la barra de arriba. Se guardan en este dispositivo, no en un servidor: la app funciona sin conexión y tus apuntes no salen de aquí salvo que actives la sincronización.</p>
             <p>Para que la app pueda leer tu letra hace falta una clave de Google Cloud Vision en <strong>⚙</strong>. Sin ella puedes leer y marcar páginas, pero no buscar dentro de ellas, ni preguntar al chat, ni hacer tarjetas de repaso — todo eso se apoya en la transcripción.</p>
             <div class="help-sample" aria-hidden="true">
               <div class="help-row">
-                <span class="btn">＋ Add pages</span>
+                <span class="btn">＋</span>
                 <span class="btn ghost">☁</span>
                 <span class="btn ghost">?</span>
                 <span class="btn ghost">⚙</span>

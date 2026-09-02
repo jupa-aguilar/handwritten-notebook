@@ -206,12 +206,159 @@ body:not(.is-mobile) .reading-bar {
   align-items: center;
   gap: 8px;
   margin-left: auto;
+  /* These act on the app — add pages, sync, update, settings — while
+     everything to their left acts on what you're reading. The rule says so;
+     `margin-left: auto` alone only left a gap, which reads as the row running
+     out of things rather than as a change of subject. It hangs on the group,
+     not on a separate element, so a wrapped row can't strand it at the end of
+     a line. */
+  border-left: 1px solid var(--line);
+  padding-left: 12px;
 }
-/* "Add pages" keeps its words where there's room and drops to a bare ＋ when
-   there isn't — it's the one primary action up here. */
-@media (max-width: 720px) {
-  .btn-label {
-    display: none;
+/* Unless the row has run out of width and the actions have dropped to a line
+   of their own — the break already separates them, and the rule would hang at
+   the start of an otherwise empty line. CSS can't see a wrap, so main.js
+   measures it (syncActionsRule). Hidden by going transparent rather than by
+   dropping the border: the box then keeps its size, so the class can't change
+   the layout that decided it. */
+.toolbar-actions.own-row {
+  border-left-color: transparent;
+}
+
+/* ＋ is the one action up here that makes the notebook grow, so it keeps the
+   accent — but as an outline. Filled, it sat among five ghost buttons like a
+   warning, and it is the calmest thing you can do to a notebook. */
+.add-btn.ghost {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.add-btn.ghost:hover {
+  background: rgba(200, 116, 60, 0.14);
+  filter: none; /* the .btn brightness lift does nothing on a transparent fill */
+}
+
+/* The update button looks like its neighbours and asks by moving instead: it
+   turns up unannounced, and a fifth coloured button in the row would compete
+   with ＋ for the one thing that should stand out. */
+#update-btn {
+  animation: update-pulse 2.6s ease-in-out infinite;
+}
+@keyframes update-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(200, 116, 60, 0);
+    border-color: var(--line);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(200, 116, 60, 0.16);
+    border-color: var(--accent);
+  }
+}
+
+/* Anchors the tip to the ⚙ it is about. Same trick as .sync-wrap. */
+.tip-wrap {
+  position: relative;
+  display: flex;
+}
+
+/* The invitation to add a Vision key used to sit in the toolbar row as plain
+   status text, where it competed with transcription progress for the same
+   slot and could never be got rid of. As a tip it floats under the ⚙ that
+   answers it, and it takes a dismissal. */
+.tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  width: max-content;
+  max-width: min(260px, 70vw);
+  padding: 8px 8px 8px 12px;
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--panel-ink);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  animation: tip-in 0.22s ease-out both;
+}
+.tip[hidden] {
+  display: none;
+}
+/* The caret: without it the card floats free of the button it explains. */
+.tip::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: 14px;
+  width: 10px;
+  height: 10px;
+  background: var(--panel);
+  transform: rotate(45deg);
+}
+/* On a phone the toolbar wraps and the ⚙ sits above the search box, so a card
+   hung under it lands on top of the search. Pin it across the window instead,
+   under the whole toolbar — the same treatment as .usage-pop, and JS supplies
+   the `top` for the same reason: the toolbar's height depends on how the title
+   wraps. The caret stays right, which is still where the ⚙ is. */
+@media (max-width: 600px) {
+  .tip {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: none;
+  }
+  .tip::before {
+    right: 20px;
+  }
+}
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.tip-text {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+.tip-text:hover {
+  text-decoration: underline;
+}
+.tip-close {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #8a8073;
+  cursor: pointer;
+}
+.tip-close:hover {
+  color: var(--panel-ink);
+}
+
+/* Movement is the part that can be unwelcome; the colours stay. */
+@media (prefers-reduced-motion: reduce) {
+  #update-btn {
+    animation: none;
+    border-color: var(--accent);
+  }
+  .tip {
+    animation: none;
   }
 }
 
