@@ -1124,6 +1124,94 @@ mark {
   border-color: rgba(0, 0, 0, 0.2);
 }
 
+/* Without Drive there is nowhere to archive to, so 📦 sits disabled and has to
+   look it — the tooltip alone explains a button that appears to do nothing. */
+.nb-actions .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---------- archived notebooks ---------- */
+
+/* Folded away by default: these are the notebooks the user has finished with,
+   and the manager's job is the ones they haven't. */
+.archived-box {
+  margin: 0 0 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  padding-top: 10px;
+}
+.archived-summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--panel-ink);
+  list-style-position: inside;
+}
+.archived-count {
+  color: #8a7d6c;
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+.archived-box .hint {
+  margin: 6px 0 8px;
+}
+.archived-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 32vh;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.ar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 8px;
+}
+/* Two lines, not one: the page count and the date are the whole reason to
+   look at this list, and on one line with the name they were the half that
+   got ellipsised away. */
+.ar-name {
+  flex: 1;
+  min-width: 0;
+  padding: 4px;
+}
+.ar-title {
+  display: block;
+  font-size: 0.95rem;
+  color: var(--panel-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ar-meta {
+  display: block;
+  color: #8a7d6c;
+  font-size: 0.78rem;
+}
+.ar-actions {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.ar-actions .btn.ghost {
+  color: var(--panel-ink);
+  border-color: rgba(0, 0, 0, 0.2);
+}
+/* The only irreversible button in the manager, so it carries a warning colour
+   the others don't — but stays a ghost. `.btn.danger` fills solid red, which
+   in a modal of outline buttons reads as the primary action rather than the
+   dangerous one. */
+.ar-actions .btn.ar-purge {
+  color: #a1341f;
+  border-color: rgba(161, 52, 31, 0.45);
+}
+.ar-actions .btn.ar-purge:hover {
+  background: rgba(161, 52, 31, 0.1);
+}
+
 /* ---------- keyboard shortcuts cheatsheet ---------- */
 
 .shortcut-list {
@@ -2650,6 +2738,12 @@ body.is-mobile.immersive .viewer-toolbar {
 .help-section h3 {
   margin: 0 0 8px;
   font-size: 1.1rem;
+}
+/* A sub-heading inside a section, for the one topic that needed splitting off
+   without earning a chip of its own in the section rail. */
+.help-section h4 {
+  margin: 16px 0 6px;
+  font-size: 0.98rem;
 }
 .help-section p {
   margin: 0 0 10px;

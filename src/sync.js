@@ -1,7 +1,8 @@
 // Cross-device sync through the user's own Google Drive.
 //
 // Everything lives in the hidden appDataFolder (only this app can see it):
-//   meta.json        { version, notebooks: { [uuid]: { name, updatedAt, deletedAt? } } }
+//   meta.json        { version, notebooks: { [uuid]: { name, updatedAt,
+//                                              deletedAt? , archivedAt?, pages? } } }
 //   nb-<uuid>.json   per-notebook manifest: name, updatedAt, pages (text, words, order)
 //   pg-<uuid>.jpg    page images — immutable, uploaded once
 //   cd-<uuid>.json   that notebook's review cards, their deletions, and the
@@ -12,6 +13,14 @@
 // would otherwise re-upload every page's text and word boxes forty times. The
 // file carries its own tombstones so a device that never saw a deletion can't
 // push the card back up (see applyRemoteCards in db.js).
+//
+// A notebook is in one of three states, and meta.json is where that lives:
+// present (no flag), archived (`archivedAt` — the Drive files stay whole, but
+// no device downloads it) and deleted (`deletedAt` — every file swept, the
+// entry kept as the tombstone of record). Archiving is not a soft delete: it
+// promises the notebook comes back exactly as it left, cards and review
+// schedule included, so the local copy is only dropped once this device has
+// verified every page image is up there. See archiveNotebook.
 //
 // Reconciliation is a per-page merge: when a notebook changed on both sides
 // since this device's last sync, the pull merges page by page (newest
@@ -39,6 +48,10 @@ import {
   ensureSyncIds,
   applyRemoteNotebook,
   deleteNotebookByUuid,
+  dropNotebookLocally,
+  getNotebookByUuid,
+  recordNotebookTombstone,
+  setArchivedCache,
   getPageTombstones,
   getNotebookTombstones,
   setNotebookTombstones,
@@ -488,8 +501,9 @@ async function syncCards(token, files, nb, onStatus = () => {}) {
   return true;
 }
 
-// Returns { pulled, pushed, deletedLocal, deletedRemote } (arrays of uuids).
-export async function syncNow({ interactive = false, onStatus = () => {} } = {}) {
+// Sign in, list the app folder and read the index. Shared by the full sync and
+// by the three archive operations, which each need exactly this much of Drive.
+async function openDrive({ interactive = false, onStatus = () => {} } = {}) {
   if (!isSyncConfigured()) {
     throw new Error('Add a Google OAuth Client ID in Settings first');
   }
@@ -507,9 +521,34 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
       meta = await downloadFile(token, metaFile.id, 'json');
       if (!meta.notebooks) meta = { version: 1, notebooks: {} };
     } catch {
-      /* corrupt meta: rebuild from scratch below */
+      /* corrupt meta: rebuild from scratch */
     }
   }
+  return { token, files, meta };
+}
+
+const saveMeta = (token, files, meta) =>
+  uploadFile(token, files, 'meta.json', 'application/json', JSON.stringify(meta));
+
+// Every archived entry, newest first — and the same thing written to the local
+// cache, so the manager can list them without Drive. Called at the end of each
+// run and of each archive operation: meta.json is the only truth about this.
+async function refreshArchivedCache(meta) {
+  const entries = Object.entries(meta.notebooks)
+    .filter(([, e]) => e.archivedAt && !e.deletedAt)
+    .map(([uuid, e]) => ({
+      uuid,
+      name: e.name || '',
+      pages: e.pages ?? null,
+      archivedAt: e.archivedAt,
+    }));
+  await setArchivedCache(entries);
+  return entries;
+}
+
+// Returns { pulled, pushed, deletedLocal, deletedRemote } (arrays of uuids).
+export async function syncNow({ interactive = false, onStatus = () => {} } = {}) {
+  const { token, files, meta } = await openDrive({ interactive, onStatus });
 
   const result = {
     pulled: [],
@@ -522,13 +561,20 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
     incomplete: [],
     failed: [],
     restored: [],
+    // Local copies dropped because the notebook was archived from another
+    // device. Named apart from deletedLocal on purpose: nothing was destroyed.
+    archivedLocal: [],
   };
   const tombs = await getNotebookTombstones();
 
   // 1. Propagate local deletions (unless the remote copy is newer — it wins).
   for (const [uuid, deletedAt] of Object.entries(tombs)) {
     const entry = meta.notebooks[uuid];
-    if (entry && !entry.deletedAt && entry.updatedAt > deletedAt) {
+    // The revive rule only makes sense for a notebook some device still holds:
+    // an archived one lives nowhere but Drive, so its updatedAt is frozen at
+    // whatever the archiving push left and can never mean "somebody kept
+    // working on it". Purging from the archive is final by design.
+    if (entry && !entry.deletedAt && !entry.archivedAt && entry.updatedAt > deletedAt) {
       delete tombs[uuid]; // remote survived with newer edits; it'll pull below
       continue;
     }
@@ -555,6 +601,26 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
     // gets some of it".
     try {
     const local = localByUuid.get(uuid);
+    if (entry.archivedAt && !entry.deletedAt) {
+      // Archived elsewhere. Drop our copy so the archive means the same thing
+      // on every device — but only once we are sure this device is holding
+      // nothing Drive hasn't got. The test is the synced-state record, not a
+      // clock comparison against archivedAt: two devices' clocks disagree, and
+      // a page added here and never pushed would look old enough to discard.
+      if (local) {
+        const st = (await getSyncedState(uuid)) || { localAt: 0, remoteAt: 0 };
+        if (local.updatedAt !== st.localAt) {
+          onStatus(`Uploading “${local.name}”…`);
+          delete entry.archivedAt; // work done here outranks an archive
+          await pushNotebook(token, files, meta, local.id, onStatus);
+          result.pushed.push(uuid);
+        } else {
+          await dropNotebookLocally(uuid);
+          result.archivedLocal.push(entry.name || uuid);
+        }
+      }
+      continue; // never downloaded while it is parked
+    }
     if (entry.deletedAt) {
       if (local && local.updatedAt > entry.deletedAt) {
         onStatus(`Uploading “${local.name}”…`);
@@ -620,7 +686,7 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
   // up to date. Cheap to check: the file listing is already in hand.
   for (const nb of locals) {
     const entry = meta.notebooks[nb.uuid];
-    if (!entry || entry.deletedAt) continue; // not published, or deleted
+    if (!entry || entry.deletedAt || entry.archivedAt) continue; // not published, deleted, or parked
     try {
       // Names only: listPageIds reads the uuids straight out of an index
       // without touching the images. getPages() was loading every photograph
@@ -651,8 +717,9 @@ export async function syncNow({ interactive = false, onStatus = () => {} } = {})
   }
 
   onStatus('Saving index…');
-  await uploadFile(token, files, 'meta.json', 'application/json', JSON.stringify(meta));
+  await saveMeta(token, files, meta);
   await setNotebookTombstones(tombs);
+  await refreshArchivedCache(meta);
   await syncUsage(token, files);
   return result;
 }
@@ -678,4 +745,114 @@ async function syncUsage(token, files) {
   } catch (err) {
     console.error('Could not sync the usage tally', err);
   }
+}
+
+// ---------- archiving ----------
+//
+// Park a notebook on Drive and take it off this device — and off every other
+// device, on their next sync. Nothing is deleted: the manifest, every page
+// image and the card file stay exactly where they were, which is what makes
+// restoring it give back the same notebook rather than a copy of it.
+//
+// The order below is the whole safety argument. Push, save the cards, prove
+// every image is up there, write the flag, and only then drop the local rows.
+// A failure at any step leaves the notebook on this device, which is the
+// harmless direction to fail in; a failure after the flag is written leaves a
+// local copy that the next sync tidies away by itself.
+export async function archiveNotebook(notebookId, { onStatus = () => {} } = {}) {
+  const { token, files, meta } = await openDrive({ interactive: true, onStatus });
+  // Taken by local id and read back only now, because openDrive runs
+  // ensureSyncIds(): a notebook made before sync was ever configured has no
+  // uuid until that backfills one, and the manager rendered before it did.
+  const nb = await getNotebook(notebookId);
+  if (!nb?.uuid) throw new Error('That notebook is not on this device');
+  const uuid = nb.uuid;
+
+  await pushNotebook(token, files, meta, nb.id, onStatus);
+  // Part of "exactly as it left": the review schedule lives in a file of its
+  // own, and the local cards it describes are about to be deleted.
+  onStatus(`Archiving “${nb.name}” — saving review cards…`);
+  await syncCards(token, files, nb, onStatus);
+
+  // pushNotebook uploads only the images Drive is missing, so anything still
+  // absent here is an upload that failed quietly on some earlier run. Refuse
+  // outright: this is the one moment in the app where being wrong about what
+  // Drive holds destroys the only copy of a page.
+  const ids = await listPageIds(nb.id);
+  const gaps = ids.filter((p) => !files.has(`pg-${p.uuid}`));
+  if (gaps.length) {
+    throw new Error(
+      `${gaps.length} page image(s) never reached Drive — nothing was archived. Sync and try again.`
+    );
+  }
+
+  const pages = ids.length;
+  onStatus(`Archiving “${nb.name}” — saving index…`);
+  // The count is stored here because meta.json is all the archive list has to
+  // go on, and "delete this forever" deserves to name what it is deleting
+  // without downloading a manifest full of page text to count it.
+  meta.notebooks[uuid] = { ...meta.notebooks[uuid], archivedAt: Date.now(), pages };
+  await saveMeta(token, files, meta);
+
+  await dropNotebookLocally(uuid);
+  await refreshArchivedCache(meta);
+  return { name: nb.name, pages };
+}
+
+// Bring a parked notebook back to this device. Clearing the flag would be
+// enough — the next sync would pull it — but doing the pull here means the
+// notebook is on screen when the button finishes, and a failure leaves it
+// archived rather than half-restored.
+export async function unarchiveNotebook(uuid, { onStatus = () => {} } = {}) {
+  const { token, files, meta } = await openDrive({ interactive: true, onStatus });
+  const entry = meta.notebooks[uuid];
+  if (!entry || entry.deletedAt) throw new Error('That notebook is no longer on Drive');
+
+  const { incomplete } = await pullNotebook(token, files, meta, uuid, onStatus);
+  // Re-read rather than reuse `entry`: a merge inside the pull pushes back,
+  // and pushNotebook replaces the entry object wholesale.
+  const fresh = meta.notebooks[uuid];
+  if (fresh) {
+    delete fresh.archivedAt;
+    delete fresh.pages;
+  }
+  await saveMeta(token, files, meta);
+
+  // Its cards, once the pages they point at are in place — same ordering, and
+  // same forgiveness, as step 4 of a sync: a schedule is not worth failing a
+  // restore that already brought the pages back.
+  try {
+    const nb = await getNotebookByUuid(uuid);
+    if (nb) await syncCards(token, files, nb, onStatus);
+  } catch (err) {
+    console.error('Restored the notebook but not its review cards', err);
+  }
+  await refreshArchivedCache(meta);
+  return { name: entry.name || '', incomplete };
+}
+
+// Destroy an archived notebook: every page image, the manifest and the card
+// file, gone from Drive, with the entry kept as the tombstone that stops
+// another device putting it back. There is no copy left anywhere after this.
+export async function purgeArchivedNotebook(uuid, { onStatus = () => {} } = {}) {
+  // Recorded before Drive is contacted at all, so a sweep interrupted halfway
+  // is finished by the next sync instead of leaving a notebook that is neither
+  // archived nor gone. Same durability an ordinary delete gets.
+  await recordNotebookTombstone(uuid);
+  const { token, files, meta } = await openDrive({ interactive: true, onStatus });
+  const entry = meta.notebooks[uuid];
+
+  onStatus(`Deleting “${entry?.name || ''}” from Drive…`);
+  await deleteRemoteNotebook(token, files, uuid);
+  const at = Date.now();
+  meta.notebooks[uuid] = { name: entry?.name || '', updatedAt: at, deletedAt: at };
+  await saveMeta(token, files, meta);
+
+  // The tombstone has done its job the moment meta.json carries deletedAt —
+  // that entry is what tells every other device, and it outlives this one.
+  const tombs = await getNotebookTombstones();
+  delete tombs[uuid];
+  await setNotebookTombstones(tombs);
+  await refreshArchivedCache(meta);
+  return { name: entry?.name || '' };
 }

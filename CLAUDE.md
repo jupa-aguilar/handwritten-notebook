@@ -74,7 +74,7 @@ wiring silently.
 | `src/main.js` (~3.3k lines) | The whole UI controller: flipbook render, search + highlight overlays, OCR queue, zoom viewer, pages overview, notebook manager, export/import, keyboard wiring. All app state is module-level (`pages`, `currentPage`, `currentNotebookId`). |
 | `src/text.js` | Accent folding, query tokenising, the all-words match rule and the highlighter — shared by the search box, the transcript panel, the on-image word boxes and the chat's page ranking, so all four agree on what "a word" is. |
 | `src/zip.js` | Store-only ZIP writer for multi-page downloads (browsers honour only the first programmatic download per gesture, so several pages must leave as one file). |
-| `src/db.js` | IndexedDB (`idb`), schema v6: `notebooks`, `pages`, `chats`, `cards`, plus the sync bookkeeping (`pageTombstones`, `notebookTombstones`, `cardTombstones`, `syncState`). Owns the migrations and both sync merges (`applyRemoteNotebook`, `applyRemoteCards`). |
+| `src/db.js` | IndexedDB (`idb`), schema v9: `notebooks`, `pages`, `chats`, `cards`, `reviewDays`, plus the sync bookkeeping (`pageTombstones`, `notebookTombstones`, `cardTombstones`, `syncState`) and `archived` (a cache of Drive's archive list). Owns the migrations and both sync merges (`applyRemoteNotebook`, `applyRemoteCards`). |
 | `src/ocr.js` | Google Cloud Vision `DOCUMENT_TEXT_DETECTION` called straight from the browser; flattens the page→block→paragraph→word tree into `{ t, x, y, w, h }` boxes in image pixels. A Claude-vision provider is kept commented out as an alternative. |
 | `src/sync.js` | Google Drive `appDataFolder` sync: `meta.json`, `nb-<uuid>.json` manifests, `pg-<uuid>` images. Auth via GIS in the browser, via the Electron loopback flow in the app. |
 | `src/srs.js` | The scheduler: SM-2 with a short relearning step and an ease floor. Hard and Easy are defined *against* Good rather than by formulas of their own, so the four buttons can't cross — they did, twice. Pure arithmetic, no storage and no DOM, which is why it is the part with tests. |
@@ -153,6 +153,37 @@ scheduleSync();                   // debounced ~30s push
 written with raw `db.put` instead. Deletions additionally need a tombstone so a later pull
 can't resurrect them: `deletePage` records one automatically; deleting a notebook requires an
 explicit `recordTombstone(uuid)` from `sync.js` before `deleteNotebook`.
+
+### Archiving
+
+A third state between present and deleted, and the only one that promises the
+notebook comes back *identical*: `archivedAt` in `meta.json` while every Drive
+file — manifest, page images, card file — stays untouched. Every device drops
+its local copy on the next sync and none downloads it again until the flag
+comes off.
+
+Archiving is `deleteNotebook` deliberately **without** `recordNotebookTombstone`
+— `dropNotebookLocally` exists to give that omission a name, because a tombstone
+here would have the next sync sweep the Drive copy, which by then is the only
+one. `test/archive.test.js` pins it.
+
+Two orderings carry the safety. `archiveNotebook` pushes, syncs the cards, and
+**verifies every page image is on Drive** before dropping anything local — this
+is the one place in the app where being wrong about what Drive holds destroys
+the only copy of a page. And a device that meets an `archivedAt` it has unpushed
+edits behind (`local.updatedAt !== syncState.localAt`, never a clock comparison)
+un-archives and pushes instead of discarding them.
+
+`purgeArchivedNotebook` is the terminal step: it reuses `deleteRemoteNotebook`,
+which already sweeps images, manifest and cards. It records the tombstone
+*before* touching Drive so an interrupted sweep is finished by the next sync,
+and step 1's revive rule skips archived entries — nothing can put back a
+notebook purged from the archive.
+
+The `archived` store in IndexedDB is the one store that is only a **cache** of
+`meta.json`, rewritten wholesale by `refreshArchivedCache` so the manager can
+list what is parked without a round trip. Losing it costs a sync, never a
+notebook.
 
 ### Sync model (read `sync.js` header + `applyRemoteNotebook` together)
 

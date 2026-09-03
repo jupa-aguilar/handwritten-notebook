@@ -19,6 +19,7 @@ import {
   touchNotebook,
   recordPageTombstone,
   recordNotebookTombstone,
+  listArchived,
   getSyncedState,
   listCardsForPage,
   putCard,
@@ -71,6 +72,9 @@ import {
 } from './review.js';
 import {
   syncNow,
+  archiveNotebook,
+  unarchiveNotebook,
+  purgeArchivedNotebook,
   isSyncConfigured,
   getSyncClientId,
   setSyncClientId,
@@ -1098,7 +1102,9 @@ async function doSync(interactive) {
   icon.textContent = '⏳';
   try {
     const res = await syncNow({ interactive, onStatus: setOcrStatus });
-    if (res.pulled.length || res.deletedLocal.length) {
+    // archivedLocal belongs here too: a notebook parked from another device
+    // has just stopped existing on this one, and the view may be showing it.
+    if (res.pulled.length || res.deletedLocal.length || res.archivedLocal.length) {
       // Remote changes landed locally: refresh the whole view.
       let notebooks = await listNotebooks();
       if (notebooks.length === 0) {
@@ -1115,6 +1121,9 @@ async function doSync(interactive) {
     // Cards can arrive without a single page changing — a sitting done on the
     // phone is nothing but grades.
     await refreshDueCount();
+    // The archive can change with nothing else moving: another device parked
+    // or restored something, and the run above only rewrote the cache.
+    if (!$('#notebooks').hidden) await renderArchivedList();
 
     // A run that came down short must not look like a clean one. It used to:
     // anything that failed threw all the way out, and anything that didn't
@@ -1134,7 +1143,9 @@ async function doSync(interactive) {
     setOcrStatus(
       res.restored.length
         ? `Synced. Put back images Drive was missing for ${res.restored.join(', ')}.`
-        : ''
+        : res.archivedLocal.length
+          ? `Synced. Archived ${res.archivedLocal.join(', ')} — kept on Drive, taken off this device.`
+          : ''
     );
     icon.textContent = '✓';
     btn.classList.remove('pending'); // everything local is on Drive now
@@ -1566,6 +1577,7 @@ async function renderNotebookList() {
           <button class="btn ghost small nb-rename" data-id="${nb.id}" title="Rename" aria-label="Rename notebook">✏️</button>
           <button class="btn ghost small nb-retrans" data-id="${nb.id}" title="Re-transcribe" aria-label="Re-transcribe notebook">🔄</button>
           <button class="btn ghost small nb-export" data-id="${nb.id}" title="Export / backup" aria-label="Export notebook">📤</button>
+          <button class="btn ghost small nb-archive" data-id="${nb.id}" title="Archive to Drive" aria-label="Archive notebook">📦</button>
           <button class="btn ghost small nb-delete" data-id="${nb.id}" title="Delete" aria-label="Delete notebook">🗑️</button>
         </span>
       </li>`
@@ -1590,9 +1602,25 @@ async function renderNotebookList() {
   ul.querySelectorAll('.nb-export').forEach((b) =>
     b.addEventListener('click', () => exportNotebook(Number(b.dataset.id)))
   );
+  ul.querySelectorAll('.nb-archive').forEach((b) =>
+    b.addEventListener('click', () => archiveNotebookFlow(Number(b.dataset.id)))
+  );
   ul.querySelectorAll('.nb-delete').forEach((b) =>
     b.addEventListener('click', () => deleteNotebookFlow(Number(b.dataset.id)))
   );
+
+  // Archiving needs somewhere to put the notebook, so the button is pointless
+  // without Drive configured. Left in place rather than removed, with the
+  // reason in its tooltip: hiding it would make the feature undiscoverable
+  // for exactly the users who have not set sync up yet.
+  if (!isSyncConfigured()) {
+    ul.querySelectorAll('.nb-archive').forEach((b) => {
+      b.disabled = true;
+      b.title = 'Archiving needs Google Drive sync — set it up in ⚙ Settings';
+    });
+  }
+
+  renderArchivedList();
 
   // Drag a row to reorder. The half of the row the cursor is on decides
   // whether the drop lands above (top half) or below (bottom half) it —
@@ -1697,6 +1725,133 @@ async function deleteNotebookFlow(id) {
   // Record before deleting: deleteNotebook drops the notebook's uuid with it.
   await recordNotebookTombstone(notebooks.find((n) => n.id === id)?.uuid);
   await deleteNotebook(id);
+  await settleAfterNotebookLeft(id);
+  scheduleSync();
+}
+
+// ---------- archived notebooks ----------
+
+// Reads the local cache, not Drive: opening the manager must not need the
+// network, and every sync rewrites the cache from meta.json.
+async function renderArchivedList() {
+  const box = $('#archived-box');
+  const ul = $('#archived-list');
+  if (!box) return;
+  const archived = await listArchived();
+  box.hidden = archived.length === 0;
+  $('#archived-count').textContent = archived.length ? `· ${archived.length}` : '';
+  ul.innerHTML = archived
+    .map(
+      (a) => `<li class="ar-item" data-uuid="${escapeHtml(a.uuid)}">
+        <span class="ar-name">
+          <span class="ar-title" title="${escapeHtml(a.name)}">${escapeHtml(a.name || 'Untitled')}</span>
+          <span class="ar-meta">${a.pages == null ? '' : `${a.pages} page${a.pages === 1 ? '' : 's'} · `}archived ${longDate(a.archivedAt)}</span>
+        </span>
+        <span class="ar-actions">
+          <button class="btn ghost small ar-restore" data-uuid="${escapeHtml(a.uuid)}" title="Bring it back to this device">↩ Restore</button>
+          <button class="btn ghost small ar-purge" data-uuid="${escapeHtml(a.uuid)}" title="Delete it from Drive for good">🗑️</button>
+        </span>
+      </li>`
+    )
+    .join('');
+  ul.querySelectorAll('.ar-restore').forEach((b) =>
+    b.addEventListener('click', () => restoreArchivedFlow(b.dataset.uuid))
+  );
+  ul.querySelectorAll('.ar-purge').forEach((b) =>
+    b.addEventListener('click', () => purgeArchivedFlow(b.dataset.uuid))
+  );
+}
+
+// Park a notebook on Drive and take it off this device. Deliberately not a
+// scheduleSync: the local copy is deleted at the end of this, so the upload
+// has to have finished and been verified first, not in thirty seconds' time.
+async function archiveNotebookFlow(id) {
+  const nb = (await listNotebooks()).find((n) => n.id === id);
+  if (!nb) return;
+  const n = await countPages(id);
+  if (
+    !confirm(
+      `Archive “${nb.name}” (${n} page${n === 1 ? '' : 's'})?\n\n` +
+        'It is uploaded to your Drive in full — pages, transcriptions and review ' +
+        'cards — and then removed from this device and from your other devices. ' +
+        'You can bring it back at any time.'
+    )
+  )
+    return;
+  try {
+    const res = await archiveNotebook(id, { onStatus: setOcrStatus });
+    await settleAfterNotebookLeft(id);
+    setOcrStatus(`Archived “${res.name}” — ${res.pages} page(s) kept on Drive`);
+  } catch (err) {
+    console.error('Archive failed', err);
+    setOcrStatus('Archive failed');
+    // Named loudly, because the reassuring half is the part that matters: the
+    // notebook is still here.
+    alert(`Could not archive “${nb.name}”:\n\n${err.message}\n\nIt is still on this device.`);
+  }
+}
+
+async function restoreArchivedFlow(uuid) {
+  try {
+    const res = await unarchiveNotebook(uuid, { onStatus: setOcrStatus });
+    let notebooks = await listNotebooks();
+    const back = notebooks.find((n) => n.uuid === uuid);
+    if (back) {
+      currentNotebookId = back.id;
+      localStorage.setItem(CURRENT_KEY, String(currentNotebookId));
+      updateCurrentName(notebooks);
+      await loadCurrentNotebook();
+    }
+    renderNotebookList();
+    await refreshDueCount();
+    setOcrStatus(
+      res.incomplete
+        ? `Restored “${res.name}”, but ${res.incomplete} page(s) didn't come down. Sync again to finish.`
+        : `Restored “${res.name}”`
+    );
+  } catch (err) {
+    console.error('Restore failed', err);
+    setOcrStatus('Restore failed');
+    alert(`Could not restore that notebook:\n\n${err.message}`);
+  }
+}
+
+// The one irreversible action in the manager. Nothing is left after it: no
+// local copy to export, and no copy on Drive — which is exactly why the
+// dialog says where a copy would have to come from instead.
+async function purgeArchivedFlow(uuid) {
+  const entry = (await listArchived()).find((a) => a.uuid === uuid);
+  if (!entry) return;
+  const pages = entry.pages == null ? '' : ` and its ${entry.pages} page${entry.pages === 1 ? '' : 's'}`;
+  if (
+    !confirm(
+      `Delete “${entry.name}”${pages} from Drive for good?\n\n` +
+        'This is the only copy left. It cannot be undone, and no device can bring ' +
+        'it back.\n\nIf you want to keep one, press Cancel, Restore it, and use 📤 ' +
+        'Export first.'
+    )
+  )
+    return;
+  try {
+    const res = await purgeArchivedNotebook(uuid, { onStatus: setOcrStatus });
+    renderArchivedList();
+    setOcrStatus(`Deleted “${res.name}” from Drive`);
+  } catch (err) {
+    console.error('Purge failed', err);
+    setOcrStatus('Delete failed');
+    // The tombstone is already recorded, so this is genuinely a "next sync
+    // finishes it" rather than a "nothing happened".
+    alert(
+      `Could not finish deleting that notebook:\n\n${err.message}\n\n` +
+        'It is marked for deletion and the next sync will complete it.'
+    );
+  }
+}
+
+// A notebook has stopped existing on this device — deleted or archived. Land
+// somewhere sensible, and never on nothing: the app has no state for "no
+// notebook open", so the last one leaving is replaced by an empty one.
+async function settleAfterNotebookLeft(id) {
   let remaining = await listNotebooks();
   if (remaining.length === 0) {
     currentNotebookId = await addNotebook('My Notebook');
@@ -1708,7 +1863,6 @@ async function deleteNotebookFlow(id) {
   updateCurrentName(remaining);
   await loadCurrentNotebook();
   renderNotebookList();
-  scheduleSync();
 }
 
 // Re-run OCR for every page in a notebook.

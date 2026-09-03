@@ -16,6 +16,9 @@
 //   reviewDays:         { notebookId, device, day, answered[3], missed[3] }
 //                       what was answered on a given day, and at which rung of
 //                       the hint ladder — one row per device, summed to show
+//   archived:           { uuid, name, pages, archivedAt }  notebooks parked on
+//                       Drive and taken off this device — a display cache of
+//                       meta.json, never the truth (see below)
 //
 // Chats are local-only on purpose: they are cheap to regenerate, would bloat
 // every sync manifest, and can contain a stray question the user would rather
@@ -23,6 +26,13 @@
 // reach from one machine is half a review schedule, so they sync — in a file
 // of their own (see sync.js), because grading a card must not drag a notebook
 // manifest full of page text and word boxes up to Drive with it.
+//
+// `archived` is the one store here that is only a cache: the truth about what
+// is archived is the `archivedAt` flag in Drive's meta.json, and every sync
+// rewrites this store from it. It lives in IndexedDB anyway so the manager can
+// list what is parked without a round trip and while offline — and so a list
+// of notebooks the user believes they still own can't be dropped by whatever
+// clears localStorage. Losing it costs a sync, never a notebook.
 //
 // The last three are sync bookkeeping and used to live in localStorage. They
 // don't anymore: localStorage and IndexedDB have independent lifetimes, so
@@ -73,7 +83,7 @@ function migrateLegacySyncState(tx) {
   }
 }
 
-const dbPromise = openDB('handwritten-notebook', 8, {
+const dbPromise = openDB('handwritten-notebook', 9, {
   async upgrade(db, oldVersion, _newVersion, tx) {
     if (oldVersion < 1) {
       const pages = db.createObjectStore('pages', {
@@ -153,6 +163,9 @@ const dbPromise = openDB('handwritten-notebook', 8, {
       // which for a notebook of a hundred photographs is the difference
       // between a few hundred bytes and every one of them.
       tx.objectStore('pages').createIndex('nbUuid', ['notebookId', 'uuid']);
+    }
+    if (oldVersion < 9) {
+      db.createObjectStore('archived', { keyPath: 'uuid' });
     }
   },
 }).then((db) => {
@@ -821,6 +834,34 @@ export async function getNotebookByUuid(uuid) {
 export async function deleteNotebookByUuid(uuid) {
   const nb = await getNotebookByUuid(uuid);
   if (nb) await deleteNotebook(nb.id);
+}
+
+// ---------- archived notebooks (a cache of Drive's meta.json) ----------
+
+// Archiving is `deleteNotebook` deliberately *without* recordNotebookTombstone:
+// the local rows go, the Drive copy stays, and no other device is told to
+// forget anything. That one omission is the whole difference between parking a
+// notebook and destroying it, which is why it gets a name of its own rather
+// than a boolean argument on the delete.
+export async function dropNotebookLocally(uuid) {
+  await deleteNotebookByUuid(uuid);
+}
+
+export async function listArchived() {
+  const db = await dbPromise;
+  const all = await db.getAll('archived');
+  return all.sort((a, b) => (b.archivedAt || 0) - (a.archivedAt || 0));
+}
+
+// Replaces the cache wholesale, because meta.json is the complete answer: an
+// entry missing from it was restored or purged on another device, and merging
+// would keep showing a notebook that is no longer there.
+export async function setArchivedCache(entries) {
+  const db = await dbPromise;
+  const tx = db.transaction('archived', 'readwrite');
+  await tx.objectStore('archived').clear();
+  for (const e of entries) await tx.objectStore('archived').put(e);
+  await tx.done;
 }
 
 // Create or update a local notebook from a remote manifest, merging page by

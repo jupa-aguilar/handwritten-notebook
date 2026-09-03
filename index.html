@@ -243,6 +243,19 @@
         </div>
         <ul id="notebook-list" class="notebook-list"></ul>
 
+        <!-- Notebooks parked on Drive. Hidden entirely when there are none, so
+             the manager looks the way it always did until the day it is used. -->
+        <details id="archived-box" class="archived-box" hidden>
+          <summary class="archived-summary">
+            Archived <span id="archived-count" class="archived-count"></span>
+          </summary>
+          <p class="hint">
+            Kept whole in your Drive — pages, transcriptions and review cards — and off
+            every device until you bring one back.
+          </p>
+          <ul id="archived-list" class="archived-list"></ul>
+        </details>
+
         <input id="import-input" type="file" accept="application/json,.json" hidden />
         <div class="modal-actions">
           <button id="import-notebook-btn" class="btn ghost" title="Import a notebook backup file">⬆ Import…</button>
@@ -648,6 +661,10 @@
               <li>No viajan: las conversaciones del chat y tus claves.</li>
             </ul>
             <p class="help-note">Si editas en dos aparatos sin sincronizar entre medias, no se pierde nada: se mezclan página por página y gana la versión más reciente de cada una.</p>
+
+            <h4>Archivar un cuaderno</h4>
+            <p>El botón <strong>📦</strong> de <strong>📚</strong> guarda un cuaderno terminado en tu Drive y lo quita de este aparato y de los demás. No se borra nada: vuelve entero —páginas, transcripciones y tarjetas con su calendario de repaso— cuando pulses <strong>Restore</strong> en la lista de <em>Archived</em>.</p>
+            <p class="help-note">La copia local solo se suelta después de comprobar que todas las imágenes están arriba; si algo falla, el cuaderno se queda donde estaba. El 🗑️ rojo de esa lista sí es definitivo: borra el cuaderno de Drive y no queda copia en ningún sitio.</p>
           </section>
 
           <section class="help-section" id="help-export">
