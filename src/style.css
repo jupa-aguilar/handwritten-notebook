@@ -106,8 +106,10 @@ body:not(.is-mobile) #search {
   padding: 5px 10px;
 }
 /* The actions stay pinned right on the first line; the tools sit beside them
-   and are the ones that drop when the row runs out. */
-body:not(.is-mobile) .reading-bar {
+   and are the ones that drop when the row runs out. Not the guide's sample,
+   which is a picture of the bar sitting on a strip of paper: this pushed it
+   against the right edge of its own frame. */
+body:not(.is-mobile) .reading-bar:not(.help-bar) {
   margin-left: auto;
 }
 
@@ -296,6 +298,13 @@ body:not(.is-mobile) .reading-bar {
   background: var(--panel);
   transform: rotate(45deg);
 }
+/* A dialog is the reader's whole attention — and on a phone the guide is the
+   whole screen, with the tip printing itself across a paragraph of it. The
+   nudge waits; it is still there when the dialog closes. */
+body:has(.modal:not([hidden])) .tip {
+  display: none;
+}
+
 /* On a phone the toolbar wraps and the ⚙ sits above the search box, so a card
    hung under it lands on top of the search. Pin it across the window instead,
    under the whole toolbar — the same treatment as .usage-pop, and JS supplies
@@ -486,10 +495,9 @@ body:not(.is-mobile) .reading-bar {
 
 /* ---------- reading tools ---------- */
 
-/* Floats over the page, out of the way of the text but always in reach, and
-   draggable anywhere the reader wants it (see makeReadingBarDraggable).
-   Fixed rather than absolute so the drag maths is plain viewport
-   coordinates; JS switches left/top on once it has been moved. */
+/* The reading tools. On a phone they are docked along the bottom edge, within
+   a thumb's reach of the page; on desktop they sit in the toolbar row (see
+   below) and this floating look is only what the guide's sample wears. */
 /* Nothing inside these bars scrolls, so a finger that presses and drags on one
    must not be offered to the page as a pan. */
 .reading-bar,
@@ -514,23 +522,6 @@ body:not(.is-mobile) .reading-bar {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
-/* The grip. Two columns of dots, the usual "you can move this" sign — kept
-   only for the guide's sample of the phone's bar; nothing drags any more. */
-.read-grip {
-  align-self: center;
-  width: 14px;
-  height: 26px;
-  margin: 0 2px 0 4px;
-  cursor: grab;
-  flex: none;
-  background-image: radial-gradient(
-    circle,
-    rgba(255, 255, 255, 0.45) 1.1px,
-    transparent 1.2px
-  );
-  background-size: 5px 6px;
-  background-position: center;
-}
 /* On desktop the tools live in the toolbar row, so they cost the page nothing
    — no floating panel over what you are reading, and nothing to move out of
    the way. They lose their words there: with labels they would not fit beside
@@ -1903,10 +1894,10 @@ body.is-mobile {
 /* A dialog is open: the reading bar is behind its dim anyway, and on a phone
    a full-screen dialog puts its own buttons exactly where the bar is docked —
    which is how the guide's "Entendido" ended up underneath it. */
-body.is-mobile:has(.modal:not([hidden])) .reading-bar {
+body.is-mobile:has(.modal:not([hidden])) .reading-bar:not(.help-bar) {
   display: none;
 }
-body.is-mobile .reading-bar {
+body.is-mobile .reading-bar:not(.help-bar) {
   position: fixed;
   left: 0;
   right: 0;
@@ -2037,10 +2028,6 @@ body.is-mobile .bm-item {
   padding: 2px 0;
 }
 
-/* Docked, so there is nowhere to drag it to. */
-body.is-mobile .read-grip {
-  display: none;
-}
 /* On a phone these are not panels beside the page, they are screens of their
    own: the transcript, the chat and the bookmarks list each take the whole
    viewport and are dismissed by the ✕ in their own header.
@@ -2072,7 +2059,7 @@ body.is-mobile .viewer {
    nothing should keep holding a bar-shaped strip at the bottom of the screen:
    the viewer and the panels stop short of the edge and the page background
    shows through as a dead block. */
-body.is-mobile.immersive .reading-bar {
+body.is-mobile.immersive .reading-bar:not(.help-bar) {
   display: none;
 }
 body.is-mobile.immersive .viewer,
@@ -2719,12 +2706,16 @@ body.is-mobile.immersive .viewer-toolbar {
   color: rgba(44, 38, 32, 0.5);
   text-align: center;
 }
-/* The reading bar sample sits in the flow instead of floating over the app. */
+/* The reading bar sample sits in the flow instead of floating over the app,
+   and wears the phone's arrangement — full width, tools spread across it —
+   since the phone is what the caption beside it is describing. */
 .reading-bar.help-bar {
   position: static;
   transform: none;
   bottom: auto;
+  width: 100%;
   max-width: 100%;
+  justify-content: space-around;
   overflow-x: auto;
 }
 .help-grades {
