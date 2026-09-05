@@ -505,12 +505,27 @@ function updatePanel() {
   // something in it: two sets of marks on the same text would be a puzzle
   // rather than an answer.
   const find = $('#panel-find').value.trim();
-  const query = find || $('#search').value.trim();
-  body.innerHTML = shown.map((page) => transcriptSection(page, query)).join('');
+  const search = $('#search').value.trim();
+  const query = find || search;
+  // A notebook-wide search only lights up a page that is an actual hit (every
+  // query word present) — the transcript should agree, or the page you
+  // happen to be reading while a search is active gets a few incidental
+  // words marked and reads as a wrong result instead of the page you're on.
+  // The page-local find has no such gate: it's asking about this page only.
+  const searchTermTokens = find ? null : searchTokens(search);
+  body.innerHTML = shown
+    .map((page) =>
+      transcriptSection(
+        page,
+        query,
+        !searchTermTokens || pageHasAllTokens(page, searchTermTokens)
+      )
+    )
+    .join('');
   paintFind();
 }
 
-function transcriptSection(page, query) {
+function transcriptSection(page, query, highlightIt = true) {
   const n = pages.indexOf(page) + 1;
   let html = `<div class="panel-meta">Page ${n} of ${pages.length}</div>`;
   if (page.ocrStatus === 'skipped') {
@@ -528,7 +543,9 @@ function transcriptSection(page, query) {
   } else if (!page.text) {
     html += `<div class="panel-note">No text detected on this page.</div>`;
   } else {
-    html += `<pre class="transcript">${highlight(page.text, query)}</pre>`;
+    html += `<pre class="transcript">${
+      highlightIt ? highlight(page.text, query) : escapeHtml(page.text)
+    }</pre>`;
   }
   return html;
 }
