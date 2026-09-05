@@ -463,6 +463,7 @@ async function removePage(id) {
   renderBook();
   refreshSearch();
   refreshDueCount(); // its cards went with it
+  updateOcrCue(); // the deleted page may have been one of the pending count
   setOcrStatus('Page deleted');
 }
 
@@ -2558,6 +2559,7 @@ async function deleteSelectedPages() {
   renderBook();
   refreshSearch();
   refreshDueCount(); // their cards went with them
+  updateOcrCue(); // the deleted pages may have been some or all of the pending count
   setOcrStatus(`Deleted ${ids.size} page${ids.size === 1 ? '' : 's'}`);
   if (pages.length === 0) closePagesOverview();
   else renderPagesGrid();
