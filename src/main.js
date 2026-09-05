@@ -3070,10 +3070,69 @@ function wireViewer() {
   window.addEventListener('resize', refitViewer);
 }
 
+// ---------- header auto-hide (desktop) ----------
+
+// The toolbar collapses when the pointer is away from the top of the window
+// and the book area (flex: 1, see .stage) grows to fill what it gave up.
+// StPageFlip only refits on a real window 'resize' (same reason setPanelHidden
+// fires one), so a resize is dispatched once the CSS transition has settled.
+function initHeaderAutoHide() {
+  if (IS_MOBILE) return;
+  const PROXIMITY_PX = 72; // pointer this close to the top edge counts as "close enough"
+  const COLLAPSE_DELAY_MS = 700;
+  const toolbar = $('.toolbar');
+  let collapseTimer = null;
+
+  // Typing in the search box, or a popover anchored to a toolbar button
+  // (usage, key-tip — both DOM descendants of .toolbar), must hold the bar
+  // open even once the pointer has wandered off to read. The bookmarks list
+  // is a sibling fixed-position panel rather than a descendant, so it needs
+  // its own check.
+  function staysOpen() {
+    return toolbar.contains(document.activeElement) || !$('#bookmarks-pop').hidden;
+  }
+
+  function settleResize() {
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 240);
+  }
+
+  function expand() {
+    clearTimeout(collapseTimer);
+    collapseTimer = null;
+    if (!document.body.classList.contains('header-collapsed')) return;
+    document.body.classList.remove('header-collapsed');
+    settleResize();
+  }
+
+  function scheduleCollapse() {
+    if (collapseTimer || document.body.classList.contains('header-collapsed')) return;
+    collapseTimer = setTimeout(() => {
+      collapseTimer = null;
+      if (staysOpen()) return;
+      document.body.classList.add('header-collapsed');
+      settleResize();
+    }, COLLAPSE_DELAY_MS);
+  }
+
+  document.addEventListener('mousemove', (e) => {
+    if (e.clientY <= PROXIMITY_PX || toolbar.contains(e.target)) expand();
+    else scheduleCollapse();
+  });
+  // Covers ⌘F focusing the search box programmatically, from wherever the
+  // pointer happens to be.
+  toolbar.addEventListener('focusin', expand);
+  toolbar.addEventListener('focusout', scheduleCollapse);
+  document.addEventListener('mouseleave', scheduleCollapse);
+
+  document.body.classList.add('header-autohide');
+  scheduleCollapse();
+}
+
 // ---------- wiring ----------
 
 function wire() {
   wireViewer();
+  initHeaderAutoHide();
 
   $('#file-input').addEventListener('change', (e) => {
     handleFiles(e.target.files);

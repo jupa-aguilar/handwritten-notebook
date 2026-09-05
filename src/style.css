@@ -113,6 +113,28 @@ body:not(.is-mobile) .reading-bar:not(.help-bar) {
   margin-left: auto;
 }
 
+/* Auto-hide: the book is the point, so on desktop the toolbar collapses to a
+   sliver once the pointer wanders off and unfurls again on proximity to the
+   top edge (see initHeaderAutoHide in main.js, which drives `.header-collapsed`
+   and also decides when *not* to collapse — a popover open, or focus inside
+   the bar). The max-height is a deliberate overestimate: animating from an
+   unknown "auto" height needs a fixed ceiling, and one taller than the bar
+   ever gets only clips the easing, never the content. */
+body:not(.is-mobile).header-autohide .toolbar {
+  max-height: 260px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height 0.22s ease, opacity 0.18s ease, padding-top 0.22s ease,
+    padding-bottom 0.22s ease;
+}
+body:not(.is-mobile).header-autohide.header-collapsed .toolbar {
+  max-height: 4px;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  pointer-events: none;
+}
+
 .brand {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1.25rem;
