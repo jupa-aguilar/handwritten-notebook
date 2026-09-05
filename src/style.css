@@ -753,6 +753,12 @@ body:not(.is-mobile) .reading-bar:not(.help-bar) .read-icon {
   min-width: 0;
   position: relative;
 }
+/* Tighter on desktop: the book itself is the point, and every side of this
+   padding is space it can't use. Phones keep the larger gutter set below in
+   the 600px query, which exists for a thumb's reach rather than for taste. */
+body:not(.is-mobile) .book-area {
+  padding: 14px;
+}
 
 .pager {
   position: absolute;
@@ -850,17 +856,35 @@ body:not(.is-mobile) .reading-bar:not(.help-bar) .read-icon {
 
 /* ---------- nav arrows ---------- */
 
+/* Overlaid on .stage rather than held in their own flex columns, so the book
+   gets the ~90px that used to be reserved for them whether or not a page was
+   in reach of the pointer. Transparent until the pointer is somewhere over
+   the stage, the same fade-in-on-hover a video player uses for its scrubber. */
 .nav {
-  background: rgba(0, 0, 0, 0.25);
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 10;
+  width: 64px;
+  background: transparent;
   color: var(--ink);
   border: none;
-  width: 44px;
   font-size: 2rem;
   cursor: pointer;
-  transition: background 0.15s ease;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.nav-prev {
+  left: 0;
+}
+.nav-next {
+  right: 0;
+}
+.stage:hover .nav {
+  opacity: 1;
 }
 .nav:hover {
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.35);
 }
 
 /* ---------- text / search panel ---------- */
