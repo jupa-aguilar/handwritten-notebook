@@ -123,13 +123,18 @@ body:not(.is-mobile) .reading-bar:not(.help-bar) {
 body:not(.is-mobile).header-autohide .toolbar {
   max-height: 260px;
   opacity: 1;
-  overflow: hidden;
   transition: max-height 0.22s ease, opacity 0.18s ease, padding-top 0.22s ease,
     padding-bottom 0.22s ease;
 }
+/* overflow:hidden lives only here, not on the rule above: the sync and key-tip
+   popovers are absolutely positioned *below* the toolbar's own box (anchored
+   to a button inside it), and clipping that at all times — rather than only
+   while the bar is actually collapsed to a 4px sliver — cut them off outright,
+   which looked exactly like the ☁ Sync button had stopped doing anything. */
 body:not(.is-mobile).header-autohide.header-collapsed .toolbar {
   max-height: 4px;
   opacity: 0;
+  overflow: hidden;
   padding-top: 0;
   padding-bottom: 0;
   pointer-events: none;
@@ -420,13 +425,6 @@ body:has(.modal:not([hidden])) .tip {
 }
 #sync-btn {
   position: relative;
-}
-
-/* Same idea for the fullscreen toggle's ⛶/⤡ glyphs. */
-#fullscreen-btn {
-  min-width: 44px;
-  padding-left: 8px;
-  padding-right: 8px;
 }
 
 /* The meters — pages transcribed, chat spend — are reference figures, not
@@ -1982,7 +1980,6 @@ body.is-mobile .viewer {
   z-index: 30;
 }
 body.is-mobile #zoom-btn,
-body.is-mobile #fullscreen-btn,
 body.is-mobile #viewer-close {
   display: none;
 }

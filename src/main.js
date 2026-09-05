@@ -3424,11 +3424,10 @@ function wire() {
     $('.book-area')
   );
 
-  $('#fullscreen-btn').addEventListener('click', toggleFullscreen);
+  // No toolbar button for this any more — the Mac app's own window already
+  // has one (the green traffic light) — but the F shortcut still works, and
+  // still needs the book to refit once the viewport settles.
   document.addEventListener('fullscreenchange', () => {
-    $('#fullscreen-btn').textContent = document.fullscreenElement ? '⤡' : '⛶';
-    // Let StPageFlip's own resize handler re-fit the book after the viewport
-    // settles into/out of fullscreen (fire twice to catch the final size).
     setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
     setTimeout(() => window.dispatchEvent(new Event('resize')), 500);
   });
