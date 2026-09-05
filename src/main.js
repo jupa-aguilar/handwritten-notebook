@@ -818,6 +818,7 @@ async function reanchorCards(page) {
 function updateOcrCue() {
   const btn = $('#transcribe-now');
   if (!btn) return;
+  const wasHidden = btn.hidden;
   const pending = TRANSCRIPTION_ENABLED
     ? pages.filter((p) => p.ocrStatus === 'pending').length
     : 0;
@@ -826,6 +827,7 @@ function updateOcrCue() {
   btn.title = getApiKey()
     ? `Send ${pending} page(s) to Google Cloud Vision`
     : 'Add a Vision API key in ⚙ Settings first';
+  if (wasHidden && !btn.hidden) wakeHeader();
 }
 
 // Without a key the app reads and marks pages but can't search inside them, so
@@ -838,6 +840,7 @@ function showKeyTip() {
   if (!tip || localStorage.getItem(KEY_TIP_KEY) === '1' || getApiKey()) return;
   tip.hidden = false;
   placeKeyTip();
+  wakeHeader();
 }
 
 // Narrow screens lay it across the window rather than under the ⚙ (see the
@@ -3073,6 +3076,13 @@ function wireViewer() {
 
 // ---------- header auto-hide (desktop) ----------
 
+// Set by initHeaderAutoHide to its own expand(); callers elsewhere (an OCR
+// cue turning on, an update becoming available) use this to pull the
+// collapsed toolbar back on screen for something the user didn't ask to see
+// but shouldn't miss. A no-op until wire() has run, and always a no-op on
+// mobile, where the toolbar never collapses.
+let wakeHeader = () => {};
+
 // The toolbar collapses when the pointer is away from the top of the window
 // and the book area (flex: 1, see .stage) grows to fill what it gave up.
 // StPageFlip only refits on a real window 'resize' (same reason setPanelHidden
@@ -3088,9 +3098,17 @@ function initHeaderAutoHide() {
   // (usage, key-tip — both DOM descendants of .toolbar), must hold the bar
   // open even once the pointer has wandered off to read. The bookmarks list
   // is a sibling fixed-position panel rather than a descendant, so it needs
-  // its own check.
+  // its own check. A pulsing cue (the update button, the transcribe prompt)
+  // holds it open the same way — pulsing behind a collapsed bar would ask the
+  // user to notice something they can't see.
   function staysOpen() {
-    return toolbar.contains(document.activeElement) || !$('#bookmarks-pop').hidden;
+    return (
+      toolbar.contains(document.activeElement) ||
+      !$('#bookmarks-pop').hidden ||
+      !$('#update-btn').hidden ||
+      !$('#transcribe-now').hidden ||
+      !$('#key-tip').hidden
+    );
   }
 
   function settleResize() {
@@ -3127,6 +3145,7 @@ function initHeaderAutoHide() {
 
   document.body.classList.add('header-autohide');
   scheduleCollapse();
+  wakeHeader = expand;
 }
 
 // ---------- wiring ----------
@@ -3196,8 +3215,6 @@ function wire() {
     refreshSearch();
   });
 
-  $('#prev').addEventListener('click', () => pageFlip && pageFlip.flipPrev());
-  $('#next').addEventListener('click', () => pageFlip && pageFlip.flipNext());
   $('#first').addEventListener('click', goFirst);
   $('#last').addEventListener('click', goLast);
 
@@ -3672,6 +3689,7 @@ function watchForUpdates() {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     btn.hidden = false;
     setOcrStatus('A new version is ready — press ⟳ to reload');
+    wakeHeader();
   });
   // A window left open for days would otherwise never ask.
   navigator.serviceWorker.ready

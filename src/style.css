@@ -263,8 +263,12 @@ body:not(.is-mobile).header-autohide.header-collapsed .toolbar {
 
 /* The update button looks like its neighbours and asks by moving instead: it
    turns up unannounced, and a fifth coloured button in the row would compete
-   with ＋ for the one thing that should stand out. */
-#update-btn {
+   with ＋ for the one thing that should stand out. ＋Transcribe pulses the
+   same way — both are the toolbar telling you something is waiting on you
+   without you having gone looking for it, so the header's auto-hide (see
+   initHeaderAutoHide) holds itself open the whole time either one shows. */
+#update-btn,
+#transcribe-now {
   animation: update-pulse 2.6s ease-in-out infinite;
 }
 @keyframes update-pulse {
@@ -852,39 +856,6 @@ body:not(.is-mobile) .book-area {
   color: var(--muted);
   text-align: center;
   line-height: 1.6;
-}
-
-/* ---------- nav arrows ---------- */
-
-/* Overlaid on .stage rather than held in their own flex columns, so the book
-   gets the ~90px that used to be reserved for them whether or not a page was
-   in reach of the pointer. Transparent until the pointer is somewhere over
-   the stage, the same fade-in-on-hover a video player uses for its scrubber. */
-.nav {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  z-index: 10;
-  width: 64px;
-  background: transparent;
-  color: var(--ink);
-  border: none;
-  font-size: 2rem;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s ease, background 0.15s ease;
-}
-.nav-prev {
-  left: 0;
-}
-.nav-next {
-  right: 0;
-}
-.stage:hover .nav {
-  opacity: 1;
-}
-.nav:hover {
-  background: rgba(0, 0, 0, 0.35);
 }
 
 /* ---------- text / search panel ---------- */
@@ -2010,7 +1981,6 @@ body.is-mobile .viewer {
   inset: 0;
   z-index: 30;
 }
-body.is-mobile .nav,
 body.is-mobile #zoom-btn,
 body.is-mobile #fullscreen-btn,
 body.is-mobile #viewer-close {
