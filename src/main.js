@@ -32,8 +32,11 @@ import {
   searchTokens,
   pageHasAllTokens,
   wordMatchesToken,
+  wordsInRect,
+  wordsToText,
   highlight,
 } from './text.js';
+import { cropSelection } from './crop.js';
 import { buildZip } from './zip.js';
 import { buildPdf } from './pdf.js';
 import {
@@ -228,6 +231,7 @@ function preloadImage(url) {
 let renderToken = 0;
 
 async function renderBook() {
+  discardFrame(); // the canvas a rectangle was drawn against is about to be torn down
   const token = ++renderToken;
 
   objectUrls.forEach((u) => URL.revokeObjectURL(u));
@@ -333,7 +337,10 @@ async function renderBook() {
     if (e.data === 'read') updateHighlights();
     else clearHighlights();
   });
-  pageFlip.on('changeOrientation', () => updateHighlights());
+  pageFlip.on('changeOrientation', () => {
+    discardFrame();
+    updateHighlights();
+  });
   // Nudge StPageFlip to recompute its stretched size now that the fresh
   // container is in the DOM and visible (e.g. after a modal closes), then
   // position the highlight boxes against the freshly measured geometry.
@@ -681,6 +688,44 @@ function paintDueBadge(n) {
 // overlay over without the two fighting for it.
 let citedPassage = null; // { index, tokens }
 
+// The framing tool ("🖼 Frame"): draw a rectangle over the page image, get an
+// explanation of the transcribed text under it — same explainSubject/
+// setSubject the Text panel's own selection already uses, just fed text
+// pulled from page.words instead of a DOM selection.
+let selecting = false; // armed via #select-btn or 'S'
+let dragOrigin = null; // { geom, x0, y0 } while a drag is in progress
+let framedSelection = null; // { page, rect, text } once a drag lands on real words
+let frameCropUrl = null; // object URL behind #frame-crop-img
+const MIN_DRAG_PX = 10; // shorter reads as a stray click, not a selection
+
+// Only meaningful over the flipbook: the viewer owns its own gestures and
+// phones never show the flipbook (see IS_MOBILE at the top of this file).
+function setSelectMode(on) {
+  if (on && (IS_MOBILE || !$('#viewer').hidden)) return;
+  selecting = on;
+  $('.book-area').classList.toggle('selecting', on);
+  $('#select-btn').classList.toggle('active', on);
+  $('#select-btn').setAttribute('aria-pressed', String(on));
+  if (!on) discardFrame();
+}
+
+// Drops whatever the tool currently holds — an in-progress drag, a finished-
+// but-unconfirmed rectangle, or its crop preview — without touching whether
+// the tool is still armed. Called whenever the geometry a rectangle was
+// measured against stops applying.
+function discardFrame() {
+  dragOrigin = null;
+  framedSelection = null;
+  $('#select-rect').hidden = true;
+  $('#frame-ask').hidden = true;
+  releaseFrameCrop();
+}
+
+function releaseFrameCrop() {
+  if (frameCropUrl) URL.revokeObjectURL(frameCropUrl);
+  frameCropUrl = null;
+}
+
 // Which words to box on a page, and how strictly. The search wins while it is
 // running; a citation only shows on the page it was about.
 function highlightPlan(index) {
@@ -698,6 +743,53 @@ function highlightPlan(index) {
 function clearHighlights() {
   const layer = $('#highlights');
   if (layer) layer.replaceChildren();
+  discardFrame(); // mid-flip geometry doesn't hold long enough to keep a rectangle against
+}
+
+// Screen-space geometry of each page in the current spread, in the same
+// coordinate space #highlights and #select-layer share (both are
+// position:absolute; inset:0 over .book-area). One computation shared by the
+// search/citation overlay and the framing tool, so a resize can't leave them
+// disagreeing.
+function visiblePageGeometry() {
+  if (!pageFlip || pages.length === 0) return [];
+  const canvas = $('#book').querySelector('canvas');
+  const rect = pageFlip.getRender().getRect(); // { left, top, height, pageWidth }
+  const layer = $('#highlights');
+  if (!canvas || !rect || !layer) return [];
+
+  // Which page indices are on screen, and each one's x-offset inside the spread.
+  // Without a cover, landscape spreads are [0,1], [2,3], … (even index on left);
+  // portrait shows a single page in the right-hand slot.
+  const idx = pageFlip.getCurrentPageIndex();
+  const spread = [];
+  if (pageFlip.getOrientation() === 'portrait') {
+    spread.push({ i: idx, offset: rect.pageWidth });
+  } else {
+    const left = idx - (idx % 2);
+    spread.push({ i: left, offset: 0 });
+    if (left + 1 < pages.length) spread.push({ i: left + 1, offset: rect.pageWidth });
+  }
+
+  const canvasBox = canvas.getBoundingClientRect();
+  const layerBox = layer.getBoundingClientRect();
+
+  return spread
+    .map(({ i, offset }) => {
+      const page = pages[i];
+      if (!page) return null;
+      return {
+        i,
+        page,
+        left: canvasBox.left - layerBox.left + rect.left + offset,
+        top: canvasBox.top - layerBox.top + rect.top,
+        width: rect.pageWidth,
+        height: rect.height,
+        sx: page.width ? rect.pageWidth / page.width : 0,
+        sy: page.height ? rect.height / page.height : 0,
+      };
+    })
+    .filter(Boolean);
 }
 
 // Draw the overlays for the visible page(s): a ribbon on bookmarked pages and
@@ -710,67 +802,188 @@ function updateHighlights() {
   if (!layer) return;
   layer.replaceChildren();
 
-  if (!pageFlip || pages.length === 0) return;
-
-  const canvas = $('#book').querySelector('canvas');
-  const rect = pageFlip.getRender().getRect(); // { left, top, height, pageWidth }
-  if (!canvas || !rect) return;
-
-  // Which page indices are on screen, and each one's x-offset inside the spread.
-  // Without a cover, landscape spreads are [0,1], [2,3], … (even index on left);
-  // portrait shows a single page in the right-hand slot.
-  const idx = pageFlip.getCurrentPageIndex();
-  const visible = [];
-  if (pageFlip.getOrientation() === 'portrait') {
-    visible.push({ i: idx, offset: rect.pageWidth });
-  } else {
-    const left = idx - (idx % 2);
-    visible.push({ i: left, offset: 0 });
-    if (left + 1 < pages.length) visible.push({ i: left + 1, offset: rect.pageWidth });
-  }
-
-  const canvasBox = canvas.getBoundingClientRect();
-  const layerBox = layer.getBoundingClientRect();
   const frag = document.createDocumentFragment();
-
-  for (const { i, offset } of visible) {
-    const page = pages[i];
-    if (!page) continue;
-    const pageLeft = canvasBox.left - layerBox.left + rect.left + offset;
-    const pageTop = canvasBox.top - layerBox.top + rect.top;
+  for (const g of visiblePageGeometry()) {
+    const { page } = g;
     if (page.bookmarked) {
-      const rw = Math.max(18, Math.min(30, rect.pageWidth * 0.05));
+      const rw = Math.max(18, Math.min(30, g.width * 0.05));
       const rib = document.createElement('div');
       rib.className = 'hl-ribbon';
-      rib.style.left = `${pageLeft + rect.pageWidth * 0.86}px`;
-      rib.style.top = `${pageTop}px`;
+      rib.style.left = `${g.left + g.width * 0.86}px`;
+      rib.style.top = `${g.top}px`;
       rib.style.width = `${rw}px`;
       rib.style.height = `${rw * 1.8}px`;
       frag.appendChild(rib);
     }
-    const { tokens, requireAll, cited } = highlightPlan(i);
+    const { tokens, requireAll, cited } = highlightPlan(g.i);
     if (
       tokens.length === 0 ||
       !page.words?.length ||
-      !page.width ||
-      !page.height ||
+      !g.sx ||
+      !g.sy ||
       (requireAll && !pageHasAllTokens(page, tokens))
     )
       continue;
-    const sx = rect.pageWidth / page.width;
-    const sy = rect.height / page.height;
     for (const w of page.words) {
       if (!tokens.some((t) => wordMatchesToken(w.t, t))) continue;
       const box = document.createElement('div');
       box.className = cited ? 'hl-box cited' : 'hl-box';
-      box.style.left = `${pageLeft + w.x * sx}px`;
-      box.style.top = `${pageTop + w.y * sy}px`;
-      box.style.width = `${w.w * sx}px`;
-      box.style.height = `${w.h * sy}px`;
+      box.style.left = `${g.left + w.x * g.sx}px`;
+      box.style.top = `${g.top + w.y * g.sy}px`;
+      box.style.width = `${w.w * g.sx}px`;
+      box.style.height = `${w.h * g.sy}px`;
       frag.appendChild(box);
     }
   }
   layer.appendChild(frag);
+}
+
+// ---------- framing tool ----------
+
+function wireSelectMode() {
+  $('#select-btn').addEventListener('click', () => setSelectMode(!selecting));
+
+  const layer = $('#select-layer');
+
+  layer.addEventListener('pointerdown', (e) => {
+    if (!selecting || e.button !== 0) return;
+    discardFrame(); // a fresh drag always replaces whatever was there
+    const local = toLocalPoint(e);
+    // The sx/sy guard excludes the rare page saved before width/height were
+    // tracked — same as if the pointer had landed in the padding.
+    const geom = visiblePageGeometry().find((g) => g.sx && g.sy && withinGeometry(local, g));
+    if (!geom) return;
+    e.preventDefault();
+    layer.setPointerCapture(e.pointerId);
+    dragOrigin = { geom, x0: local.x, y0: local.y };
+    paintDragRect(local);
+  });
+  layer.addEventListener('pointermove', (e) => {
+    if (dragOrigin) paintDragRect(toLocalPoint(e));
+  });
+  layer.addEventListener('pointerup', (e) => {
+    if (dragOrigin) finishDrag(toLocalPoint(e));
+  });
+  layer.addEventListener('pointercancel', () => {
+    dragOrigin = null;
+    $('#select-rect').hidden = true;
+  });
+
+  // Same shape as the Text panel's own useMarked(): fire the existing
+  // passage flow unchanged, then leave the tool the way it should be after
+  // a press.
+  const useFramed = (send) => () => {
+    if (!framedSelection) return;
+    send(framedSelection.text);
+    setSelectMode(false);
+  };
+  $('#frame-ask-btn').addEventListener('click', useFramed(setSubject));
+  $('#frame-explain-btn').addEventListener('click', useFramed(explainSubject));
+}
+
+function toLocalPoint(e) {
+  const box = $('#select-layer').getBoundingClientRect();
+  return { x: e.clientX - box.left, y: e.clientY - box.top };
+}
+
+function withinGeometry(pt, g) {
+  return pt.x >= g.left && pt.x <= g.left + g.width && pt.y >= g.top && pt.y <= g.top + g.height;
+}
+
+// Clamped to the page the drag *started* on, never wherever the pointer has
+// since wandered — this is what stops a selection from crossing the spine
+// into the other half of a spread, or running off the page's own edges.
+function clampToGeometry(pt, g) {
+  return {
+    x: Math.max(g.left, Math.min(pt.x, g.left + g.width)),
+    y: Math.max(g.top, Math.min(pt.y, g.top + g.height)),
+  };
+}
+
+function paintDragRect(pt) {
+  const { geom, x0, y0 } = dragOrigin;
+  const p = clampToGeometry(pt, geom);
+  const rect = $('#select-rect');
+  rect.className = 'select-rect live';
+  rect.style.left = `${Math.min(x0, p.x)}px`;
+  rect.style.top = `${Math.min(y0, p.y)}px`;
+  rect.style.width = `${Math.abs(p.x - x0)}px`;
+  rect.style.height = `${Math.abs(p.y - y0)}px`;
+  rect.hidden = false;
+}
+
+async function finishDrag(pt) {
+  const { geom, x0, y0 } = dragOrigin;
+  dragOrigin = null;
+  const p = clampToGeometry(pt, geom);
+  const local = {
+    left: Math.min(x0, p.x),
+    top: Math.min(y0, p.y),
+    width: Math.abs(p.x - x0),
+    height: Math.abs(p.y - y0),
+  };
+  if (local.width < MIN_DRAG_PX || local.height < MIN_DRAG_PX) {
+    $('#select-rect').hidden = true; // an accidental click — stay armed, say nothing
+    return;
+  }
+
+  const page = geom.page;
+  const rect = {
+    x: (local.left - geom.left) / geom.sx,
+    y: (local.top - geom.top) / geom.sy,
+    w: local.width / geom.sx,
+    h: local.height / geom.sy,
+  };
+
+  if (!page.words?.length) {
+    $('#select-rect').hidden = true;
+    setOcrStatus('This page isn’t transcribed yet — nothing to explain there.');
+    setSelectMode(false);
+    return;
+  }
+  const words = wordsInRect(page.words, rect);
+  if (!words.length) {
+    $('#select-rect').hidden = true;
+    setOcrStatus('No transcribed text under that selection.');
+    setSelectMode(false);
+    return;
+  }
+
+  $('#select-rect').className = 'select-rect final';
+  framedSelection = { page, rect, text: wordsToText(words) };
+  $('#frame-ask').hidden = false;
+  placeFrameAsk(local);
+
+  const mine = framedSelection;
+  try {
+    const url = await cropSelection(page, rect);
+    if (framedSelection !== mine) {
+      // Superseded while the crop decoded.
+      if (url) URL.revokeObjectURL(url);
+      return;
+    }
+    if (url) {
+      releaseFrameCrop();
+      frameCropUrl = url;
+      const img = $('#frame-crop-img');
+      img.src = url;
+      img.hidden = false;
+      placeFrameAsk(local); // the thumbnail changed the bar's height
+    }
+  } catch (err) {
+    console.error('Could not crop the selection', err);
+  }
+}
+
+// Anchored below the rectangle, flipped above if that would run off the
+// bottom of .book-area — same measure-after-show approach as placeKeyTip().
+function placeFrameAsk(local) {
+  const ask = $('#frame-ask');
+  const area = $('.book-area');
+  const below = local.top + local.height + 8;
+  const fitsBelow = below + ask.offsetHeight <= area.clientHeight;
+  ask.style.top = `${fitsBelow ? below : Math.max(8, local.top - ask.offsetHeight - 8)}px`;
+  ask.style.left = `${Math.max(8, Math.min(local.left, area.clientWidth - ask.offsetWidth - 8))}px`;
 }
 
 // ---------- OCR queue ----------
@@ -2635,6 +2848,7 @@ async function movePagesTo(ids, targetId, after) {
 
 function openViewer(index = currentPage) {
   if (pages.length === 0) return;
+  setSelectMode(false); // the framing tool only makes sense over the flipbook
   $('#viewer').hidden = false;
   setViewing(true);
   loadViewerPage(index, { fit: true });
@@ -3191,6 +3405,7 @@ function initHeaderAutoHide() {
 
 function wire() {
   wireViewer();
+  wireSelectMode();
   initHeaderAutoHide();
 
   $('#file-input').addEventListener('change', (e) => {
@@ -3324,7 +3539,7 @@ function wire() {
       type,
       (e) => {
         const el = e.target instanceof Element ? e.target : null;
-        if (el?.closest('.modal, .viewer, .panel, .bookmarks-pop')) {
+        if (el?.closest('.modal, .viewer, .panel, .bookmarks-pop, .book-area.selecting')) {
           e.stopImmediatePropagation();
         }
       },
@@ -3367,6 +3582,10 @@ function wire() {
         open.close();
         return;
       }
+      if (selecting) {
+        setSelectMode(false);
+        return;
+      }
     }
 
     if (e.target.matches('input, textarea')) return;
@@ -3402,6 +3621,7 @@ function wire() {
     if (e.key === 'End') goLast();
     if (e.key === 'f' || e.key === 'F') toggleFullscreen();
     if (e.key === 'z' || e.key === 'Z') openViewer();
+    if (e.key === 's' || e.key === 'S') setSelectMode(!selecting);
     if (e.key === 'r' || e.key === 'R') openReview();
     if (e.key === 'b' || e.key === 'B') toggleBookmark();
     if (e.key === 'c' || e.key === 'C') toggleChatShortcut();
@@ -3420,9 +3640,10 @@ function wire() {
   // resize, fullscreen toggles, or the text panel opening/closing. The observer
   // fires after layout settles, so StPageFlip (which refits on window 'resize')
   // has already recomputed its geometry by the time we read it.
-  new ResizeObserver(() => requestAnimationFrame(updateHighlights)).observe(
-    $('.book-area')
-  );
+  new ResizeObserver(() => {
+    discardFrame(); // the geometry a rectangle was measured against no longer applies
+    requestAnimationFrame(updateHighlights);
+  }).observe($('.book-area'));
 
   // No toolbar button for this any more — the Mac app's own window already
   // has one (the green traffic light) — but the F shortcut still works, and

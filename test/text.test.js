@@ -6,6 +6,8 @@ import {
   searchTokens,
   pageHasAllTokens,
   wordMatchesToken,
+  wordsInRect,
+  wordsToText,
   highlight,
 } from '../src/text.js';
 
@@ -82,6 +84,50 @@ describe('wordMatchesToken', () => {
   it('ignores punctuation Vision attached to the word', () => {
     expect(wordMatchesToken('núcleo.', 'nucleo')).toBe(true);
     expect(wordMatchesToken('«mundo»', 'mundo')).toBe(true);
+  });
+});
+
+describe('wordsInRect', () => {
+  const words = [
+    { t: 'uno', x: 0, y: 0, w: 30, h: 10 },
+    { t: 'dos', x: 40, y: 0, w: 30, h: 10 },
+    { t: 'tres', x: 0, y: 20, w: 30, h: 10 },
+  ];
+
+  it('keeps a word whose centre falls inside the rectangle', () => {
+    expect(wordsInRect(words, { x: 0, y: 0, w: 80, h: 15 })).toEqual([words[0], words[1]]);
+  });
+
+  it('is empty when the rectangle holds no word centre', () => {
+    expect(wordsInRect(words, { x: 200, y: 200, w: 10, h: 10 })).toEqual([]);
+  });
+
+  it('is empty on a page with no words at all', () => {
+    expect(wordsInRect([], { x: 0, y: 0, w: 1000, h: 1000 })).toEqual([]);
+    expect(wordsInRect(undefined, { x: 0, y: 0, w: 1000, h: 1000 })).toEqual([]);
+  });
+
+  // The rule is the centre point, not overlap — a rectangle that only grazes
+  // a word's corner must not count it.
+  it('does not count a word the rectangle only clips', () => {
+    // "tres" spans x 0-30, y 20-30 (centre at 15,25).
+    expect(wordsInRect(words, { x: 0, y: 20, w: 10, h: 10 })).toEqual([]);
+  });
+
+  it('preserves the words argument order (callers pass reading order)', () => {
+    const out = wordsInRect(words, { x: 0, y: 0, w: 1000, h: 1000 });
+    expect(out.map((w) => w.t)).toEqual(['uno', 'dos', 'tres']);
+  });
+});
+
+describe('wordsToText', () => {
+  it('joins matched words with single spaces', () => {
+    expect(wordsToText([{ t: 'uno' }, { t: 'dos' }])).toBe('uno dos');
+  });
+
+  it('is empty for no words', () => {
+    expect(wordsToText([])).toBe('');
+    expect(wordsToText(undefined)).toBe('');
   });
 });
 

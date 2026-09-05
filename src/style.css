@@ -767,6 +767,7 @@ body:not(.is-mobile) .book-area {
   bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
+  z-index: 8; /* above .select-layer/.frame-ask so First/Last stay clickable while framing */
   display: flex;
   align-items: center;
   gap: 12px;
@@ -818,6 +819,59 @@ body:not(.is-mobile) .book-area {
   pointer-events: none;
   overflow: hidden;
   z-index: 5;
+}
+
+/* Armed by 🖼 Frame (S): the book accepts a drag instead of handing it to
+   StPageFlip's page-turn gesture (guarded in main.js's window-level
+   mousemove/touchmove capture listener). */
+.book-area.selecting {
+  cursor: crosshair;
+}
+.select-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6; /* above .highlights */
+  pointer-events: none;
+  touch-action: none;
+}
+.book-area.selecting .select-layer {
+  pointer-events: auto;
+}
+.select-rect {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none; /* decorative; the layer beneath tracks the drag */
+}
+.select-rect.live {
+  border: 2px dashed var(--accent);
+  background: rgba(200, 116, 60, 0.12);
+}
+/* Released, waiting on Explain/Ask — a solid line says "this one's locked in". */
+.select-rect.final {
+  border: 2px solid var(--accent);
+  background: rgba(200, 116, 60, 0.22);
+}
+
+.frame-ask {
+  position: absolute;
+  z-index: 7;
+  width: max-content;
+  max-width: min(280px, 80vw);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  flex-direction: column; /* .panel-ask sets display:flex + gap:8px already */
+}
+.frame-ask .btn {
+  width: 100%; /* .panel-ask .btn sets flex:1, meant for its row layout */
+}
+.frame-crop-img {
+  display: block;
+  max-width: 100%;
+  max-height: 140px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  object-fit: contain;
+  background: #fff;
 }
 .hl-box {
   position: absolute;
@@ -1980,6 +2034,7 @@ body.is-mobile .viewer {
   z-index: 30;
 }
 body.is-mobile #zoom-btn,
+body.is-mobile #select-btn,
 body.is-mobile #viewer-close {
   display: none;
 }

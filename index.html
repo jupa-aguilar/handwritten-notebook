@@ -50,6 +50,7 @@
           <nav id="reading-bar" class="reading-bar" aria-label="Reading tools">
             <button id="pages-btn" class="read-btn" title="All pages"><span class="read-icon">🗂</span><span class="read-label">Pages</span></button>
             <button id="zoom-btn" class="read-btn" title="Zoom in to read (Z)"><span class="read-icon">🔍</span><span class="read-label">Zoom</span></button>
+            <button id="select-btn" class="read-btn" title="Frame part of the page to ask about (S)" aria-pressed="false"><span class="read-icon">🖼</span><span class="read-label">Frame</span></button>
             <button id="panel-toggle" class="read-btn" title="Show page text"><span class="read-icon">📖</span><span class="read-label">Text</span></button>
             <button id="chat-btn" class="read-btn" title="Chat about this notebook"><span class="read-icon">💬</span><span class="read-label">Chat</span></button>
             <button id="review-btn" class="read-btn" title="Review cards drawn from these pages (R)"><span class="read-icon">🎯</span><span class="read-label">Review</span><span id="review-badge" class="read-badge" hidden></span></button>
@@ -102,6 +103,14 @@
         </div>
         <div id="book" class="book"></div>
         <div id="highlights" class="highlights" aria-hidden="true"></div>
+        <div id="select-layer" class="select-layer" aria-hidden="true">
+          <div id="select-rect" class="select-rect" hidden></div>
+        </div>
+        <div id="frame-ask" class="frame-ask panel-ask" hidden>
+          <img id="frame-crop-img" class="frame-crop-img" alt="" hidden>
+          <button id="frame-explain-btn" class="btn small" title="Ask for it to be explained, plainly and with an analogy">🎓 Explain this</button>
+          <button id="frame-ask-btn" class="btn ghost small" title="Keep this passage in mind and ask your own question">💬 Ask about this</button>
+        </div>
 
         <!-- The reading tools, floating over the page rather than competing
              with the notebook's name for room in the top bar. On phones this
@@ -693,6 +702,7 @@
           <dt><kbd>C</kbd></dt><dd>Show / hide the chat</dd>
           <dt><kbd>R</kbd></dt><dd>Review cards from these pages</dd>
           <dt><kbd>Z</kbd></dt><dd>Zoom in to read</dd>
+          <dt><kbd>S</kbd></dt><dd>Frame part of the page to ask about</dd>
           <dt><kbd>F</kbd></dt><dd>Full screen</dd>
         </dl>
         <h3 class="settings-subtitle">Zoom view</h3>

@@ -12,6 +12,13 @@ export async function cropPage(page, box) {
   return cut(page, box && cropRect(page, box));
 }
 
+// The exact rectangle the reader drew, unpadded and unsnapped — cropRect's
+// word/line snapping is right for a box inferred from an anchor, wrong here:
+// the user drew precisely what they meant.
+export async function cropSelection(page, rect) {
+  return cut(page, rect);
+}
+
 // The hint a card offers before it is turned over: the same passage with a line
 // of context either side, and the answer itself painted out. Costs no model
 // call — the box was measured when the card was made, and covering it is the

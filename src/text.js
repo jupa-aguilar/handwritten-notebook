@@ -68,6 +68,26 @@ export function wordMatchesToken(word, token) {
   return bareWord(foldText(word)) === token;
 }
 
+// A hand-drawn rectangle's own words, in the same image-pixel space as
+// page.words. Judged by each word's centre point, not overlap: a box that
+// only grazes a word's edge probably wasn't meant to catch it.
+export function wordsInRect(words, rect) {
+  if (!rect || rect.w <= 0 || rect.h <= 0) return [];
+  return (words || []).filter((w) => {
+    const cx = w.x + w.w / 2;
+    const cy = w.y + w.h / 2;
+    return cx >= rect.x && cx <= rect.x + rect.w && cy >= rect.y && cy <= rect.y + rect.h;
+  });
+}
+
+// One line of text from a run of OCR words already in reading order
+// (extractWords in ocr.js flattens page→block→paragraph→word in order) —
+// this never re-sorts, so a caller passing words from elsewhere doesn't get
+// a silent surprise.
+export function wordsToText(words) {
+  return (words || []).map((w) => w.t).join(' ').trim();
+}
+
 // Regex fragment matching one folded token, with each base letter widened to
 // also match its accented forms (so the original accented text gets marked).
 function accentPattern(token) {
