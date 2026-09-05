@@ -279,6 +279,23 @@ async function renderBook() {
     objectUrls.push(u);
     return u;
   });
+  // StPageFlip mishandles the flip animation into a spread with an empty
+  // side — the outgoing page's texture lingers on screen until the animation
+  // finishes, then vanishes (nodlik/StPageFlip#49, unfixed upstream). An odd
+  // page count always ends on exactly that spread, so give it a real blank
+  // companion instead of leaving the slot empty; every read of pages[] below
+  // still keys off pages.length, so this filler is never mistaken for one of
+  // the notebook's own pages.
+  if (pages.length % 2 === 1) {
+    const last = pages[pages.length - 1];
+    const w = last.width || 1000;
+    const h = last.height || 1300;
+    urls.push(
+      `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="100%" height="100%" fill="#fff"/></svg>`
+      )}`
+    );
+  }
 
   // Decode the images before building the flipbook. Without this, StPageFlip
   // measures zero-sized images and renders blank until something forces a
@@ -301,7 +318,10 @@ async function renderBook() {
   });
   pageFlip.loadFromImages(urls);
   pageFlip.on('flip', (e) => {
-    currentPage = e.data;
+    // The filler page above (when there is one) is StPageFlip's last loaded
+    // index; clamping keeps currentPage a valid pages[] index even if that's
+    // what StPageFlip reports as newly current.
+    currentPage = Math.min(e.data, pages.length - 1);
     savePage(currentNotebookId, currentPage);
     updatePanel();
     updatePager();
