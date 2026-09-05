@@ -31,6 +31,7 @@ import {
   foldText,
   searchTokens,
   pageHasAllTokens,
+  wordMatchesToken,
   highlight,
 } from './text.js';
 import { buildZip } from './zip.js';
@@ -721,7 +722,7 @@ function updateHighlights() {
     const sx = rect.pageWidth / page.width;
     const sy = rect.height / page.height;
     for (const w of page.words) {
-      if (!tokens.some((t) => foldText(w.t).includes(t))) continue;
+      if (!tokens.some((t) => wordMatchesToken(w.t, t))) continue;
       const box = document.createElement('div');
       box.className = cited ? 'hl-box cited' : 'hl-box';
       box.style.left = `${pageLeft + w.x * sx}px`;
@@ -2776,7 +2777,7 @@ function renderViewerHighlights() {
     (!requireAll || pageHasAllTokens(page, tokens))
   ) {
     for (const w of page.words) {
-      if (!tokens.some((t) => foldText(w.t).includes(t))) continue;
+      if (!tokens.some((t) => wordMatchesToken(w.t, t))) continue;
       const box = document.createElement('div');
       box.className = cited ? 'vhl-box cited' : 'vhl-box';
       box.style.left = `${w.x}px`;

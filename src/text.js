@@ -41,12 +41,31 @@ export function searchTokens(query) {
   return foldText(query).split(/\s+/).filter(Boolean);
 }
 
-// A page is a search hit when its text contains every query word. Used both
-// to filter the results list and to gate the word-box overlays, so a box
-// never appears on a page the search reports as a non-match.
+// A page is a search hit when its text contains every query word — as a
+// whole word, not a substring: "dos" must not credit a page for "todos" or
+// "mundos". Used both to filter the results list and to gate the word-box
+// overlays, so a box never appears on a page the search reports as a
+// non-match.
 export function pageHasAllTokens(page, tokens) {
+  if (tokens.length === 0) return true;
   const hay = foldText(page.text || '');
-  return tokens.every((t) => hay.includes(t));
+  const words = new Set(hay.split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+  return tokens.every((t) => words.has(t));
+}
+
+// Strip everything but letters and digits, so an OCR word carrying whatever
+// punctuation Vision grouped onto it ("núcleo." "«mundo»") still matches the
+// bare token a search or citation was given.
+function bareWord(s) {
+  return s.replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+// Whether one OCR-detected word *is* a query token, whole-word rather than
+// substring. Shared by every word-box overlay (the flipbook's and the zoom
+// viewer's) so they draw exactly the boxes pageHasAllTokens/highlight agree
+// are hits, never a box on "todos" because the query was "dos".
+export function wordMatchesToken(word, token) {
+  return bareWord(foldText(word)) === token;
 }
 
 // Regex fragment matching one folded token, with each base letter widened to
@@ -65,11 +84,15 @@ export function highlight(text, query) {
   const safe = escapeHtml(text);
   const tokens = searchTokens(query);
   if (tokens.length === 0) return safe;
-  // Mark every query word wherever it appears. Longest first so "abc" wins
-  // over "ab" when both are searched and overlap.
+  // Mark every query word wherever it appears, whole-word only (the
+  // lookaround pair below) so "dos" doesn't light up half of "todos".
+  // Longest first so "abc" wins over "ab" when both are searched and overlap.
   const pattern = [...tokens]
     .sort((a, b) => b.length - a.length)
     .map(accentPattern)
     .join('|');
-  return safe.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>');
+  return safe.replace(
+    new RegExp(`(?<![\\p{L}\\p{N}])(${pattern})(?![\\p{L}\\p{N}])`, 'giu'),
+    '<mark>$1</mark>'
+  );
 }

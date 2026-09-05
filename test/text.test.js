@@ -5,6 +5,7 @@ import {
   foldText,
   searchTokens,
   pageHasAllTokens,
+  wordMatchesToken,
   highlight,
 } from '../src/text.js';
 
@@ -57,6 +58,31 @@ describe('pageHasAllTokens', () => {
     expect(pageHasAllTokens({}, searchTokens('anything'))).toBe(false);
     expect(pageHasAllTokens({ text: '' }, [])).toBe(true); // empty query matches all
   });
+
+  it('is whole-word: a query word must not match inside a longer one', () => {
+    const p = { text: 'Puede descargarse si nadie lo está usando, todos los módulos' };
+    expect(pageHasAllTokens(p, searchTokens('los'))).toBe(true);
+    // "dos" is a substring of "todos" and of "módulos" but appears as neither
+    // of those words on its own — the page must not count as a hit for it.
+    expect(pageHasAllTokens(p, searchTokens('dos'))).toBe(false);
+  });
+});
+
+describe('wordMatchesToken', () => {
+  it('matches a word exactly, not as a substring of a longer word', () => {
+    expect(wordMatchesToken('dos', 'dos')).toBe(true);
+    expect(wordMatchesToken('todos', 'dos')).toBe(false);
+    expect(wordMatchesToken('módulos', 'dos')).toBe(false);
+  });
+
+  it('folds accents and case', () => {
+    expect(wordMatchesToken('CANCIÓN', 'cancion')).toBe(true);
+  });
+
+  it('ignores punctuation Vision attached to the word', () => {
+    expect(wordMatchesToken('núcleo.', 'nucleo')).toBe(true);
+    expect(wordMatchesToken('«mundo»', 'mundo')).toBe(true);
+  });
 });
 
 describe('highlight', () => {
@@ -67,6 +93,13 @@ describe('highlight', () => {
   it('marks accented text when the query has no accents', () => {
     expect(highlight('canción', 'cancion')).toBe('<mark>canción</mark>');
     expect(highlight('mañana', 'manana')).toBe('<mark>mañana</mark>');
+  });
+
+  it('is whole-word: it must not mark a query word inside a longer one', () => {
+    expect(highlight('todos los módulos', 'dos')).toBe('todos los módulos');
+    expect(highlight('todos los módulos', 'los')).toBe(
+      'todos <mark>los</mark> módulos'
+    );
   });
 
   it('escapes the text before marking, so page content can never inject HTML', () => {
