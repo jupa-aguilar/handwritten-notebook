@@ -320,6 +320,12 @@ async function renderBook() {
     showCover: false,
     usePortrait: true,
     mobileScrollSupport: true,
+    // The corner-lift preview StPageFlip draws just from hovering near an
+    // edge — not from clicking or dragging — was distracting while reading.
+    // This turns off only that hover hint (PageFlip.ts's userMove: it's the
+    // one call gated on this flag); an actual click or drag still turns the
+    // page with the normal curl animation.
+    showPageCorners: false,
   });
   pageFlip.loadFromImages(urls);
   pageFlip.on('flip', (e) => {
