@@ -819,7 +819,7 @@ function setComposerEnabled(on) {
 function setSendStopping(on) {
   const btn = $('#chat-send');
   btn.textContent = on ? '◼' : '➤';
-  btn.title = on ? 'Stop' : 'Send';
+  btn.title = on ? 'Stop' : 'Send (Enter)';
 }
 
 // Probe the backend and flip between the composer and the "can't reach it"

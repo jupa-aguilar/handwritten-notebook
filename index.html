@@ -31,7 +31,7 @@
          Everything about *reading* lives in .reading-bar, below. -->
     <header class="toolbar">
       <div class="toolbar-main">
-        <button id="notebooks-btn" class="btn ghost" title="Notebooks" aria-label="Notebooks">📚</button>
+        <button id="notebooks-btn" class="btn ghost" title="Notebooks (N)" aria-label="Notebooks">📚</button>
         <span id="current-notebook" class="current-notebook"></span>
 
         <div class="search-wrap">
@@ -39,32 +39,33 @@
             id="search"
             type="search"
             placeholder="Search all pages…"
+            title="Search all pages (⌘F)"
             autocomplete="off"
           />
           <span id="search-count" class="search-count"></span>
         </div>
 
         <span id="ocr-status" class="ocr-status"></span>
-        <button id="transcribe-now" class="btn" hidden>Transcribe pages</button>
+        <button id="transcribe-now" class="btn" hidden title="Transcribe the pages that still have no text (O)">Transcribe pages</button>
 
           <nav id="reading-bar" class="reading-bar" aria-label="Reading tools">
-            <button id="pages-btn" class="read-btn" title="All pages"><span class="read-icon">🗂</span><span class="read-label">Pages</span></button>
+            <button id="pages-btn" class="read-btn" title="All pages (P)"><span class="read-icon">🗂</span><span class="read-label">Pages</span></button>
             <button id="zoom-btn" class="read-btn" title="Zoom in to read (Z)"><span class="read-icon">🔍</span><span class="read-label">Zoom</span></button>
             <button id="select-btn" class="read-btn" title="Frame part of the page to ask about (S)" aria-pressed="false"><span class="read-icon">🖼</span><span class="read-label">Frame</span></button>
-            <button id="panel-toggle" class="read-btn" title="Show the text/chat panel"><span class="read-icon">📑</span><span class="read-label">Panel</span></button>
+            <button id="panel-toggle" class="read-btn" title="The page text and the chat (T)"><span class="read-icon">📑</span><span class="read-label">Panel</span></button>
             <button id="review-btn" class="read-btn" title="Review cards drawn from these pages (R)"><span class="read-icon">🎯</span><span class="read-label">Review</span><span id="review-badge" class="read-badge" hidden></span></button>
             <div class="bm-wrap">
               <button id="bookmark-toggle" class="read-btn" title="Bookmark this page (B)" aria-pressed="false"><span class="read-icon">🔖</span><span class="read-label">Mark</span></button>
-              <button id="bookmarks-btn" class="read-btn read-btn-more" title="Show bookmarks" aria-label="Show bookmarks">▾</button>
+              <button id="bookmarks-btn" class="read-btn read-btn-more" title="Show bookmarks (⇧B)" aria-label="Show bookmarks">▾</button>
             </div>
           </nav>
 
         <div class="toolbar-actions">
-          <label class="btn ghost add-btn" for="file-input" title="Add pages" aria-label="Add pages">＋</label>
+          <label class="btn ghost add-btn" for="file-input" title="Add pages (A)" aria-label="Add pages">＋</label>
           <input id="file-input" type="file" accept="image/*" multiple hidden />
-          <button id="update-btn" class="btn ghost" hidden title="A newer version has been downloaded — reload to use it" aria-label="Update">⟳</button>
+          <button id="update-btn" class="btn ghost" hidden title="A newer version has been downloaded — reload to use it (U)" aria-label="Update">⟳</button>
           <div class="sync-wrap">
-            <button id="sync-btn" class="btn ghost" title="Sync notebooks across devices via your Google Drive" aria-label="Sync"><span id="sync-icon" class="sync-icon">☁</span></button>
+            <button id="sync-btn" class="btn ghost" title="Sync notebooks across devices via your Google Drive (D)" aria-label="Sync"><span id="sync-icon" class="sync-icon">☁</span></button>
             <div id="usage-pop" class="usage-pop" hidden>
               <div class="usage-pop-head">Usage</div>
               <div id="usage" class="usage"></div>
@@ -76,18 +77,18 @@
               >
                 Start the chat total over
               </button>
-              <button id="sync-now" class="btn small">☁ Sync now</button>
+              <button id="sync-now" class="btn small" title="Push and pull now (⇧D)">☁ Sync now</button>
               <div id="build-stamp" class="build-stamp"></div>
             </div>
           </div>
-          <button id="help-btn" class="btn ghost" title="How this app works" aria-label="Guide">?</button>
+          <button id="help-btn" class="btn ghost" title="How this app works (H)" aria-label="Guide">?</button>
           <div class="tip-wrap">
-            <button id="settings-btn" class="btn ghost" title="Settings" aria-label="Settings">⚙</button>
+            <button id="settings-btn" class="btn ghost" title="Settings — the API keys live here (K)" aria-label="Settings">⚙</button>
             <div id="key-tip" class="tip" role="status" hidden>
-              <button id="key-tip-open" class="tip-text">
+              <button id="key-tip-open" class="tip-text" title="Open Settings and add it (K)">
                 Add a Vision API key to transcribe your pages
               </button>
-              <button id="key-tip-close" class="tip-close" aria-label="Dismiss">✕</button>
+              <button id="key-tip-close" class="tip-close" title="Dismiss" aria-label="Dismiss">✕</button>
             </div>
           </div>
         </div>
@@ -111,10 +112,10 @@
                without the detour through the chat's own composer. -->
           <form id="frame-question" class="frame-question">
             <input id="frame-question-input" type="text" placeholder="Ask your own question…" autocomplete="off" />
-            <button id="frame-question-send" class="btn small" type="submit" title="Send" aria-label="Send">➤</button>
+            <button id="frame-question-send" class="btn small" type="submit" title="Send (Enter)" aria-label="Send">➤</button>
           </form>
-          <button id="frame-explain-btn" class="btn small" title="Ask for it to be explained, plainly and with an analogy">🎓 Explain this</button>
-          <button id="frame-ask-btn" class="btn ghost small" title="Keep this passage in mind and ask your own question">💬 Ask about this</button>
+          <button id="frame-explain-btn" class="btn small" title="Ask for it to be explained, plainly and with an analogy (E)">🎓 Explain this</button>
+          <button id="frame-ask-btn" class="btn ghost small" title="Keep this passage in mind and ask your own question (Q)">💬 Ask about this</button>
         </div>
 
         <!-- The mouse's way to turn a page, now that clicking the page itself
@@ -137,28 +138,28 @@
       <aside id="panel" class="panel" hidden>
         <div class="panel-head">
           <div class="panel-tabs">
-            <button id="panel-tab-text" class="panel-tab active" aria-pressed="true">📖 Text</button>
-            <button id="panel-tab-chat" class="panel-tab" aria-pressed="false">💬 Chat</button>
+            <button id="panel-tab-text" class="panel-tab active" title="The page's transcription (T)" aria-pressed="true">📖 Text</button>
+            <button id="panel-tab-chat" class="panel-tab" title="Ask about the notebook (C)" aria-pressed="false">💬 Chat</button>
           </div>
-          <button id="proof-btn" class="btn ghost small" title="Check this transcription against the handwriting">✨ Check</button>
-          <button id="panel-close" class="btn ghost small" aria-label="Close panel">✕</button>
+          <button id="proof-btn" class="btn ghost small" title="Check this transcription against the handwriting (⇧C)">✨ Check</button>
+          <button id="panel-close" class="btn ghost small" title="Close the panel (Esc)" aria-label="Close panel">✕</button>
         </div>
         <!-- Finding something on the page you have open. The box in the
              toolbar answers a different question — which pages mention this —
              and leaves you to hunt down the hit by eye once you are there. -->
         <div class="panel-find">
-          <input id="panel-find" type="search" placeholder="Find on this page…" autocomplete="off" />
+          <input id="panel-find" type="search" placeholder="Find on this page…" title="Find on this page — Enter for the next match, ⇧Enter for the one before" autocomplete="off" />
           <span id="panel-find-count" class="panel-find-count"></span>
-          <button id="panel-find-prev" class="btn ghost small" title="Previous match" aria-label="Previous match">⟨</button>
-          <button id="panel-find-next" class="btn ghost small" title="Next match" aria-label="Next match">⟩</button>
+          <button id="panel-find-prev" class="btn ghost small" title="Previous match (⇧Enter)" aria-label="Previous match">⟨</button>
+          <button id="panel-find-next" class="btn ghost small" title="Next match (Enter)" aria-label="Next match">⟩</button>
         </div>
         <div id="panel-body" class="panel-body"></div>
         <!-- Fixed at the foot rather than floating by the selection: on iOS a
              long press brings up the system's own Copy/Look Up menu right
              there, which would sit on top of anything placed beside it. -->
         <div id="panel-ask" class="panel-ask" hidden>
-          <button id="panel-explain-btn" class="btn small" title="Ask for it to be explained, plainly and with an analogy">🎓 Explain this</button>
-          <button id="panel-ask-btn" class="btn ghost small" title="Keep this passage in mind and ask your own question">💬 Ask about this</button>
+          <button id="panel-explain-btn" class="btn small" title="Ask for it to be explained, plainly and with an analogy (E)">🎓 Explain this</button>
+          <button id="panel-ask-btn" class="btn ghost small" title="Keep this passage in mind and ask your own question (Q)">💬 Ask about this</button>
         </div>
         <div id="results" class="results" hidden></div>
       </aside>
@@ -167,13 +168,13 @@
       <aside id="chat" class="panel chat-panel" hidden>
         <div class="panel-head chat-head">
           <div class="panel-tabs">
-            <button id="chat-tab-text" class="panel-tab" aria-pressed="false">📖 Text</button>
-            <button id="chat-tab-chat" class="panel-tab active" aria-pressed="true">💬 Chat</button>
+            <button id="chat-tab-text" class="panel-tab" title="The page's transcription (T)" aria-pressed="false">📖 Text</button>
+            <button id="chat-tab-chat" class="panel-tab active" title="Ask about the notebook (C)" aria-pressed="true">💬 Chat</button>
           </div>
           <button id="chat-marks-btn" class="btn ghost small" title="No marked messages yet" aria-label="Marked messages" aria-expanded="false">🔖</button>
-          <button id="chat-think" class="btn ghost small" aria-label="Model thinking" aria-pressed="false">🧠</button>
+          <button id="chat-think" class="btn ghost small" title="Show what the model was working through" aria-label="Model thinking" aria-pressed="false">🧠</button>
           <button id="chat-clear" class="btn ghost small" title="Clear this conversation" aria-label="Clear this conversation">🧹</button>
-          <button id="chat-close" class="btn ghost small" title="Close" aria-label="Close chat">✕</button>
+          <button id="chat-close" class="btn ghost small" title="Close the panel (Esc)" aria-label="Close chat">✕</button>
         </div>
 
         <!-- Marked messages, so a long conversation can be walked back to the
@@ -206,19 +207,19 @@
         </div>
         <form id="chat-form" class="chat-form">
           <textarea id="chat-input" rows="1" placeholder="Ask about this notebook…" autocomplete="off"></textarea>
-          <button id="chat-send" class="btn" type="submit" title="Send" aria-label="Send">➤</button>
+          <button id="chat-send" class="btn" type="submit" title="Send (Enter)" aria-label="Send">➤</button>
         </form>
       </aside>
 
       <!-- Reading zoom viewer. Fullscreen overlay on desktop; on phones it sits
            below the toolbar and becomes the one and only reading view. -->
       <div id="viewer" class="viewer" hidden>
-        <button id="immersive-btn" class="immersive-btn" title="Full screen" aria-label="Full screen">⛶</button>
+        <button id="immersive-btn" class="immersive-btn" title="Full screen (F)" aria-label="Full screen">⛶</button>
 
         <!-- The chat, collapsed to a tab against the right edge. Asking about
              the page you are reading shouldn't cost leaving the zoom view,
              coming back, and hunting for your place again. -->
-        <button id="viewer-chat-tab" class="viewer-chat-tab" title="Ask about this page" aria-label="Open chat" aria-expanded="false">
+        <button id="viewer-chat-tab" class="viewer-chat-tab" title="Ask about this page (C)" aria-label="Open chat" aria-expanded="false">
           <span class="vct-icon">💬</span><span class="vct-label">Chat</span>
         </button>
         <div id="viewer-stage" class="viewer-stage">
@@ -594,7 +595,7 @@
               <li>En escritorio la página se pasa con <kbd>←</kbd> <kbd>→</kbd> o con las flechas que aparecen a los lados del libro al acercar el ratón. Hacer clic sobre la hoja no la pasa: así el puntero puede quedarse encima mientras lees.</li>
               <li><strong>Pellizca</strong> para ampliar y reducir dentro del visor.</li>
               <li>El número de página, abajo, abre <em>ir a la página…</em> si lo pulsas.</li>
-              <li>En escritorio estas herramientas viven en la barra de arriba, como iconos sin etiqueta —el nombre sale al posar el ratón— junto a la búsqueda y a ＋ ☁ ? ⚙. Todo en una sola fila, para que nada flote encima de lo que estás leyendo; si la ventana se estrecha, la fila salta a dos líneas en vez de esconder nada.</li>
+              <li>En escritorio estas herramientas viven en la barra de arriba, como iconos sin etiqueta —el nombre y su atajo de teclado salen al posar el ratón— junto a la búsqueda y a ＋ ☁ ? ⚙. Todo en una sola fila, para que nada flote encima de lo que estás leyendo; si la ventana se estrecha, la fila salta a dos líneas en vez de esconder nada.</li>
             </ul>
             <p class="help-note">Con <strong>Mark</strong> pones un marcador en la página que estás leyendo; el <strong>▾</strong> de al lado abre la lista para saltar entre ellos.</p>
           </section>
@@ -710,18 +711,36 @@
     <div id="shortcuts" class="modal" hidden>
       <div class="modal-card">
         <h2>Keyboard shortcuts</h2>
+        <p class="help-note">Every button carries its key: hover one and the tooltip names it.</p>
         <h3 class="settings-subtitle">Reading</h3>
         <dl class="shortcut-list">
           <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Turn page</dd>
           <dt><kbd>Home</kbd><kbd>End</kbd></dt><dd>First / last page</dd>
           <dt><kbd>G</kbd></dt><dd>Go to page…</dd>
           <dt><kbd>B</kbd></dt><dd>Bookmark this page</dd>
+          <dt><kbd>⇧B</kbd></dt><dd>The list of bookmarks</dd>
+          <dt><kbd>T</kbd></dt><dd>The page text — or close the panel when that is what's up</dd>
           <dt><kbd>C</kbd></dt><dd>Show / hide the chat</dd>
+          <dt><kbd>⇧C</kbd></dt><dd>Check the open transcription against the handwriting</dd>
           <dt><kbd>R</kbd></dt><dd>Review cards from these pages</dd>
           <dt><kbd>Z</kbd></dt><dd>Zoom in to read</dd>
           <dt><kbd>S</kbd></dt><dd>Frame part of the page to ask about</dd>
+          <dt><kbd>E</kbd></dt><dd>Explain the passage you framed or selected</dd>
+          <dt><kbd>Q</kbd></dt><dd>Ask your own question about it</dd>
           <dt><kbd>F</kbd></dt><dd>Full screen</dd>
           <dt><kbd>Esc</kbd></dt><dd>Back to reading: clear the search, close the panel</dd>
+        </dl>
+        <h3 class="settings-subtitle">The notebook and the app</h3>
+        <dl class="shortcut-list">
+          <dt><kbd>N</kbd></dt><dd>Notebooks</dd>
+          <dt><kbd>P</kbd></dt><dd>All pages</dd>
+          <dt><kbd>A</kbd></dt><dd>Add pages</dd>
+          <dt><kbd>O</kbd></dt><dd>Transcribe the pages still without text — while there are any</dd>
+          <dt><kbd>D</kbd></dt><dd>Drive sync and what it has cost</dd>
+          <dt><kbd>⇧D</kbd></dt><dd>Sync now</dd>
+          <dt><kbd>U</kbd></dt><dd>Reload for a downloaded update — while one is waiting</dd>
+          <dt><kbd>H</kbd></dt><dd>The guide</dd>
+          <dt><kbd>K</kbd></dt><dd>Settings — where the API keys live</dd>
         </dl>
         <h3 class="settings-subtitle">Zoom view</h3>
         <dl class="shortcut-list">
@@ -730,6 +749,7 @@
           <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Previous / next page</dd>
           <dt><kbd>G</kbd></dt><dd>Go to page… (stays in the zoom view)</dd>
           <dt><kbd>C</kbd></dt><dd>Ask about this page without leaving the view</dd>
+          <dt><kbd>F</kbd></dt><dd>Full screen: hide the bars, leave the page</dd>
           <dt><kbd>Esc</kbd></dt><dd>Close the chat, then the viewer</dd>
         </dl>
         <h3 class="settings-subtitle">Review</h3>
@@ -748,6 +768,7 @@
           <dt><kbd>⌘F</kbd> / <kbd>Ctrl+F</kbd></dt><dd>Search all pages</dd>
           <dt><kbd>⌘⌥G</kbd> / <kbd>Ctrl+Alt+G</kbd></dt><dd>Go to page…</dd>
           <dt><kbd>Enter</kbd></dt><dd>Leave the search box, keep the results</dd>
+          <dt><kbd>Enter</kbd> / <kbd>⇧Enter</kbd></dt><dd>Next / previous match in <em>Find on this page</em></dd>
           <dt><kbd>Esc</kbd></dt><dd>Close dialogs</dd>
           <dt><kbd>?</kbd></dt><dd>Show this list</dd>
         </dl>

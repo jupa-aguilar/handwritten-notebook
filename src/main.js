@@ -1104,8 +1104,11 @@ function updateOcrCue() {
     : 0;
   btn.hidden = pending === 0 || ocrRunning;
   btn.textContent = `Transcribe ${pending} page${pending === 1 ? '' : 's'}`;
+  // Rebuilt here rather than left to the markup, so keep the key on it: the
+  // static title in index.html is only what the button says before its first
+  // update, and this is the one the reader actually hovers.
   btn.title = getApiKey()
-    ? `Send ${pending} page(s) to Google Cloud Vision`
+    ? `Send ${pending} page(s) to Google Cloud Vision (O)`
     : 'Add a Vision API key in ⚙ Settings first';
   if (wasHidden && !btn.hidden) wakeHeader();
 }
@@ -1368,8 +1371,8 @@ async function updateSyncCue() {
   const pending = !isAutoSyncOn() && (await hasUnsyncedChanges());
   btn.classList.toggle('pending', pending);
   btn.title = pending
-    ? 'Changes not synced yet — open ☁ and press Sync now'
-    : 'Sync notebooks across devices via your Google Drive';
+    ? 'Changes not synced yet — open ☁ and press Sync now (D)'
+    : 'Sync notebooks across devices via your Google Drive (D)';
 }
 
 async function doSync(interactive) {
@@ -1550,6 +1553,15 @@ function setPanelHidden(hidden) {
 
 function openPanel() {
   setPanelHidden(false);
+}
+
+// T names the Text tab the way C names the Chat one: it brings that side up,
+// or puts the panel away when that side is already the one showing. So from
+// the chat, T crosses to the transcript rather than closing everything — the
+// toolbar button is the one that toggles and remembers the last tab.
+function toggleTextShortcut() {
+  if (!$('#panel').hidden) setPanelHidden(true);
+  else openPanel();
 }
 
 // Replaces togglePanel as the toolbar's single entry point (Text and Chat
@@ -3669,6 +3681,22 @@ function wire() {
     // combinations the app does claim (⌘F, ⌘⌥G) were answered further up.
     if (e.metaKey || e.ctrlKey || e.altKey) return;
 
+    // The cheatsheet answers ? from wherever it can be read — including over
+    // itself, so the same key puts it away again — but not from under another
+    // dialog, where opening it would leave Escape closing the two in the
+    // order they are listed rather than the order they are stacked.
+    if (e.key === '?') {
+      const other = modals.some(({ el }) => !el.hidden && el !== $('#shortcuts'));
+      if (!other) $('#shortcuts').hidden = !$('#shortcuts').hidden;
+      return;
+    }
+
+    // A dialog owns the keyboard while it is up: the review sitting grades
+    // with h and 1–4, the proofreader answers enter and backspace, and the
+    // notebooks list is a list of names. Only Escape, answered above, reaches
+    // past one — without this, H would open the guide over a card mid-review.
+    if (modals.some(({ el }) => !el.hidden)) return;
+
     // When the zoom viewer is open it captures the keyboard.
     if (!$('#viewer').hidden) {
       // Escape peels off one layer at a time: the chat floating over the
@@ -3684,6 +3712,10 @@ function wire() {
       else if (e.key === 'b' || e.key === 'B') toggleBookmark();
       else if (e.key === 'c' || e.key === 'C') toggleChatShortcut();
       else if (e.key === 'g' || e.key === 'G') openGoto();
+      // F means the same thing here as it does on the book — all the page and
+      // nothing else — even though it gets there a different way: iOS has no
+      // Fullscreen API, so the viewer hides its own bars instead.
+      else if (e.key === 'f' || e.key === 'F') toggleImmersive();
       return;
     }
 
@@ -3696,10 +3728,41 @@ function wire() {
     if (e.key === 'z' || e.key === 'Z') openViewer();
     if (e.key === 's' || e.key === 'S') setSelectMode(!selecting);
     if (e.key === 'r' || e.key === 'R') openReview();
-    if (e.key === 'b' || e.key === 'B') toggleBookmark();
-    if (e.key === 'c' || e.key === 'C') toggleChatShortcut();
+    if (e.key === 'n' || e.key === 'N') openNotebooks();
+    if (e.key === 'p' || e.key === 'P') openPagesOverview();
+    if (e.key === 't' || e.key === 'T') toggleTextShortcut();
+    if (e.key === 'a' || e.key === 'A') $('#file-input').click();
+    if (e.key === 'h' || e.key === 'H') openHelp();
+    if (e.key === 'k' || e.key === 'K') openSettings();
     if (e.key === 'g' || e.key === 'G') openGoto();
-    if (e.key === '?') $('#shortcuts').hidden = !$('#shortcuts').hidden;
+    // Shift claims the second action on a letter the app already spends, and
+    // it is always the one standing right beside the plain key's: the bookmark
+    // list beside marking a page, syncing now beside opening the cloud's
+    // panel, checking the transcription beside the chat that reads it. (Caps
+    // Lock swaps each pair over — not worth a guard.)
+    if (e.key === 'b') toggleBookmark();
+    if (e.key === 'B') toggleBookmarksPop();
+    if (e.key === 'd') toggleUsagePop();
+    if (e.key === 'D') $('#sync-now').click();
+    if (e.key === 'c') toggleChatShortcut();
+    if (e.key === 'C' && !$('#panel').hidden) $('#proof-btn').click();
+    // The pair of buttons that comes up with a passage in hand — framed on the
+    // page, or dragged through the transcript — answers from the keyboard too.
+    // The framed one wins when both are up: it is the one just drawn.
+    if (e.key === 'e' || e.key === 'E') {
+      if (!$('#frame-ask').hidden) $('#frame-explain-btn').click();
+      else if (!$('#panel-ask').hidden) $('#panel-explain-btn').click();
+    }
+    if (e.key === 'q' || e.key === 'Q') {
+      if (!$('#frame-ask').hidden) $('#frame-ask-btn').click();
+      else if (!$('#panel-ask').hidden) $('#panel-ask-btn').click();
+    }
+    // These two are cues, not fixtures. The key answers only while the button
+    // is on screen, so it does exactly what pressing the button would.
+    if ((e.key === 'o' || e.key === 'O') && !$('#transcribe-now').hidden) {
+      $('#transcribe-now').click();
+    }
+    if ((e.key === 'u' || e.key === 'U') && !$('#update-btn').hidden) $('#update-btn').click();
   });
 
   // The rule between the reading tools and the app's own actions has to go
