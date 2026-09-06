@@ -1568,6 +1568,21 @@ function toggleUnifiedPanel() {
   else openPanel();
 }
 
+// What Escape means once nothing is layered on top of the book: put the page
+// back the way it was before the search — the query, its result list and its
+// word boxes gone, the side panel closed — in one press. It used to be two
+// errands, and the search half was only reachable with the mouse: the box's
+// own Escape stops working the moment focus leaves it, so the ✕ had to be
+// found and clicked.
+function backToReading() {
+  if ($('#search').value !== '') {
+    $('#search').value = '';
+    refreshSearch(); // drops the results, the .searching class and the boxes
+  }
+  if (!$('#panel').hidden) setPanelHidden(true);
+  else if (!$('#chat').hidden) toggleChat();
+}
+
 // ---------- bookmarks ----------
 
 // The page(s) on screen: both halves of a landscape spread in the flipbook,
@@ -3489,22 +3504,20 @@ function wire() {
       return;
     }
 
-    // Escape drops the search: the text, the result list and the word boxes on
-    // the page. Handled here rather than left to the browser's native clearing
-    // of type="search", which doesn't fire `input` and so leaves the highlights
-    // behind. Once the box is already empty, Escape gives the keyboard back to
-    // the reading shortcuts; it never reaches the global handler, so it can't
-    // close a modal on the way.
+    // Escape means the same thing here as it does out on the book: back to
+    // reading, in one press — see backToReading, which drops the query, the
+    // result list, the word boxes and the side panel together. Handled here
+    // rather than left to the browser's native clearing of type="search",
+    // which doesn't fire `input` and so leaves the highlights behind. The
+    // press never reaches the global handler, so it can't close a modal on
+    // the way; the blur is what hands the keyboard back to the reading
+    // shortcuts.
     if (e.key !== 'Escape') return;
     e.preventDefault();
     e.stopPropagation();
-    if ($('#search').value === '') {
-      $('#search').blur();
-      return;
-    }
     clearTimeout(searchTimer);
-    $('#search').value = '';
-    refreshSearch();
+    backToReading();
+    box.blur();
   });
 
   $('#first').addEventListener('click', goFirst);
@@ -3653,6 +3666,7 @@ function wire() {
       return;
     }
 
+    if (e.key === 'Escape') backToReading();
     if (e.key === 'ArrowLeft') turnPage(-1);
     if (e.key === 'ArrowRight') turnPage(1);
     if (e.key === 'Home') goFirst();
