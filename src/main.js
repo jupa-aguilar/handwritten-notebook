@@ -563,7 +563,8 @@ function transcriptSection(page, query, highlightIt = true) {
     page.ocrStatus === 'pending'
       ? ''
       : ` <button class="btn ghost small edit-page" data-id="${page.id}" title="Correct this transcription by hand (⇧T)">✏️ Edit</button>` +
-        ` <button class="btn ghost small reread-page" data-id="${page.id}" title="Have the model read this page again and propose a new transcription (⇧R)">🔁 Re-read</button>`;
+        ` <button class="btn ghost small reread-page" data-id="${page.id}" title="Have the model read this page again and propose a new transcription (⇧R)">🔁 Re-read</button>` +
+        ` <button class="btn ghost small rescan-page" data-id="${page.id}" title="Scan this page with Google Vision again — the only thing that measures where the words are, and the only way to get the boxes back">📷 Re-scan</button>`;
   let html = `<div class="panel-meta">Page ${n} of ${pages.length}${tools}</div>`;
   if (page.ocrStatus === 'skipped') {
     html += `<div class="panel-note">Transcription is turned off, so page text and search aren't available yet.</div>`;
@@ -651,6 +652,7 @@ async function saveTranscript() {
   if (!page || !box) return;
   const text = box.value.trim();
   if (text !== (page.text || '')) {
+    const had = page.words?.length || 0;
     page.text = text;
     // The boxes have to follow the text or the marks on the image start
     // pointing at the wrong ink — see realignWords for what can honestly be
@@ -667,6 +669,17 @@ async function saveTranscript() {
     scheduleSync();
     await reanchorCards(page); // a corrected word may be the one an anchor missed
     updateOcrCue(); // the page may have just left the queue
+    // Out loud, because it used to happen in silence: the first anyone knew
+    // that an edit had cost the page its boxes was the framing tool calling it
+    // untranscribed.
+    const kept = page.words.length;
+    if (had && kept < had) {
+      setOcrStatus(
+        kept === 0
+          ? `Saved. None of the ${had} word positions survived that rewrite, so nothing can be marked or framed on the image until Vision scans the page again.`
+          : `Saved — ${kept} of ${had} word positions kept.`
+      );
+    }
   }
   editingPageId = null;
   editingDraft = null;
@@ -754,6 +767,32 @@ async function rereadTranscript(id) {
   } finally {
     rereading = false;
   }
+}
+
+// Send one page back to Vision. The only way to get word boxes back once an
+// edit or a re-read has cost them: nothing else here measures ink. It replaces
+// the text with Vision's reading, so it asks first — on a page that was
+// corrected by hand that is the correction being thrown away.
+async function rescanTranscript(id) {
+  const page = pages.find((p) => p.id === id);
+  if (!page) return;
+  const n = pages.indexOf(page) + 1;
+  const had = (page.text || '').trim();
+  if (
+    had &&
+    !confirm(
+      `Scan page ${n} with Vision again? It replaces the text with Vision's reading, and any corrections you made to it are lost. What you get back are the word positions.`
+    )
+  ) {
+    return;
+  }
+  if (editingPageId === id) cancelTranscriptEdit();
+  page.ocrStatus = 'pending';
+  page.error = '';
+  await putPage(page);
+  updatePanel();
+  updateOcrCue();
+  runOcrQueue({ manual: true });
 }
 
 // ⇧R reads the page you have open again, beside R for Review — the shifted key
@@ -1199,7 +1238,13 @@ async function finishDrag(pt) {
 
   if (!page.words?.length) {
     $('#select-rect').hidden = true;
-    setOcrStatus('This page isn’t transcribed yet — nothing to explain there.');
+    // Two very different states behind the same empty array. Saying the wrong
+    // one sends the reader off to transcribe a page whose text is right there.
+    setOcrStatus(
+      (page.text || '').trim()
+        ? 'This page has its text but no word positions, so there is nothing to frame on the image — only a scan by Vision measures where the words are.'
+        : 'This page isn’t transcribed yet — nothing to explain there.'
+    );
     setSelectMode(false);
     return;
   }
@@ -4102,6 +4147,8 @@ function wire() {
     if (edit) return startEditingTranscript(Number(edit.dataset.id));
     const reread = e.target.closest('.reread-page');
     if (reread) return rereadTranscript(Number(reread.dataset.id));
+    const rescan = e.target.closest('.rescan-page');
+    if (rescan) return rescanTranscript(Number(rescan.dataset.id));
     if (e.target.closest('#transcript-save')) return saveTranscript();
     if (e.target.closest('#transcript-cancel')) cancelTranscriptEdit({ ask: true });
   });

@@ -153,25 +153,52 @@ export function realignWords(words, newText) {
   // the unfolded string underneath.
   const a = foldText(oldRun);
   const b = foldText(newRun);
-  const n = a.length;
-  const m = b.length;
-  // The table below is n×m. A page of handwriting is nowhere near, but the new
-  // text is the user's to type, and an unbounded quadratic allocation on their
-  // input is not something to leave open.
-  if (n * m > 4_000_000) return [];
 
-  const lcs = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
-  for (let i = n - 1; i >= 0; i--) {
-    for (let j = m - 1; j >= 0; j--) {
-      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
-    }
-  }
   // Where each old character ended up, or -1 for one the edit took away.
-  const landed = new Int32Array(n).fill(-1);
-  for (let i = 0, j = 0; i < n && j < m; ) {
-    if (a[i] === b[j]) landed[i++] = j++;
-    else if (lcs[i + 1][j] >= lcs[i][j + 1]) i++;
-    else j++;
+  const landed = new Int32Array(a.length).fill(-1);
+
+  // An edit leaves most of a page alone, so only the part that actually
+  // differs needs aligning. Trimming the shared head and tail first is what
+  // makes this affordable — and it is not an optimisation, it is the fix for a
+  // real failure: sized for handwriting, the cap below used to be reached by an
+  // ordinary typeset page (2,316 characters squared is 5.4M), and every box on
+  // it was dropped for the sake of one corrected word.
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) {
+    landed[head] = head;
+    head++;
+  }
+  let tail = 0;
+  while (
+    tail < a.length - head &&
+    tail < b.length - head &&
+    a[a.length - 1 - tail] === b[b.length - 1 - tail]
+  ) {
+    landed[a.length - 1 - tail] = b.length - 1 - tail;
+    tail++;
+  }
+
+  const n = a.length - head - tail;
+  const m = b.length - head - tail;
+  // What is left is a genuine quadratic on text the user can type, so it still
+  // needs a ceiling. Past it the middle is simply left unaligned: the head and
+  // tail keep their boxes, which is the same answer this gives for any run it
+  // cannot follow, and a great deal better than abandoning the page.
+  if (n > 0 && m > 0 && n * m <= 16_000_000) {
+    const lcs = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        lcs[i][j] =
+          a[head + i] === b[head + j]
+            ? lcs[i + 1][j + 1] + 1
+            : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+      }
+    }
+    for (let i = 0, j = 0; i < n && j < m; ) {
+      if (a[head + i] === b[head + j]) landed[head + i++] = head + j++;
+      else if (lcs[i + 1][j] >= lcs[i][j + 1]) i++;
+      else j++;
+    }
   }
 
   const out = [];

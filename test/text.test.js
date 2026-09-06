@@ -213,6 +213,40 @@ describe('realignWords', () => {
   it('handles a rewrite that keeps nothing at all', () => {
     expect(realignWords(boxed('uno', 'dos'), 'algo enteramente distinto aquí')).toEqual([]);
   });
+
+  // The bug this cost: the quadratic table was capped for handwriting, and a
+  // page of ordinary typeset text (2,316 characters, squared = 5.4M) went past
+  // it — so correcting one word silently dropped every box on the page, and the
+  // framing tool then reported it as never transcribed. Aligning only the part
+  // that differs is what keeps a long page affordable.
+  it('keeps a long page’s boxes when one word in the middle is corrected', () => {
+    const filler = (tag, count) =>
+      Array.from({ length: count }, (_, i) => `${tag}palabra${i}`);
+    const ts = [...filler('a', 300), 'rebolucion', ...filler('b', 300)];
+    const words = ts.map((t, i) => ({ t, x: i * 10, y: 0, w: 8, h: 10 }));
+    // Comfortably past the old 4M ceiling: ~4,700 characters a side.
+    expect(words.map((w) => w.t).join('').length ** 2).toBeGreaterThan(4_000_000);
+
+    const out = realignWords(words, ts.map((t) => (t === 'rebolucion' ? 'revolucion' : t)).join(' '));
+    expect(out).toHaveLength(600); // every box but the corrected word's
+    expect(out.map((w) => w.t)).not.toContain('rebolucion');
+    expect(out[0]).toEqual(words[0]); // untouched, geometry and all
+    expect(out.at(-1)).toEqual(words.at(-1));
+  });
+
+  it('still keeps the untouched head and tail when the middle is too big to align', () => {
+    // 5,000 characters of difference either side would be 25M cells, past the
+    // ceiling — the shared ends must survive it rather than the page being
+    // abandoned.
+    const head = Array.from({ length: 20 }, (_, i) => `cabeza${i}`);
+    const tail = Array.from({ length: 20 }, (_, i) => `cola${i}`);
+    const big = (seed) => Array.from({ length: 700 }, (_, i) => `${seed}${i}xxxxxxx`);
+    const words = [...head, ...big('vieja'), ...tail].map((t, i) => ({ t, x: i, y: 0, w: 8, h: 10 }));
+    const out = realignWords(words, [...head, ...big('nueva'), ...tail].join(' '));
+    expect(out.length).toBeGreaterThanOrEqual(head.length + tail.length);
+    expect(out.map((w) => w.t)).toContain('cabeza0');
+    expect(out.map((w) => w.t)).toContain('cola19');
+  });
 });
 
 describe('wordsInRect', () => {
