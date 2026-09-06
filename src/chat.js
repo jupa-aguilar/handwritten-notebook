@@ -332,7 +332,13 @@ export async function complete(messages, { signal, model, ...extra } = {}) {
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
     const who = be.hosted ? 'OpenAI' : 'LM Studio';
-    throw new Error(`${who} ${resp.status}: ${body.slice(0, 200)}`);
+    const err = new Error(`${who} ${resp.status}: ${body.slice(0, 200)}`);
+    // Carried so a caller can tell "this request was refused" from "the server
+    // could not be reached" without parsing the message back out: the
+    // proofreader sends a page image and has to know whether to retry without
+    // one, and a model that can't take images refuses rather than disconnects.
+    err.status = resp.status;
+    throw err;
   }
   const data = await resp.json();
   if (data.usage && recordSpend(data.usage)) onSpendChanged();

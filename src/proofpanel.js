@@ -8,7 +8,7 @@
 import { putPage, touchNotebook } from './db.js';
 import { resolveChatModel } from './chat.js';
 import { proofreadPage, pagesToProof, applyCorrection, boxForCorrection } from './proof.js';
-import { cropPage } from './crop.js';
+import { cropPage, pageForModel } from './crop.js';
 import { escapeHtml } from './text.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -53,11 +53,29 @@ async function check(all) {
   }
 
   let found = 0;
+  // Whether the model behind this run will take a page image. Resolved on the
+  // first refusal and remembered, so a notebook-wide check against a text-only
+  // model doesn't pay for the same rejected request on every page.
+  let canSee = true;
+  let blinded = false;
   for (const [i, page] of todo.entries()) {
     if (signal.aborted) break;
     setStatus(`Reading page ${page.order + 1} — ${i + 1} of ${todo.length}, ${found} to look at…`);
     try {
-      const fixes = await proofreadPage(page, { signal, model });
+      const image = canSee ? await pageForModel(page).catch(() => null) : null;
+      let fixes;
+      try {
+        fixes = await proofreadPage(page, { signal, model, image });
+      } catch (err) {
+        // A model that can't read images refuses the request rather than
+        // failing to reach us, so only a refusal is worth a second try — and
+        // only the one, without the page. Anything else is a real failure and
+        // belongs to the catch below.
+        if (!image || signal.aborted || !(err.status >= 400 && err.status < 500)) throw err;
+        canSee = false;
+        blinded = true;
+        fixes = await proofreadPage(page, { signal, model, image: null });
+      }
       for (const fix of fixes) queue.push({ page, fix });
       found += fixes.length;
     } catch (err) {
@@ -69,12 +87,18 @@ async function check(all) {
 
   const stopped = signal.aborted;
   running = null;
+  // Worth saying out loud: a check that couldn't see the page only catches a
+  // misreading that left a hole in the meaning, so "nothing to correct" from a
+  // blind run means much less than it looks like.
+  const blindNote = blinded
+    ? ' The model in use can\'t read images, so this was checked against the text alone.'
+    : '';
   if (queue.length) {
-    setStatus('');
+    setStatus(blindNote.trim());
     next();
   } else {
     setStatus(
-      `${stopped ? 'Stopped — ' : ''}Nothing to correct on ${todo.length} page${todo.length === 1 ? '' : 's'}.`
+      `${stopped ? 'Stopped — ' : ''}Nothing to correct on ${todo.length} page${todo.length === 1 ? '' : 's'}.${blindNote}`
     );
   }
   paint();
@@ -124,7 +148,15 @@ async function paintCrop(page, fix) {
   const box = boxForCorrection(page, fix);
   const note = $('#proof-crop-note');
   if (!box) {
-    note.textContent = 'This page was transcribed before word positions were saved, so the line can’t be shown.';
+    // Two different reasons, and the common one changed when the check started
+    // reading the page: a model looking at the ink proposes fixes to formulae
+    // and symbols, which are exactly what Vision's word list cuts differently
+    // from its text, so the words are there and the fix still can't be found
+    // among them. Either way the reader is being asked to approve a change
+    // without the handwriting in front of them, and should be told to go look.
+    note.textContent = page.words?.length
+      ? 'This one couldn’t be placed among the page’s words, so the line can’t be shown — open the page and check it yourself before applying.'
+      : 'This page was transcribed before word positions were saved, so the line can’t be shown.';
     note.hidden = false;
     return;
   }

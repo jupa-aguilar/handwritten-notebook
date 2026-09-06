@@ -47,6 +47,33 @@ describe('buildProofPrompt', () => {
     // The instruction that keeps it from "improving" the user's own writing.
     expect(system.content).toMatch(/never correct the writer's grammar/i);
   });
+
+  it('sends the page as an image part when there is one, ahead of the text', () => {
+    const url = 'data:image/jpeg;base64,AAAA';
+    const [, user] = buildProofPrompt(page, url);
+    expect(Array.isArray(user.content)).toBe(true);
+    expect(user.content[0]).toEqual({ type: 'image_url', image_url: { url } });
+    expect(user.content[1].type).toBe('text');
+    expect(user.content[1].text).toContain('rebolución');
+  });
+
+  // The two prompts ask for different work, and saying so is the point of
+  // sending the image: one compares against the ink, the other can only reason
+  // about what the sentence needs.
+  it('tells the model to read the ink when it can see, and not to when it cannot', () => {
+    const seeing = buildProofPrompt(page, 'data:image/jpeg;base64,AAAA')[0].content;
+    const blind = buildProofPrompt(page)[0].content;
+    expect(seeing).toMatch(/evidence is the ink/i);
+    expect(seeing).not.toMatch(/cannot see the page/i);
+    expect(blind).toMatch(/cannot see the page/i);
+    expect(blind).not.toMatch(/evidence is the ink/i);
+    // The rules that protect the writer's own words are in both.
+    for (const p of [seeing, blind]) expect(p).toMatch(/never correct the writer's grammar/i);
+  });
+
+  it('leaves the text-only shape alone, so a blind backend sends what it always did', () => {
+    expect(typeof buildProofPrompt(page).at(-1).content).toBe('string');
+  });
 });
 
 describe('parseCorrections', () => {

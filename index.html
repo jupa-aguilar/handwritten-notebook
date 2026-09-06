@@ -629,7 +629,8 @@
           <section class="help-section" id="help-text">
             <h3>Texto y ✨ Check</h3>
             <p><strong>Text</strong> abre la transcripción de la página que estás leyendo. Ahí vive <strong>✨ Check</strong>, la revisión asistida.</p>
-            <p>La máquina lee tu letra bien, pero no perfecto, y sus errores son invisibles: el texto <em>parece</em> decir algo, así que no notas nada hasta que una búsqueda no encuentra lo que sabes que escribiste. Con ✨ Check, un modelo relee la página y señala palabras que no pueden ser lo que la línea dice.</p>
+            <p>La máquina lee tu letra bien, pero no perfecto, y sus errores son invisibles: el texto <em>parece</em> decir algo, así que no notas nada hasta que una búsqueda no encuentra lo que sabes que escribiste. Con ✨ Check, un modelo mira <em>la imagen de la página</em> junto a la transcripción y señala dónde el papel dice otra cosa.</p>
+            <p class="help-note">Que vea tu letra es lo que cambia el resultado: antes sólo podía razonar sobre el texto, y así un error que <em>casualmente</em> forma una palabra creíble es invisible — mientras que en el papel salta a la vista. La imagen se manda reducida a 1600 px, que es la palanca real de coste; cada página revisada suma unos tokens de entrada más, y salen en el contador de ☁. Si tu modelo no acepta imágenes (algunos locales de LM Studio), la revisión se hace igual sólo con el texto y te lo dice.</p>
             <div class="help-sample" aria-hidden="true">
               <div class="help-proof">
                 <div class="proof-context">La <span class="proof-wrong">rebolución</span> industrial empezó en Inglaterra</div>

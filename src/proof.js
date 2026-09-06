@@ -3,10 +3,19 @@
 // Vision reads handwriting well and not perfectly, and its mistakes are
 // invisible: the transcript reads like something, so nothing looks wrong until
 // a search comes up empty or the chat answers from a word the user never
-// wrote. A model reading the page's own text can spot them — "this is not a
-// word, and one letter away is the word this sentence needs" — but it must
-// never be trusted with the change itself. Every fix is shown against the
-// handwriting it came from and applied only when the user says so.
+// wrote.
+//
+// The check sends the page image along with the transcription, so the model
+// compares the two rather than arguing with itself about which word the
+// sentence wants. That second job is the one it used to have, and it could
+// only ever catch a mistake that left a hole in the meaning — a misread word
+// that happens to make sense is invisible to it and obvious on the page. The
+// text-only prompt is still there for a backend whose model can't take an
+// image; it finds strictly less.
+//
+// Either way the model is never trusted with the change itself. Every fix is
+// shown against the handwriting it came from and applied only when the user
+// says so.
 //
 // Everything except proofreadPage() is pure, so the prompt, the parsing, the
 // locating and the application are testable without a model or a DOM.
@@ -18,12 +27,21 @@ import { foldText } from './text.js';
 // costs a request.
 export const MIN_TEXT_CHARS = 60;
 
-const SYSTEM = `You are proofreading the machine transcription of one page of a student's handwritten notebook.
+const HEAD = `You are proofreading the machine transcription of one page of a student's handwritten notebook.
 
-The transcription came from OCR of their handwriting, so the mistakes you are looking for belong to the machine: misread letters, split or joined words, confused digits or accents. The writing itself is theirs and is not yours to improve.
+The transcription came from OCR of their handwriting, so the mistakes you are looking for belong to the machine: misread letters, split or joined words, confused digits or accents. The writing itself is theirs and is not yours to improve.`;
 
-Rules:
-- Propose a fix only when the transcribed text is not a word, or cannot be the word the sentence needs, AND a small letter-level change makes it right.
+// With the page in front of it the model is doing a different job, and has to
+// be told so: not "which of these words looks wrong for the sentence" but
+// "which of these words is not what is written there". That is the whole point
+// of sending the image — reasoning from context guesses, reading the ink knows
+// — and without saying it plainly the model carries on arguing from the text
+// it can also see.
+const SEEING = `The page itself is attached. Read the handwriting and compare it against the transcription below, word by word. Your evidence is the ink: propose a fix when the page plainly says something other than what was transcribed. Where the writing is genuinely ambiguous, leave it alone — you are correcting the machine's reading, not choosing between two readings the page allows.`;
+
+const BLIND = `You cannot see the page, only the text. So propose a fix only when the transcribed text is not a word, or cannot be the word the sentence needs, AND a small letter-level change makes it right.`;
+
+const RULES = `Rules:
 - Never rewrite phrasing, never correct the writer's grammar or spelling choices, never add, remove, reorder or translate anything.
 - Leave names, formulas, abbreviations and made-up terms alone: a notebook is full of them, and you cannot tell them from errors.
 - "before" must be copied verbatim from the transcription, as short as possible while still unique.
@@ -33,10 +51,21 @@ Rules:
 
 Reply with JSON only: {"fixes":[{"before":"…","after":"…","context":"…","why":"…"}]}`;
 
-export function buildProofPrompt(page) {
+// `image` is a data: URL of the page, or null for the text-only check. The
+// caller encodes it — this file stays pure so the prompt can be tested without
+// a canvas.
+export function buildProofPrompt(page, image = null) {
+  const text = `Page ${(page.order ?? 0) + 1}:\n\n${page.text || ''}`;
   return [
-    { role: 'system', content: SYSTEM },
-    { role: 'user', content: `Page ${(page.order ?? 0) + 1}:\n\n${page.text || ''}` },
+    { role: 'system', content: `${HEAD}\n\n${image ? SEEING : BLIND}\n\n${RULES}` },
+    {
+      role: 'user',
+      // The image first: a model reads the page and then checks the claim
+      // about it, which is the order the job is actually done in.
+      content: image
+        ? [{ type: 'image_url', image_url: { url: image } }, { type: 'text', text }]
+        : text,
+    },
   ];
 }
 
@@ -189,8 +218,8 @@ export function pagesToProof(pages) {
 }
 
 // Ask the model to read one page back. Returns the fixes it could place.
-export async function proofreadPage(page, { signal, model } = {}) {
-  const raw = await complete(buildProofPrompt(page), { signal, model });
+export async function proofreadPage(page, { signal, model, image = null } = {}) {
+  const raw = await complete(buildProofPrompt(page, image), { signal, model });
   return parseCorrections(raw)
     .map((fix) => ({ ...fix, at: locateCorrection(page, fix) }))
     // A fix that can't be located is one we would have to guess at.

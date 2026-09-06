@@ -1,4 +1,5 @@
-// Cutting a rectangle of a page image out for display.
+// Cutting a rectangle of a page image out for display — and, at the foot of
+// this file, handing a whole page to a model.
 //
 // Shared by the review cards and the transcription proofreader, which want the
 // same thing for the same reason: the user's own handwriting next to whatever
@@ -79,6 +80,40 @@ async function cut(page, rect, mark, mode = 'cover') {
 
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.9));
     return blob ? URL.createObjectURL(blob) : null;
+  } finally {
+    bitmap.close();
+  }
+}
+
+// ---------- the whole page, for a model to read ----------
+
+// How wide the page goes out to the proofreader. This is the quality/price
+// dial of the whole feature, and it is the image and not the model: the check
+// runs on the same gpt-5.6-luna as the chat, where the page is priced as input
+// tokens and those scale with its area. Full-size scans are two to three
+// thousand pixels across, which is far past what reading the words needs —
+// 1600 keeps an ordinary handwritten line around thirty pixels tall, still
+// comfortably legible, at roughly a third of the tokens. Going lower starts
+// costing accuracy on the exact thing being judged (was that an 'a' or an 'o'),
+// and a wrong correction proposed is worth more than the cents it saved.
+const MODEL_MAX_SIDE = 1600;
+
+// The page as a data: URL, scaled down, for an OpenAI-style image part. Null
+// when there is no image to send — the caller falls back to the text-only
+// check rather than failing.
+export async function pageForModel(page, maxSide = MODEL_MAX_SIDE) {
+  if (!page?.blob) return null;
+  const bitmap = await createImageBitmap(page.blob);
+  try {
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    // JPEG, not PNG: this is a photograph of paper, and PNG of a scan is
+    // several times the bytes for nothing the model can use.
+    return canvas.toDataURL('image/jpeg', 0.85);
   } finally {
     bitmap.close();
   }
