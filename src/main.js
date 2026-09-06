@@ -735,7 +735,7 @@ async function rereadTranscript(id) {
       ? "The model's reading. Nothing is saved until you press Save."
       : lost === 0
         ? `The model's reading, and it keeps all ${had} word positions on the image. Nothing is saved until you press Save.`
-        : `The model's reading. It keeps ${kept} of ${had} word positions; the other ${lost} lose their place on the image, and only a transcription by Vision can give one back. Nothing is saved until you press Save.`;
+        : `The model's reading. It keeps ${kept} of ${had} word positions; the other ${lost} lose their place on the image. That counts words still in the same order, not whether the reading is good — re-laying out a table moves words about, so a correct one costs boxes too. Nothing is saved until you press Save.`;
     setOcrStatus('');
     renderPanel();
     $('#transcript-edit')?.focus();
