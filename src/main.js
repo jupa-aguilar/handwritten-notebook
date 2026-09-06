@@ -24,7 +24,7 @@ import {
   listCardsForPage,
   putCard,
 } from './db.js';
-import { transcribeImage } from './ocr.js';
+import { transcribeImage, rereadPage } from './ocr.js';
 import {
   naturalCompare,
   escapeHtml,
@@ -38,7 +38,7 @@ import {
   wordsToText,
   highlight,
 } from './text.js';
-import { cropSelection } from './crop.js';
+import { cropSelection, pageForModel } from './crop.js';
 import { buildZip } from './zip.js';
 import { buildPdf } from './pdf.js';
 import {
@@ -64,6 +64,7 @@ import {
   getOpenAiKey,
   setOpenAiKey,
   chatWorksWithoutLocalServer,
+  resolveChatModel,
 } from './chat.js';
 import { locateAnchor } from './cards.js';
 import { initProof, openProof, closeProof } from './proofpanel.js';
@@ -510,6 +511,11 @@ async function removePage(id) {
 // search, the chat's focus line and the find box all repaint it, and any of
 // them would throw away what is being typed.
 let editingPageId = null;
+// A transcription proposed by the model and not yet accepted. Held apart from
+// page.text so nothing is written until Save — the same bargain ✨ Check makes
+// with every one of its fixes.
+let editingDraft = null;
+let rereading = false; // a re-read is in flight; the buttons say so
 
 function updatePanel() {
   updateBookmarkButtons(); // every page change funnels through here
@@ -553,11 +559,12 @@ function transcriptSection(page, query, highlightIt = true) {
   // Not while it is queued: Vision would land on top of whatever was typed.
   // Everything else can be edited, a page with no text at all included — a
   // scan Vision failed on is exactly the one worth writing out by hand.
-  const edit =
+  const tools =
     page.ocrStatus === 'pending'
       ? ''
-      : ` <button class="btn ghost small edit-page" data-id="${page.id}" title="Correct this transcription by hand (⇧T)">✏️ Edit</button>`;
-  let html = `<div class="panel-meta">Page ${n} of ${pages.length}${edit}</div>`;
+      : ` <button class="btn ghost small edit-page" data-id="${page.id}" title="Correct this transcription by hand (⇧T)">✏️ Edit</button>` +
+        ` <button class="btn ghost small reread-page" data-id="${page.id}" title="Have the model read this page again and propose a new transcription (⇧R)">🔁 Re-read</button>`;
+  let html = `<div class="panel-meta">Page ${n} of ${pages.length}${tools}</div>`;
   if (page.ocrStatus === 'skipped') {
     html += `<div class="panel-note">Transcription is turned off, so page text and search aren't available yet.</div>`;
   } else if (page.ocrStatus === 'pending') {
@@ -585,21 +592,35 @@ function transcriptSection(page, query, highlightIt = true) {
 // invisible until a search comes up empty, and the proofreader only offers
 // what a model thought to question — this is the way to fix the rest.
 function transcriptEditor(page, n) {
+  // A proposal from the model, if one is waiting, otherwise what is stored. The
+  // draft has to survive a re-render or every repaint of the panel would throw
+  // away a page the model just spent a request reading.
+  const shown = editingDraft ?? page.text ?? '';
   return `<div class="panel-meta">Page ${n} of ${pages.length} — editing</div>
     <textarea id="transcript-edit" class="transcript-edit" spellcheck="false" aria-label="Transcription of page ${n}">${escapeHtml(
-      page.text || ''
+      shown
     )}</textarea>
     <div class="panel-actions">
       <button id="transcript-save" class="btn small" title="Save and sync (⌘Enter)">Save</button>
       <button id="transcript-cancel" class="btn ghost small" title="Leave it as it was (Esc)">Cancel</button>
+      <button id="transcript-reread" class="btn ghost small reread-page" data-id="${page.id}" title="Have the model read this page again (⇧R)">🔁 Re-read</button>
     </div>
-    <div class="panel-note">The words you leave alone keep their place on the page image; rewritten ones lose it until the page is transcribed again.</div>`;
+    <div class="panel-note">${editorNote}</div>`;
 }
+
+// What the box says under it. Replaced while a re-read is in flight and by its
+// result, because the count of boxes that would survive is the real price of
+// accepting a proposal and it can be worked out before anything is written.
+const BOXES_NOTE =
+  'The words you leave alone keep their place on the page image; rewritten ones lose it. Only a transcription by Vision measures ink, so nothing here can give a place back.';
+let editorNote = BOXES_NOTE;
 
 function startEditingTranscript(id) {
   const page = pages.find((p) => p.id === id);
   if (!page || page.ocrStatus === 'pending') return;
   editingPageId = id;
+  editingDraft = null; // opened by hand: start from what is stored
+  editorNote = BOXES_NOTE;
   renderPanel();
   const box = $('#transcript-edit');
   if (!box) return;
@@ -618,6 +639,8 @@ function cancelTranscriptEdit({ ask = false } = {}) {
     if (!confirm(`Discard your changes to page ${pages.indexOf(page) + 1}?`)) return false;
   }
   editingPageId = null;
+  editingDraft = null;
+  editorNote = BOXES_NOTE;
   updatePanel();
   return true;
 }
@@ -646,6 +669,8 @@ async function saveTranscript() {
     updateOcrCue(); // the page may have just left the queue
   }
   editingPageId = null;
+  editingDraft = null;
+  editorNote = BOXES_NOTE;
   updatePanel();
   refreshSearch(); // the results and their snippets were drawn from the old text
   updateHighlights();
@@ -661,6 +686,85 @@ function editTranscriptShortcut() {
   if (!page) return;
   openPanel();
   startEditingTranscript(page.id);
+}
+
+// Have the model read the page again and propose the whole transcription.
+//
+// This is the answer to the one thing ✨ Check cannot do: its proposals are
+// word-for-word substitutions, so a table whose rows Vision ran together, or a
+// column of workings flattened into a line, is outside the shape it can even
+// express. A fresh reading can say those correctly — at the cost of being a
+// whole page rather than a marked word, which is why it lands in the editor for
+// you to read, fix and accept rather than being written.
+async function rereadTranscript(id) {
+  if (rereading) return;
+  const page = pages.find((p) => p.id === id);
+  if (!page || !page.blob) return;
+
+  // Typing already in the box is work the model's reading would erase.
+  const box = $('#transcript-edit');
+  if (
+    editingPageId === id &&
+    box &&
+    box.value.trim() !== (editingDraft ?? page.text ?? '').trim() &&
+    !confirm(`Replace what you have typed on page ${pages.indexOf(page) + 1} with the model's reading?`)
+  ) {
+    return;
+  }
+
+  rereading = true;
+  editorNote = 'Reading the page…';
+  if (editingPageId === id) renderPanel();
+  else setOcrStatus(`Reading page ${pages.indexOf(page) + 1} again…`);
+  try {
+    const model = (await resolveChatModel()).id;
+    const image = await pageForModel(page);
+    if (!image) throw new Error('This page has no image to read.');
+    const text = await rereadPage(page, { model, image });
+    // An empty answer must not become an editor proposing to delete the page.
+    if (!text) throw new Error('The model returned nothing for this page.');
+
+    // The price of accepting, worked out before anything is written: a box
+    // survives only where its word came through the new reading intact.
+    const kept = realignWords(page.words, text).length;
+    const had = page.words?.length || 0;
+    editingDraft = text;
+    editingPageId = id;
+    const lost = had - kept;
+    editorNote = !had
+      ? "The model's reading. Nothing is saved until you press Save."
+      : lost === 0
+        ? `The model's reading, and it keeps all ${had} word positions on the image. Nothing is saved until you press Save.`
+        : `The model's reading. It keeps ${kept} of ${had} word positions; the other ${lost} lose their place on the image, and only a transcription by Vision can give one back. Nothing is saved until you press Save.`;
+    setOcrStatus('');
+    renderPanel();
+    $('#transcript-edit')?.focus();
+  } catch (err) {
+    console.error('Could not re-read the page', err);
+    editorNote = BOXES_NOTE;
+    // A model with no vision refuses the request rather than failing to reach
+    // us, and there is no fallback worth having: a transcription made without
+    // the page is the model inventing one.
+    const why =
+      err.status >= 400 && err.status < 500
+        ? 'That model can’t read images, so it can’t re-read a page.'
+        : err.message;
+    setOcrStatus(why);
+    if (editingPageId === id) renderPanel();
+  } finally {
+    rereading = false;
+  }
+}
+
+// ⇧R reads the page you have open again, beside R for Review — the shifted key
+// takes the second thing to do with the same letter. A spread shows two pages
+// and this takes the left one; the 🔁 beside each page's heading reaches the
+// other.
+function rereadShortcut() {
+  const page = visiblePages()[0];
+  if (!page) return;
+  openPanel();
+  rereadTranscript(page.id);
 }
 
 // Which of the page's matches is being looked at. Reset whenever the text
@@ -1201,7 +1305,9 @@ async function runOcrQueue({ manual = false } = {}) {
       await putPage(page);
       await touchNotebook(page.notebookId);
       await reanchorCards(page);
-      if (pages[currentPage] === page) updatePanel();
+      // Both halves: the panel renders the whole spread, so a right-hand page
+      // finishing its transcription has to redraw it too.
+      if (visiblePages().includes(page)) updatePanel();
       refreshSearch();
     }
   } finally {
@@ -3869,7 +3975,6 @@ function wire() {
     if (e.key === 'f' || e.key === 'F') toggleFullscreen();
     if (e.key === 'z' || e.key === 'Z') openViewer();
     if (e.key === 's' || e.key === 'S') setSelectMode(!selecting);
-    if (e.key === 'r' || e.key === 'R') openReview();
     if (e.key === 'n' || e.key === 'N') openNotebooks();
     if (e.key === 'p' || e.key === 'P') openPagesOverview();
     if (e.key === 'a' || e.key === 'A') $('#file-input').click();
@@ -3886,6 +3991,8 @@ function wire() {
     if (e.key === 'B') toggleBookmarksPop();
     if (e.key === 't') toggleTextShortcut();
     if (e.key === 'T') editTranscriptShortcut();
+    if (e.key === 'r') openReview();
+    if (e.key === 'R') rereadShortcut();
     if (e.key === 'd') toggleUsagePop();
     if (e.key === 'D') $('#sync-now').click();
     if (e.key === 'c') toggleChatShortcut();
@@ -3993,6 +4100,8 @@ function wire() {
     if (e.target.closest('.retry-all')) return retryFailed();
     const edit = e.target.closest('.edit-page');
     if (edit) return startEditingTranscript(Number(edit.dataset.id));
+    const reread = e.target.closest('.reread-page');
+    if (reread) return rereadTranscript(Number(reread.dataset.id));
     if (e.target.closest('#transcript-save')) return saveTranscript();
     if (e.target.closest('#transcript-cancel')) cancelTranscriptEdit({ ask: true });
   });
@@ -4096,7 +4205,7 @@ function wire() {
     onGoToPage: goToPage,
     onDueCount: paintDueBadge,
     onChanged: scheduleSync,
-    currentPageIndex: () => currentPage,
+    visiblePages,
   });
 
   initProgress({
@@ -4109,9 +4218,14 @@ function wire() {
   $('#review-progress').addEventListener('click', openProgress);
 
   initProof({
-    getContext: () => ({ id: currentNotebookId, pages }),
+    // `editing` because a fix written while the hand editor holds the old text
+    // is a fix the next Save there would quietly undo — see apply().
+    getContext: () => ({ id: currentNotebookId, pages, editing: editingPageId }),
     onGoToPage: goToPage,
-    currentPageIndex: () => currentPage,
+    // The pages themselves, not an index: a desktop spread shows two, and both
+    // panels used to act on whichever the app called current — which is the
+    // left one.
+    visiblePages,
     // A corrected transcript is notebook content: it has to reach the other
     // devices, and everything drawn from the text has to be redrawn.
     onChanged: async (page) => {

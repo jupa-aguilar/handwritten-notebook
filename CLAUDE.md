@@ -75,7 +75,7 @@ wiring silently.
 | `src/text.js` | Accent folding, query tokenising, the all-words match rule and the highlighter — shared by the search box, the transcript panel, the on-image word boxes and the chat's page ranking, so all four agree on what "a word" is. |
 | `src/zip.js` | Store-only ZIP writer for multi-page downloads (browsers honour only the first programmatic download per gesture, so several pages must leave as one file). |
 | `src/db.js` | IndexedDB (`idb`), schema v9: `notebooks`, `pages`, `chats`, `cards`, `reviewDays`, plus the sync bookkeeping (`pageTombstones`, `notebookTombstones`, `cardTombstones`, `syncState`) and `archived` (a cache of Drive's archive list). Owns the migrations and both sync merges (`applyRemoteNotebook`, `applyRemoteCards`). |
-| `src/ocr.js` | Google Cloud Vision `DOCUMENT_TEXT_DETECTION` called straight from the browser; flattens the page→block→paragraph→word tree into `{ t, x, y, w, h }` boxes in image pixels. A Claude-vision provider is kept commented out as an alternative. |
+| `src/ocr.js` | The two ways to turn a page image into text. Google Cloud Vision `DOCUMENT_TEXT_DETECTION` called straight from the browser, flattening the page→block→paragraph→word tree into `{ t, x, y, w, h }` boxes in image pixels — every page starts here, and it is the only one that measures ink. Plus `rereadPage`, which asks the chat's own model to read the scan again: better at layout and notation, no coordinates at all, so its result keeps only the boxes `realignWords` can carry across. |
 | `src/sync.js` | Google Drive `appDataFolder` sync: `meta.json`, `nb-<uuid>.json` manifests, `pg-<uuid>` images. Auth via GIS in the browser, via the Electron loopback flow in the app. |
 | `src/srs.js` | The scheduler: SM-2 with a short relearning step and an ease floor. Hard and Easy are defined *against* Good rather than by formulas of their own, so the four buttons can't cross — they did, twice. Pure arithmetic, no storage and no DOM, which is why it is the part with tests. |
 | `src/cards.js` | Turns one transcribed page into review cards. Asks the chat's backend for `{q, a, anchor}` JSON, then locates the *anchor* in that page's word boxes to get the rectangle the answer was written in. |
@@ -138,6 +138,20 @@ highlights from the boxes, so fixing only the text would leave the corrected wor
 unmarked on the image. Word-for-word only: a fix that splits or joins words has no honest
 mapping onto boxes measured in ink, so those change the text alone. Applying one is a content
 change, so it takes the full mutation ritual below.
+
+The check reads the page image alongside the text (`pageForModel` in `crop.js`), which is what
+lets it catch a misreading that happens to make sense — the ones that leave no hole in the
+meaning are exactly the ones reasoning about the text cannot find. A backend whose model
+refuses images is retried once without it, and the run says it went blind.
+
+**Two grains, deliberately separate.** A Check proposal is a substring splice, so layout is
+outside what it can express: a table Vision flattened into a paragraph is invisible to it by
+construction. That is `🔁 Re-read`'s job (`ocr.js` `rereadPage`) — the model transcribes the
+page afresh and the whole text is proposed. It is deliberately **not** given the existing
+transcription: the point is a fresh reading, and a model shown Vision's flattening copies it.
+The proposal lands in the hand editor rather than a dialog of its own, so it can be corrected
+before it is accepted and there is only one path that writes a transcript (`saveTranscript`,
+which runs `realignWords` and the ritual).
 
 ### The mutation ritual
 

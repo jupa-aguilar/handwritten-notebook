@@ -16,7 +16,15 @@ const $ = (sel) => document.querySelector(sel);
 let getContext = null; // () => { id, pages }
 let onGoToPage = () => {};
 let onChanged = () => {}; // main.js re-renders and schedules the push
-let currentPageIndex = () => 0;
+let visiblePages = () => []; // the page(s) on screen, from main.js
+
+// "page 7", or "pages 7–8" when a desktop spread is open — the range in the
+// form the page counter already uses, and the noun with it so two buttons
+// can't disagree about the plural.
+const pageLabel = (list) =>
+  list.length > 1
+    ? `pages ${list[0].order + 1}–${list.at(-1).order + 1}`
+    : `page ${list[0].order + 1}`;
 
 let queue = []; // { page, fix } still to be judged
 let current = null;
@@ -30,7 +38,10 @@ let skipped = 0;
 async function check(all) {
   if (running) return;
   const { pages } = getContext();
-  const todo = all ? pagesToProof(pages) : pagesToProof([pages[currentPageIndex()]].filter(Boolean));
+  // Both halves of a spread, not the left one: the reader is looking at two
+  // pages and pressed a button that named one. pagesToProof filters whatever
+  // array it is handed, so it needs nothing new.
+  const todo = all ? pagesToProof(pages) : pagesToProof(visiblePages());
   if (!todo.length) {
     setStatus('Nothing to check: a page needs a transcription with something on it.');
     return;
@@ -181,6 +192,17 @@ async function paintCrop(page, fix) {
 async function apply() {
   if (!current) return;
   const { page, fix } = current;
+  // The hand editor holds a copy of this page's text in a textarea, and
+  // updatePanel deliberately leaves it alone while it is open. Writing
+  // underneath it would look applied and then be put back by the next Save
+  // there, with nothing on screen to say so.
+  if (getContext().editing === page.id) {
+    setStatus(
+      `Page ${page.order + 1} is open in the editor — save or cancel that first, or this would be undone by it.`,
+      true
+    );
+    return;
+  }
   const out = applyCorrection(page, fix);
   if (!out) {
     // The page changed under the run; better to drop the fix than to guess.
@@ -225,13 +247,13 @@ function paint() {
   const { pages } = getContext();
   const busy = !!running;
   const judging = !$('#proof-fix').hidden;
-  const page = pages[currentPageIndex()];
+  const shown = visiblePages();
   const all = pagesToProof(pages).length;
 
   $('#proof-stop').hidden = !busy;
   const one = $('#proof-check-page');
-  one.hidden = busy || judging || !page;
-  one.textContent = `✨ Check page ${page ? page.order + 1 : ''}`;
+  one.hidden = busy || judging || !shown.length;
+  if (shown.length) one.textContent = `✨ Check ${pageLabel(shown)}`;
   const every = $('#proof-check-all');
   every.hidden = busy || judging || all === 0;
   every.textContent = `✨ Check all pages (${all})`;
@@ -272,7 +294,7 @@ export function initProof(opts) {
   getContext = opts.getContext;
   onGoToPage = opts.onGoToPage || onGoToPage;
   onChanged = opts.onChanged || onChanged;
-  currentPageIndex = opts.currentPageIndex || currentPageIndex;
+  visiblePages = opts.visiblePages || visiblePages;
 
   $('#proof-close').addEventListener('click', () => setOpen(false));
   $('#proof-check-page').addEventListener('click', () => check(false));

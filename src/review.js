@@ -43,7 +43,15 @@ let cards = []; // every card of the current notebook
 let queue = []; // what's left of this sitting
 let current = null;
 let generating = null; // AbortController while a run is in flight
-let currentPageIndex = () => 0; // which page the reader has open, from main.js
+let visiblePages = () => []; // the page(s) the reader has open, from main.js
+
+// "page 7", or "pages 7–8" when a desktop spread is open — the range in the
+// form the page counter already uses, and the noun with it so two buttons
+// can't disagree about the plural.
+const pageLabel = (list) =>
+  list.length > 1
+    ? `pages ${list[0].order + 1}–${list.at(-1).order + 1}`
+    : `page ${list[0].order + 1}`;
 let cropUrl = null; // object URL of the answer image, revoked as we go
 let hintUrl = null; // and of the hint's, which is a different crop of the page
 // How far up the ladder this card has been walked: 0 nothing shown, 1 the
@@ -103,11 +111,12 @@ function paintDeck() {
   // Redoing a page means clearing it first, so the button names the page the
   // reader has open behind the panel — the one they just decided came out
   // wrong.
-  const onScreen = pages[currentPageIndex()];
+  const onScreen = visiblePages();
+  const ids = new Set(onScreen.map((p) => p.id));
   const clear = $('#review-clear-page');
-  const clearable = onScreen ? cards.filter((c) => c.pageId === onScreen.id).length : 0;
+  const clearable = cards.filter((c) => ids.has(c.pageId)).length;
   clear.hidden = sitting || !clearable;
-  clear.textContent = `🗑 Clear page ${onScreen ? onScreen.order + 1 : ''} (${clearable})`;
+  if (onScreen.length) clear.textContent = `🗑 Clear ${pageLabel(onScreen)} (${clearable})`;
 
   const gen = $('#review-generate');
   gen.hidden = sitting || !!generating || pending === 0;
@@ -606,14 +615,22 @@ async function dropCurrent() {
 // Everything drawn from the page on screen. The way to redo a page whose
 // questions came out wrong: clear it, then generate again.
 async function clearCurrentPage() {
-  const { pages } = getContext();
-  const page = pages[currentPageIndex()];
-  if (!page) return;
-  const n = await deleteCardsForPage(page.id);
-  cards = cards.filter((c) => c.pageId !== page.id);
+  // Every page on screen, not just the left one: a spread shows two, and the
+  // button names both.
+  const onScreen = visiblePages();
+  if (!onScreen.length) return;
+  let n = 0;
+  for (const page of onScreen) n += await deleteCardsForPage(page.id);
+  const ids = new Set(onScreen.map((p) => p.id));
+  cards = cards.filter((c) => !ids.has(c.pageId));
   if (n) onChanged();
   onDueCount(cards.filter((c) => isDue(c)).length);
-  setStatus(n ? `Cleared ${n} card${n === 1 ? '' : 's'} from page ${page.order + 1}.` : 'That page had no cards.');
+  const where = pageLabel(onScreen);
+  setStatus(
+    n
+      ? `Cleared ${n} card${n === 1 ? '' : 's'} from ${where}.`
+      : `${where[0].toUpperCase()}${where.slice(1)} had no cards.`
+  );
   paintDeck();
 }
 
@@ -652,7 +669,7 @@ export function initReview(opts) {
   onGoToPage = opts.onGoToPage || onGoToPage;
   onDueCount = opts.onDueCount || onDueCount;
   onChanged = opts.onChanged || onChanged;
-  currentPageIndex = opts.currentPageIndex || currentPageIndex;
+  visiblePages = opts.visiblePages || visiblePages;
 
   $('#review-btn').addEventListener('click', openReview);
   $('#review-close').addEventListener('click', () => setReviewOpen(false));
