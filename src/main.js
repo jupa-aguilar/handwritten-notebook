@@ -56,6 +56,7 @@ import {
   toggleChat,
   setSubject,
   explainSubject,
+  askSubject,
   chatNotebookChanged,
   chatFocusChanged,
   getStoredChatServerUrl,
@@ -722,6 +723,7 @@ function discardFrame() {
   framedSelection = null;
   $('#select-rect').hidden = true;
   $('#frame-ask').hidden = true;
+  $('#frame-question-input').value = ''; // half a question about the last box isn't about this one
   releaseFrameCrop();
 }
 
@@ -887,6 +889,17 @@ function wireSelectMode() {
   };
   $('#frame-ask-btn').addEventListener('click', useFramed(setSubject));
   $('#frame-explain-btn').addEventListener('click', useFramed(explainSubject));
+
+  // A question typed beside the box goes out with the passage attached. An
+  // empty one is a stray Enter, not a question: leave the box as it is rather
+  // than opening the chat with nothing to say.
+  $('#frame-question').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const asked = $('#frame-question-input').value.trim();
+    if (!framedSelection || !asked) return;
+    askSubject(framedSelection.text, asked);
+    setSelectMode(false);
+  });
 }
 
 function toLocalPoint(e) {
@@ -961,6 +974,11 @@ async function finishDrag(pt) {
   framedSelection = { page, rect, text: wordsToText(words) };
   $('#frame-ask').hidden = false;
   placeFrameAsk(local);
+  // Land in the question box: having just drawn a box around something, the
+  // next thing to do is usually to say what you want to know about it. The
+  // two buttons are still a click away, and Escape still drops the whole
+  // thing — the keydown handler answers it before the typing guard.
+  $('#frame-question-input').focus();
 
   const mine = framedSelection;
   try {

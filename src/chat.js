@@ -1123,6 +1123,27 @@ export async function explainSubject(text) {
   send();
 }
 
+// Pin the passage and ask the reader's own question about it, in one go.
+// Unlike explainSubject this takes the ordinary path rather than
+// explainPrompt's: a specific question wants the rest of the notebook behind
+// it — it may well be answered by something on another page, and citing that
+// page is the right answer — where an explanation of one passage does not.
+// The passage itself still travels: send() appends passageNote(subject) to
+// every ordinary turn while something is pinned.
+export async function askSubject(text, question) {
+  const asked = question.trim();
+  if (!asked) return;
+  await setSubject(text);
+  if (!subject) return;
+  const input = $('#chat-input');
+  input.value = asked;
+  autosize(input);
+  // Nothing to send it to: leave the question written in the composer rather
+  // than swallowing it — same call explainSubject makes.
+  if (!serverOk) return;
+  send();
+}
+
 // Called when something is marked in the text panel. Opening the chat and
 // landing in the input is the point — the reader has a question in mind.
 export async function setSubject(text) {

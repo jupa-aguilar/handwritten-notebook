@@ -107,6 +107,12 @@
         </div>
         <div id="frame-ask" class="frame-ask panel-ask" hidden>
           <img id="frame-crop-img" class="frame-crop-img" alt="" hidden>
+          <!-- A question typed here goes out with the framed passage attached,
+               without the detour through the chat's own composer. -->
+          <form id="frame-question" class="frame-question">
+            <input id="frame-question-input" type="text" placeholder="Ask your own question…" autocomplete="off" />
+            <button id="frame-question-send" class="btn small" type="submit" title="Send" aria-label="Send">➤</button>
+          </form>
           <button id="frame-explain-btn" class="btn small" title="Ask for it to be explained, plainly and with an analogy">🎓 Explain this</button>
           <button id="frame-ask-btn" class="btn ghost small" title="Keep this passage in mind and ask your own question">💬 Ask about this</button>
         </div>

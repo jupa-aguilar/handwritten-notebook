@@ -864,6 +864,31 @@ body:not(.is-mobile) .book-area {
 .frame-ask .btn {
   width: 100%; /* .panel-ask .btn sets flex:1, meant for its row layout */
 }
+/* Your own question, asked where you drew the box rather than after a trip to
+   the chat's composer. */
+.frame-question {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+#frame-question-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--panel-ink);
+  font-size: 0.85rem;
+}
+/* By id: it has to outrank both .frame-ask .btn (stacked, full width) and
+   .panel-ask .btn (flex: 1, and declared further down the file), neither of
+   which is meant for a button sharing a row with a text box. */
+#frame-question-send {
+  width: auto;
+  flex: none;
+}
 .frame-crop-img {
   display: block;
   max-width: 100%;
