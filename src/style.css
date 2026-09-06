@@ -1108,6 +1108,40 @@ body:not(.is-mobile) .book-area {
   line-height: 1.6;
   margin: 0;
 }
+/* The same text in the same face, so correcting a line looks like touching the
+   transcript rather than moving to a different document. Tall enough to work
+   in without growing, since the panel scrolls around it and a box that
+   resized itself as you typed would move the line under the caret. */
+.transcript-edit {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 45vh;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--panel-ink);
+  font-family: Georgia, serif;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+.transcript-edit:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* Sits in the page's heading line, which is small print — it should read as an
+   offer beside the page number, not as a second toolbar. The colour is the
+   thirteenth time a ghost button has needed re-inking for a light panel; see
+   the note on .panel-ask .btn.ghost for why that is still local. */
+.panel-meta .edit-page {
+  padding: 1px 7px;
+  font-size: 0.72rem;
+  vertical-align: baseline;
+  color: var(--panel-ink);
+  border-color: rgba(0, 0, 0, 0.25);
+}
 
 .results {
   border-top: 1px solid rgba(0, 0, 0, 0.12);

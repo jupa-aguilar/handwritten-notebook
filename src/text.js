@@ -115,6 +115,82 @@ export function wordsMatchingPhrase(words, query) {
   return [...hit].sort((a, b) => a - b).map((i) => words[i]);
 }
 
+// The word boxes that survive a transcription edited by hand.
+//
+// The boxes carry their own copy of each word and every mark drawn on the page
+// image is drawn from them, so a transcript rewritten without them would leave
+// the new words findable in the text and unmarked on the scan — or worse,
+// marked on whatever ink now sits where they used to be.
+//
+// This works in characters, not words, and that is the whole trick. Vision cuts
+// its word list differently from the text it returns beside it — the same page
+// gives boxes "a" ")" "sucesos" ":" "A" ":" where page.text has "a)" "sucesos:"
+// "A:", and it is not a rule you can restate: on one line it splits the full
+// stop off, on the next it keeps "A." whole. Measured on a real page that is
+// 159 boxes against 138 words, so anything that pairs them word by word reads
+// every line as rewritten. What *is* exact is that the boxes' own words run
+// together are the transcription with its whitespace taken out — both were cut
+// from the same page — so counting characters places every box precisely,
+// without a guess anywhere.
+//
+// A box is kept when every character of its word came through the edit intact
+// and still sits together, and dropped otherwise: a box is a claim about where
+// a word is written, and half a word that survived is not that word. So the
+// word you retype loses its mark on the image until the page is read again,
+// and nothing else on the page is disturbed. Splitting one word into two or
+// joining two into one keeps both boxes, and should: whitespace was never in
+// them, and the ink did not move.
+export function realignWords(words, newText) {
+  const olds = words || [];
+  if (!olds.length) return [];
+  const texts = olds.map((w) => String(w.t || ''));
+  const oldRun = texts.join('');
+  const newRun = String(newText || '').replace(/\s+/gu, '');
+  if (!oldRun || !newRun) return [];
+
+  // Folded, so an accent the edit put back still counts as the same character
+  // — foldText is 1:1 per character, which is what lets these indexes address
+  // the unfolded string underneath.
+  const a = foldText(oldRun);
+  const b = foldText(newRun);
+  const n = a.length;
+  const m = b.length;
+  // The table below is n×m. A page of handwriting is nowhere near, but the new
+  // text is the user's to type, and an unbounded quadratic allocation on their
+  // input is not something to leave open.
+  if (n * m > 4_000_000) return [];
+
+  const lcs = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+  // Where each old character ended up, or -1 for one the edit took away.
+  const landed = new Int32Array(n).fill(-1);
+  for (let i = 0, j = 0; i < n && j < m; ) {
+    if (a[i] === b[j]) landed[i++] = j++;
+    else if (lcs[i + 1][j] >= lcs[i][j + 1]) i++;
+    else j++;
+  }
+
+  const out = [];
+  let at = 0;
+  for (let k = 0; k < olds.length; k++) {
+    const start = at;
+    at += texts[k].length;
+    if (!texts[k].length) continue;
+    let whole = landed[start] !== -1;
+    for (let i = start + 1; whole && i < at; i++) {
+      if (landed[i] !== landed[i - 1] + 1) whole = false;
+    }
+    // The word comes back from the new text rather than the old, so a box whose
+    // only change was an accent being restored carries the accent.
+    if (whole) out.push({ ...olds[k], t: newRun.slice(landed[start], landed[start] + texts[k].length) });
+  }
+  return out;
+}
+
 // A hand-drawn rectangle's own words, in the same image-pixel space as
 // page.words. Judged by each word's centre point, not overlap: a box that
 // only grazes a word's edge probably wasn't meant to catch it.

@@ -8,6 +8,7 @@ import {
   phraseIndex,
   wordMatchesToken,
   wordsMatchingPhrase,
+  realignWords,
   wordsInRect,
   wordsToText,
   highlight,
@@ -143,6 +144,74 @@ describe('wordsMatchingPhrase', () => {
   it('finds every genuine occurrence, not just the first', () => {
     const words = [{ t: 'los' }, { t: 'módulos' }, { t: 'los' }];
     expect(wordsMatchingPhrase(words, 'los')).toEqual(words); // all three contain "los"
+  });
+});
+
+describe('realignWords', () => {
+  const boxed = (...ts) => ts.map((t, i) => ({ t, x: i * 10, y: 0, w: 8, h: 10 }));
+
+  it('leaves every box alone when the text comes back unchanged', () => {
+    const words = boxed('la', 'canción', 'de', 'mañana');
+    expect(realignWords(words, 'la canción de mañana')).toEqual(words);
+  });
+
+  // The commonest edit there is: one misread word typed over. Its own box goes
+  // — those letters are no longer what is written there — and every other box
+  // on the page is left exactly where it was.
+  it('drops only the box of the word that was retyped', () => {
+    const words = boxed('la', 'cancien', 'de', 'mañana');
+    const out = realignWords(words, 'la canción de mañana');
+    expect(out.map((w) => w.t)).toEqual(['la', 'de', 'mañana']);
+    expect(out.map((w) => w.x)).toEqual([0, 20, 30]);
+  });
+
+  it('takes an accent the edit put back, even though folding matched without it', () => {
+    const out = realignWords(boxed('cancion'), 'canción');
+    expect(out).toEqual([{ ...boxed('cancion')[0], t: 'canción' }]);
+  });
+
+  it('gives an inserted word no box rather than borrowing a neighbour’s', () => {
+    const words = boxed('la', 'de', 'mañana');
+    const out = realignWords(words, 'la canción de mañana');
+    // "canción" was never on the page, so nothing can say where it is.
+    expect(out.map((w) => w.t)).toEqual(['la', 'de', 'mañana']);
+    expect(out).toEqual(words);
+  });
+
+  it('drops the box of a word the edit deleted', () => {
+    const words = boxed('la', 'canción', 'de', 'mañana');
+    const out = realignWords(words, 'la de mañana');
+    expect(out.map((w) => w.t)).toEqual(['la', 'de', 'mañana']);
+    expect(out.map((w) => w.x)).toEqual([0, 20, 30]); // the surviving rectangles
+  });
+
+  // Whitespace was never in the boxes, so putting some in doesn't move any ink:
+  // the rectangle over "lasleyes" still covers exactly the words now written
+  // "las leyes", and search matches on substrings, so it still lights up.
+  it('keeps a box whose word the edit only split in two', () => {
+    const out = realignWords(boxed('de', 'lasleyes', 'tres'), 'de las leyes tres');
+    expect(out.map((w) => w.t)).toEqual(['de', 'lasleyes', 'tres']);
+  });
+
+  // The mismatch this whole function is built around: Vision cuts "sucesos:"
+  // into two boxes while page.text keeps it as one word. Counting characters
+  // instead of words is what lets both of them survive an edit elsewhere.
+  it('survives Vision splitting punctuation into boxes of its own', () => {
+    const words = boxed('Analicemos', 'los', 'sucesos', ':', 'Suceso', 'A', ':');
+    const out = realignWords(words, 'Analicemos los sucesos: Suceso B:');
+    // Everything up to the retyped "A" is untouched, punctuation boxes included.
+    expect(out.map((w) => w.t)).toEqual(['Analicemos', 'los', 'sucesos', ':', 'Suceso', ':']);
+  });
+
+  it('is empty when there were no boxes, or nothing left to box', () => {
+    expect(realignWords([], 'hola mundo')).toEqual([]);
+    expect(realignWords(undefined, 'hola mundo')).toEqual([]);
+    expect(realignWords(boxed('hola'), '')).toEqual([]);
+    expect(realignWords(boxed('hola'), '   ')).toEqual([]);
+  });
+
+  it('handles a rewrite that keeps nothing at all', () => {
+    expect(realignWords(boxed('uno', 'dos'), 'algo enteramente distinto aquí')).toEqual([]);
   });
 });
 

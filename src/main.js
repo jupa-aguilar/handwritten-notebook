@@ -33,6 +33,7 @@ import {
   phraseIndex,
   wordMatchesToken,
   wordsMatchingPhrase,
+  realignWords,
   wordsInRect,
   wordsToText,
   highlight,
@@ -504,9 +505,20 @@ async function removePage(id) {
   setOcrStatus('Page deleted');
 }
 
+// The page whose transcription is open in the hand editor, by local id, or
+// null. While it is set the panel body belongs to the editor: a page turn, a
+// search, the chat's focus line and the find box all repaint it, and any of
+// them would throw away what is being typed.
+let editingPageId = null;
+
 function updatePanel() {
   updateBookmarkButtons(); // every page change funnels through here
   chatFocusChanged(); // …including the chat's "reading p. 7–8" anchor
+  if (editingPageId !== null) return; // see editingPageId — the editor holds it
+  renderPanel();
+}
+
+function renderPanel() {
   const body = $('#panel-body');
   // Both halves of the spread, not just the left one. The panel was the last
   // place still assuming a single page: with 3–4 open it showed only 3, so
@@ -537,7 +549,15 @@ function updatePanel() {
 
 function transcriptSection(page, query, highlightIt = true) {
   const n = pages.indexOf(page) + 1;
-  let html = `<div class="panel-meta">Page ${n} of ${pages.length}</div>`;
+  if (page.id === editingPageId) return transcriptEditor(page, n);
+  // Not while it is queued: Vision would land on top of whatever was typed.
+  // Everything else can be edited, a page with no text at all included — a
+  // scan Vision failed on is exactly the one worth writing out by hand.
+  const edit =
+    page.ocrStatus === 'pending'
+      ? ''
+      : ` <button class="btn ghost small edit-page" data-id="${page.id}" title="Correct this transcription by hand (⇧T)">✏️ Edit</button>`;
+  let html = `<div class="panel-meta">Page ${n} of ${pages.length}${edit}</div>`;
   if (page.ocrStatus === 'skipped') {
     html += `<div class="panel-note">Transcription is turned off, so page text and search aren't available yet.</div>`;
   } else if (page.ocrStatus === 'pending') {
@@ -558,6 +578,89 @@ function transcriptSection(page, query, highlightIt = true) {
     }</pre>`;
   }
   return html;
+}
+
+// Correcting a transcription by hand: the panel's own text, in a box you can
+// type in, beside the handwriting it was read from. What Vision got wrong is
+// invisible until a search comes up empty, and the proofreader only offers
+// what a model thought to question — this is the way to fix the rest.
+function transcriptEditor(page, n) {
+  return `<div class="panel-meta">Page ${n} of ${pages.length} — editing</div>
+    <textarea id="transcript-edit" class="transcript-edit" spellcheck="false" aria-label="Transcription of page ${n}">${escapeHtml(
+      page.text || ''
+    )}</textarea>
+    <div class="panel-actions">
+      <button id="transcript-save" class="btn small" title="Save and sync (⌘Enter)">Save</button>
+      <button id="transcript-cancel" class="btn ghost small" title="Leave it as it was (Esc)">Cancel</button>
+    </div>
+    <div class="panel-note">The words you leave alone keep their place on the page image; rewritten ones lose it until the page is transcribed again.</div>`;
+}
+
+function startEditingTranscript(id) {
+  const page = pages.find((p) => p.id === id);
+  if (!page || page.ocrStatus === 'pending') return;
+  editingPageId = id;
+  renderPanel();
+  const box = $('#transcript-edit');
+  if (!box) return;
+  box.focus();
+  // At the end rather than selected whole: this is a correction, not a rewrite,
+  // and a full selection is one keystroke away from losing the page.
+  box.setSelectionRange(box.value.length, box.value.length);
+}
+
+// Returns whether the edit is now closed — Escape needs to know, so that a
+// refused discard doesn't fall through and close the panel underneath it.
+function cancelTranscriptEdit({ ask = false } = {}) {
+  const page = pages.find((p) => p.id === editingPageId);
+  const box = $('#transcript-edit');
+  if (ask && page && box && box.value.trim() !== (page.text || '')) {
+    if (!confirm(`Discard your changes to page ${pages.indexOf(page) + 1}?`)) return false;
+  }
+  editingPageId = null;
+  updatePanel();
+  return true;
+}
+
+async function saveTranscript() {
+  const page = pages.find((p) => p.id === editingPageId);
+  const box = $('#transcript-edit');
+  if (!page || !box) return;
+  const text = box.value.trim();
+  if (text !== (page.text || '')) {
+    page.text = text;
+    // The boxes have to follow the text or the marks on the image start
+    // pointing at the wrong ink — see realignWords for what can honestly be
+    // kept.
+    page.words = realignWords(page.words, text);
+    // A transcription written by hand is a finished one. Left marked pending
+    // or failed, the OCR queue would come back later and replace it with
+    // Vision's reading of the same page.
+    page.ocrStatus = 'done';
+    delete page.error;
+    // The full ritual: a transcript is notebook content, and sync carries it.
+    await putPage(page);
+    await touchNotebook(page.notebookId);
+    scheduleSync();
+    await reanchorCards(page); // a corrected word may be the one an anchor missed
+    updateOcrCue(); // the page may have just left the queue
+  }
+  editingPageId = null;
+  updatePanel();
+  refreshSearch(); // the results and their snippets were drawn from the old text
+  updateHighlights();
+  renderViewerHighlights();
+}
+
+// ⇧T corrects the transcription of the page you have open, the way ⇧B opens
+// the bookmark list beside B's marking. A spread shows two pages and this
+// takes the left one; the ✏️ beside each page's heading is how you reach the
+// other.
+function editTranscriptShortcut() {
+  const page = visiblePages()[0];
+  if (!page) return;
+  openPanel();
+  startEditingTranscript(page.id);
 }
 
 // Which of the page's matches is being looked at. Reset whenever the text
@@ -1622,6 +1725,13 @@ function toggleUnifiedPanel() {
 // own Escape stops working the moment focus leaves it, so the ✕ had to be
 // found and clicked.
 function backToReading() {
+  // The editor peels first, and alone: it is the only layer here holding work
+  // that isn't written down anywhere else, and a refused discard has to leave
+  // the panel it is sitting in exactly where it was.
+  if (editingPageId !== null) {
+    cancelTranscriptEdit({ ask: true });
+    return;
+  }
   if ($('#search').value !== '') {
     $('#search').value = '';
     refreshSearch(); // drops the results, the .searching class and the boxes
@@ -3762,18 +3872,20 @@ function wire() {
     if (e.key === 'r' || e.key === 'R') openReview();
     if (e.key === 'n' || e.key === 'N') openNotebooks();
     if (e.key === 'p' || e.key === 'P') openPagesOverview();
-    if (e.key === 't' || e.key === 'T') toggleTextShortcut();
     if (e.key === 'a' || e.key === 'A') $('#file-input').click();
     if (e.key === 'h' || e.key === 'H') openHelp();
     if (e.key === 'k' || e.key === 'K') openSettings();
     if (e.key === 'g' || e.key === 'G') openGoto();
     // Shift claims the second action on a letter the app already spends, and
     // it is always the one standing right beside the plain key's: the bookmark
-    // list beside marking a page, syncing now beside opening the cloud's
-    // panel, checking the transcription beside the chat that reads it. (Caps
-    // Lock swaps each pair over — not worth a guard.)
+    // list beside marking a page, correcting the page text beside showing it,
+    // syncing now beside opening the cloud's panel, checking the transcription
+    // beside the chat that reads it. (Caps Lock swaps each pair over — not
+    // worth a guard.)
     if (e.key === 'b') toggleBookmark();
     if (e.key === 'B') toggleBookmarksPop();
+    if (e.key === 't') toggleTextShortcut();
+    if (e.key === 'T') editTranscriptShortcut();
     if (e.key === 'd') toggleUsagePop();
     if (e.key === 'D') $('#sync-now').click();
     if (e.key === 'c') toggleChatShortcut();
@@ -3878,7 +3990,28 @@ function wire() {
   $('#panel-body').addEventListener('click', (e) => {
     const one = e.target.closest('.retry-page');
     if (one) return retryFailed(Number(one.dataset.id));
-    if (e.target.closest('.retry-all')) retryFailed();
+    if (e.target.closest('.retry-all')) return retryFailed();
+    const edit = e.target.closest('.edit-page');
+    if (edit) return startEditingTranscript(Number(edit.dataset.id));
+    if (e.target.closest('#transcript-save')) return saveTranscript();
+    if (e.target.closest('#transcript-cancel')) cancelTranscriptEdit({ ask: true });
+  });
+
+  // The editor's own keys. Delegated like the clicks above, because the
+  // textarea is rebuilt with the rest of the body every time the panel
+  // renders. Escape has to be answered here at all: the global handler steps
+  // aside for text fields, which is the same bargain the search box and the
+  // chat's composer make.
+  $('#panel-body').addEventListener('keydown', (e) => {
+    if (e.target.id !== 'transcript-edit') return;
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      saveTranscript();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation(); // never let it close the panel out from under a refused discard
+      cancelTranscriptEdit({ ask: true });
+    }
   });
 
   const findBox = $('#panel-find');
@@ -3919,6 +4052,12 @@ function wire() {
   // handler found nothing every time.
   let marked = '';
   document.addEventListener('selectionchange', () => {
+    // Nothing to mark while the text is being typed rather than read — and the
+    // bar's two buttons would send the model the version before the edit.
+    if (editingPageId !== null) {
+      askBar.hidden = true;
+      return;
+    }
     const passage = selectedInPanel();
     if (passage) marked = passage;
     askBar.hidden = !passage;
