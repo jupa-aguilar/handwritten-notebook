@@ -704,6 +704,7 @@ let selecting = false; // armed via #select-btn or 'S'
 let dragOrigin = null; // { geom, x0, y0 } while a drag is in progress
 let framedSelection = null; // { page, rect, text } once a drag lands on real words
 let frameCropUrl = null; // object URL behind #frame-crop-img
+let copyLabelTimer = null; // puts #frame-copy's label back after it confirms
 const MIN_DRAG_PX = 10; // shorter reads as a stray click, not a selection
 
 // Only meaningful over the flipbook: the viewer owns its own gestures and
@@ -726,6 +727,7 @@ function discardFrame() {
   framedSelection = null;
   $('#select-rect').hidden = true;
   $('#frame-ask').hidden = true;
+  $('#frame-text').textContent = '';
   $('#frame-question-input').value = ''; // half a question about the last box isn't about this one
   releaseFrameCrop();
 }
@@ -892,6 +894,7 @@ function wireSelectMode() {
   };
   $('#frame-ask-btn').addEventListener('click', useFramed(setSubject));
   $('#frame-explain-btn').addEventListener('click', useFramed(explainSubject));
+  $('#frame-copy').addEventListener('click', copyFramedText);
 
   // A question typed beside the box goes out with the passage attached. An
   // empty one is a stray Enter, not a question: leave the box as it is rather
@@ -903,6 +906,28 @@ function wireSelectMode() {
     askSubject(framedSelection.text, asked);
     setSelectMode(false);
   });
+}
+
+// Unlike Explain and Ask, this leaves the tool exactly as it was: taking the
+// words isn't the end of what you might do with the box you just drew. The
+// answer lands on the button rather than in the toolbar's status line, which
+// is across the screen from where you are looking and never clears itself.
+async function copyFramedText() {
+  if (!framedSelection) return;
+  const btn = $('#frame-copy');
+  const label = '📋 Copy the text';
+  try {
+    await navigator.clipboard.writeText(framedSelection.text);
+    btn.textContent = '✓ Copied';
+  } catch {
+    // Denied permission, or an insecure origin. The text is right there and
+    // selectable, so say the thing that still works.
+    btn.textContent = '✕ Select it and ⌘C';
+  }
+  clearTimeout(copyLabelTimer);
+  copyLabelTimer = setTimeout(() => {
+    btn.textContent = label;
+  }, 2000);
 }
 
 function toLocalPoint(e) {
@@ -975,6 +1000,7 @@ async function finishDrag(pt) {
 
   $('#select-rect').className = 'select-rect final';
   framedSelection = { page, rect, text: wordsToText(words) };
+  $('#frame-text').textContent = framedSelection.text;
   $('#frame-ask').hidden = false;
   placeFrameAsk(local);
   // Land in the question box: having just drawn a box around something, the
@@ -3757,6 +3783,9 @@ function wire() {
       if (!$('#frame-ask').hidden) $('#frame-ask-btn').click();
       else if (!$('#panel-ask').hidden) $('#panel-ask-btn').click();
     }
+    // Only the framed one: a passage selected in the transcript is already
+    // selected, and ⌘C over it copies exactly what the browser shows.
+    if ((e.key === 'x' || e.key === 'X') && !$('#frame-ask').hidden) $('#frame-copy').click();
     // These two are cues, not fixtures. The key answers only while the button
     // is on screen, so it does exactly what pressing the button would.
     if ((e.key === 'o' || e.key === 'O') && !$('#transcribe-now').hidden) {

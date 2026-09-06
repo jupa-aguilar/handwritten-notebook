@@ -942,6 +942,42 @@ body:not(.is-mobile) .book-area {
   width: auto;
   flex: none;
 }
+/* The transcription of what the frame caught. Real selectable text, which is
+   the point of it: everything else the bar offers hands the passage to the
+   chat, and there was no way to simply take the words. Capped and scrolling,
+   because a generous rectangle can hold half a page and the bar is anchored
+   to the box you drew, not to the window. */
+.frame-text {
+  width: 100%;
+  box-sizing: border-box;
+  max-height: 96px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 9px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--panel-ink);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  text-align: left; /* .panel-ask centres its row; this is a paragraph */
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.frame-text:empty {
+  display: none;
+}
+/* Clicking in to select text is not the same as focusing a control, and the
+   browser's ring on a plain click made this read like a field to fill in.
+   Tab still shows where it is — the box scrolls, so it has to be reachable. */
+.frame-text:focus {
+  outline: none;
+}
+.frame-text:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .frame-crop-img {
   display: block;
   max-width: 100%;
