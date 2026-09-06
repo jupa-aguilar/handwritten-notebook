@@ -28,10 +28,11 @@ import { transcribeImage } from './ocr.js';
 import {
   naturalCompare,
   escapeHtml,
-  foldText,
   searchTokens,
-  pageHasAllTokens,
+  pageHasPhrase,
+  phraseIndex,
   wordMatchesToken,
+  wordsMatchingPhrase,
   wordsInRect,
   wordsToText,
   highlight,
@@ -514,20 +515,13 @@ function updatePanel() {
   const find = $('#panel-find').value.trim();
   const search = $('#search').value.trim();
   const query = find || search;
-  // A notebook-wide search only lights up a page that is an actual hit (every
-  // query word present) — the transcript should agree, or the page you
-  // happen to be reading while a search is active gets a few incidental
-  // words marked and reads as a wrong result instead of the page you're on.
-  // The page-local find has no such gate: it's asking about this page only.
-  const searchTermTokens = find ? null : searchTokens(search);
+  // A notebook-wide search only lights up a page that is an actual hit (the
+  // phrase is really on it) — the transcript should agree, or the page you
+  // happen to be reading while a search is active gets an incidental word
+  // marked and reads as a wrong result instead of the page you're on. The
+  // page-local find has no such gate: it's asking about this page only.
   body.innerHTML = shown
-    .map((page) =>
-      transcriptSection(
-        page,
-        query,
-        !searchTermTokens || pageHasAllTokens(page, searchTermTokens)
-      )
-    )
+    .map((page) => transcriptSection(page, query, find ? true : pageHasPhrase(page, search)))
     .join('');
   paintFind();
 }
@@ -618,12 +612,12 @@ function refreshSearch() {
     return;
   }
 
-  // A page matches when it contains every query word (in any order), not the
-  // literal phrase — so "musica manana" finds a page mentioning both.
-  const tokens = searchTokens(query);
+  // A page matches when the literal phrase appears on it, like a PDF's
+  // Cmd+F — "musica manana" no longer finds a page that merely mentions both
+  // words somewhere.
   const matches = pages
     .map((p, i) => ({ page: p, index: i }))
-    .filter(({ page }) => pageHasAllTokens(page, tokens));
+    .filter(({ page }) => pageHasPhrase(page, query));
 
   count.textContent = `${matches.length} page${matches.length === 1 ? '' : 's'}`;
 
@@ -637,12 +631,12 @@ function refreshSearch() {
         matches
           .map(({ page, index }) => {
             const text = page.text || '';
-            // Anchor the snippet on the earliest word that matched.
-            const hay = foldText(text);
-            let at = Math.min(
-              ...tokens.map((t) => hay.indexOf(t)).filter((i) => i >= 0)
-            );
-            if (!Number.isFinite(at)) at = 0;
+            // phraseIndex runs the whitespace-tolerant search against
+            // foldText(text), which is 1:1 per character with text — so its
+            // result is safe to slice text with directly. Never -1 here:
+            // matches was already filtered by pageHasPhrase, defined in
+            // terms of this same call.
+            const at = Math.max(phraseIndex(text, query), 0);
             const start = Math.max(0, at - 30);
             const snippet =
               (start > 0 ? '…' : '') +
@@ -688,6 +682,10 @@ function paintDueBadge(n) {
 // overlay over without the two fighting for it.
 let citedPassage = null; // { index, tokens }
 
+// Which of #panel/#chat the single toolbar button reopens to, since the two
+// are now one button and one tab strip rather than two independent buttons.
+let lastPanelTab = 'text';
+
 // The framing tool ("🖼 Frame"): draw a rectangle over the page image, get an
 // explanation of the transcribed text under it — same explainSubject/
 // setSubject the Text panel's own selection already uses, just fed text
@@ -726,18 +724,30 @@ function releaseFrameCrop() {
   frameCropUrl = null;
 }
 
-// Which words to box on a page, and how strictly. The search wins while it is
-// running; a citation only shows on the page it was about.
+// Which words to box on a page. The search wins while it is running; a
+// citation only shows on the page it was about.
 function highlightPlan(index) {
-  const search = searchTokens($('#search').value.trim());
-  if (search.length) return { tokens: search, requireAll: true, cited: false };
+  const query = $('#search').value.trim();
+  if (query) return { cited: false, query };
   if (citedPassage?.index === index && citedPassage.tokens.length) {
-    // A quote is matched word by word rather than all-or-nothing: it reaches
-    // us from a model reading an OCR transcript, so one mistranscribed word
-    // must not silence the whole passage.
-    return { tokens: citedPassage.tokens, requireAll: false, cited: true };
+    return { cited: true, tokens: citedPassage.tokens };
   }
-  return { tokens: [], requireAll: true, cited: false };
+  return { cited: false, query: '' };
+}
+
+// Which of a page's OCR words should be boxed, under either mode
+// highlightPlan can return. Citation: whole-word, any of several tokens,
+// never gated — it reaches us from a model reading an OCR transcript, so one
+// mistranscribed word must not silence the whole passage. Search: substring,
+// contiguous, gated on the page actually containing the phrase, so a box
+// never appears on a page the search reports as a non-match.
+function matchedWords(page, plan) {
+  if (plan.cited) {
+    return page.words.filter((w) => plan.tokens.some((t) => wordMatchesToken(w.t, t)));
+  }
+  return plan.query && pageHasPhrase(page, plan.query)
+    ? wordsMatchingPhrase(page.words, plan.query)
+    : [];
 }
 
 function clearHighlights() {
@@ -815,19 +825,11 @@ function updateHighlights() {
       rib.style.height = `${rw * 1.8}px`;
       frag.appendChild(rib);
     }
-    const { tokens, requireAll, cited } = highlightPlan(g.i);
-    if (
-      tokens.length === 0 ||
-      !page.words?.length ||
-      !g.sx ||
-      !g.sy ||
-      (requireAll && !pageHasAllTokens(page, tokens))
-    )
-      continue;
-    for (const w of page.words) {
-      if (!tokens.some((t) => wordMatchesToken(w.t, t))) continue;
+    if (!page.words?.length || !g.sx || !g.sy) continue;
+    const plan = highlightPlan(g.i);
+    for (const w of matchedWords(page, plan)) {
       const box = document.createElement('div');
-      box.className = cited ? 'hl-box cited' : 'hl-box';
+      box.className = plan.cited ? 'hl-box cited' : 'hl-box';
       box.style.left = `${g.left + w.x * g.sx}px`;
       box.style.top = `${g.top + w.y * g.sy}px`;
       box.style.width = `${w.w * g.sx}px`;
@@ -1509,20 +1511,37 @@ function setPanelHidden(hidden) {
   $('#panel').hidden = hidden;
   if (!hidden) {
     $('#chat').hidden = true; // one side panel at a time — two would squeeze the book
+    lastPanelTab = 'text';
     updatePanel();
   }
   // The reading bar shows which view you're in, so an open panel is visible
-  // even when the panel itself is off to the side.
-  $('#panel-toggle').classList.toggle('active', !hidden);
-  $('#chat-btn').classList.toggle('active', !$('#chat').hidden);
+  // even when the panel itself is off to the side. The one button now covers
+  // both tabs, so it lights up whenever either is open.
+  $('#panel-toggle').classList.toggle('active', !hidden || !$('#chat').hidden);
   window.dispatchEvent(new Event('resize'));
 }
 
 function openPanel() {
   setPanelHidden(false);
 }
-function togglePanel() {
-  setPanelHidden($('#panel').hidden === false);
+
+// Replaces togglePanel as the toolbar's single entry point (Text and Chat
+// used to be two buttons; now they're one button and a tab strip). Guards
+// the last-tab memory against chat having gone unavailable since it was set
+// — otherwise this could open a panel the CSS is forcibly hiding, and the
+// button would light up "active" over nothing visible.
+function toggleUnifiedPanel() {
+  if (!$('#panel').hidden) {
+    setPanelHidden(true);
+    return;
+  }
+  if (!$('#chat').hidden) {
+    toggleChat(); // closes it — see chat.js, it flips on the current hidden state
+    return;
+  }
+  const wantChat = lastPanelTab === 'chat' && !document.body.classList.contains('chat-unavailable');
+  if (wantChat) openChat();
+  else openPanel();
 }
 
 // ---------- bookmarks ----------
@@ -3026,16 +3045,11 @@ function renderViewerHighlights() {
     frag.appendChild(rib);
   }
 
-  const { tokens, requireAll, cited } = highlightPlan(viewerPage);
-  if (
-    tokens.length &&
-    page.words?.length &&
-    (!requireAll || pageHasAllTokens(page, tokens))
-  ) {
-    for (const w of page.words) {
-      if (!tokens.some((t) => wordMatchesToken(w.t, t))) continue;
+  if (page.words?.length) {
+    const plan = highlightPlan(viewerPage);
+    for (const w of matchedWords(page, plan)) {
       const box = document.createElement('div');
-      box.className = cited ? 'vhl-box cited' : 'vhl-box';
+      box.className = plan.cited ? 'vhl-box cited' : 'vhl-box';
       box.style.left = `${w.x}px`;
       box.style.top = `${w.y}px`;
       box.style.width = `${w.w}px`;
@@ -3698,8 +3712,9 @@ function wire() {
     );
   });
 
-  $('#panel-toggle').addEventListener('click', togglePanel);
+  $('#panel-toggle').addEventListener('click', toggleUnifiedPanel);
   $('#panel-close').addEventListener('click', () => setPanelHidden(true));
+  $('#panel-tab-chat').addEventListener('click', () => openChat());
 
   // Delegated, because the panel's contents are rebuilt on every page turn —
   // and there are now as many of these as there are pages on screen.
@@ -3773,7 +3788,11 @@ function wire() {
     }),
     onSpendChanged: updateUsageDisplay,
     onGoToPage: goToCitedPage,
-    onVisibilityChanged: syncViewerChatTab,
+    onVisibilityChanged: (hidden) => {
+      if (!hidden) lastPanelTab = 'chat';
+      syncViewerChatTab();
+    },
+    onSwitchToText: openPanel,
   });
 
   initReview({

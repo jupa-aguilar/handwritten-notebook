@@ -4,8 +4,10 @@ import {
   escapeHtml,
   foldText,
   searchTokens,
-  pageHasAllTokens,
+  pageHasPhrase,
+  phraseIndex,
   wordMatchesToken,
+  wordsMatchingPhrase,
   wordsInRect,
   wordsToText,
   highlight,
@@ -43,30 +45,60 @@ describe('searchTokens', () => {
   });
 });
 
-describe('pageHasAllTokens', () => {
+describe('pageHasPhrase', () => {
   const page = { text: 'La canción de mañana por la tarde' };
 
-  it('matches when every word appears, in any order', () => {
-    expect(pageHasAllTokens(page, searchTokens('musica'))).toBe(false);
-    expect(pageHasAllTokens(page, searchTokens('cancion manana'))).toBe(true);
-    expect(pageHasAllTokens(page, searchTokens('manana cancion'))).toBe(true);
+  it('matches the literal phrase, not independent words in any order', () => {
+    expect(pageHasPhrase(page, 'musica')).toBe(false);
+    expect(pageHasPhrase(page, 'cancion manana')).toBe(false); // "de" sits between them
+    expect(pageHasPhrase(page, 'manana cancion')).toBe(false); // wrong order
+    expect(pageHasPhrase(page, 'cancion de manana')).toBe(true); // the actual phrase
   });
 
-  it('needs all of them, not just one', () => {
-    expect(pageHasAllTokens(page, searchTokens('cancion ausente'))).toBe(false);
+  it('is false when the phrase is not present at all', () => {
+    expect(pageHasPhrase(page, 'cancion ausente')).toBe(false);
   });
 
-  it('treats a page with no transcription as a non-match', () => {
-    expect(pageHasAllTokens({}, searchTokens('anything'))).toBe(false);
-    expect(pageHasAllTokens({ text: '' }, [])).toBe(true); // empty query matches all
+  it('treats a page with no transcription as a non-match; an empty query matches all', () => {
+    expect(pageHasPhrase({}, 'anything')).toBe(false);
+    expect(pageHasPhrase({ text: '' }, '')).toBe(true);
   });
 
-  it('is whole-word: a query word must not match inside a longer one', () => {
+  // This used to be whole-word only, on purpose, at the user's own earlier
+  // request. Reversed on purpose too, back to real substring search: "dos"
+  // matching inside "todos" is what a literal PDF-style search does.
+  it('matches inside a longer word too — literal substring, not whole-word', () => {
     const p = { text: 'Puede descargarse si nadie lo está usando, todos los módulos' };
-    expect(pageHasAllTokens(p, searchTokens('los'))).toBe(true);
-    // "dos" is a substring of "todos" and of "módulos" but appears as neither
-    // of those words on its own — the page must not count as a hit for it.
-    expect(pageHasAllTokens(p, searchTokens('dos'))).toBe(false);
+    expect(pageHasPhrase(p, 'los')).toBe(true);
+    expect(pageHasPhrase(p, 'dos')).toBe(true); // "todos".includes("dos")
+  });
+
+  it('finds "A.4" as a literal substring — the bug this whole change fixes', () => {
+    const p = { text: 'A.4 Algoritmos de planificación' };
+    expect(pageHasPhrase(p, 'A.4')).toBe(true);
+    expect(pageHasPhrase(p, 'G.3')).toBe(false);
+  });
+
+  it('tolerates a phrase the source text wraps onto two lines', () => {
+    expect(pageHasPhrase({ text: 'hola\nmundo' }, 'hola mundo')).toBe(true);
+  });
+});
+
+describe('phraseIndex', () => {
+  it('finds the index of a phrase that wraps across a line break in the source', () => {
+    expect(phraseIndex('hola\nmundo', 'hola mundo')).toBe(0);
+  });
+
+  it('returns -1 when the phrase is absent', () => {
+    expect(phraseIndex('hola mundo', 'adios')).toBe(-1);
+  });
+
+  // foldText is 1:1 per character, which is what lets this index slice the
+  // *original*, unfolded text correctly.
+  it('lines up with the original text for slicing', () => {
+    const text = 'Mañana: A.4 Algoritmos';
+    const at = phraseIndex(text, 'a.4');
+    expect(text.slice(at, at + 3)).toBe('A.4');
   });
 });
 
@@ -84,6 +116,33 @@ describe('wordMatchesToken', () => {
   it('ignores punctuation Vision attached to the word', () => {
     expect(wordMatchesToken('núcleo.', 'nucleo')).toBe(true);
     expect(wordMatchesToken('«mundo»', 'mundo')).toBe(true);
+  });
+});
+
+describe('wordsMatchingPhrase', () => {
+  it('does plain substring-per-word matching for a single-word query', () => {
+    const words = [{ t: 'todos' }, { t: 'módulos' }, { t: 'dos' }];
+    // "módulos" doesn't contain "dos" as a contiguous substring (d-u-l-o-s).
+    expect(wordsMatchingPhrase(words, 'dos')).toEqual([words[0], words[2]]);
+  });
+
+  it('boxes the OCR word Vision kept punctuation on — the "A.4" fix', () => {
+    const words = [{ t: 'A.4' }, { t: 'Algoritmos' }];
+    expect(wordsMatchingPhrase(words, 'a.4')).toEqual([words[0]]);
+  });
+
+  it('boxes a contiguous run of OCR words for a multi-word query', () => {
+    const words = [{ t: 'la' }, { t: 'canción' }, { t: 'de' }, { t: 'mañana' }];
+    expect(wordsMatchingPhrase(words, 'cancion de manana')).toEqual([
+      words[1],
+      words[2],
+      words[3],
+    ]);
+  });
+
+  it('finds every genuine occurrence, not just the first', () => {
+    const words = [{ t: 'los' }, { t: 'módulos' }, { t: 'los' }];
+    expect(wordsMatchingPhrase(words, 'los')).toEqual(words); // all three contain "los"
   });
 });
 
@@ -141,10 +200,10 @@ describe('highlight', () => {
     expect(highlight('mañana', 'manana')).toBe('<mark>mañana</mark>');
   });
 
-  it('is whole-word: it must not mark a query word inside a longer one', () => {
-    expect(highlight('todos los módulos', 'dos')).toBe('todos los módulos');
+  it('is substring: it marks a query word inside a longer one too', () => {
+    expect(highlight('todos los módulos', 'dos')).toBe('to<mark>dos</mark> los módulos');
     expect(highlight('todos los módulos', 'los')).toBe(
-      'todos <mark>los</mark> módulos'
+      'todos <mark>los</mark> módu<mark>los</mark>' // "módulos" ends in "los" too
     );
   });
 
@@ -159,8 +218,9 @@ describe('highlight', () => {
     expect(highlight('a < b & c', '')).toBe('a &lt; b &amp; c');
   });
 
-  it('prefers the longest match when queries overlap', () => {
-    expect(highlight('abc', 'ab abc')).toBe('<mark>abc</mark>');
+  it('matches a multi-word query as one phrase, not independent alternatives', () => {
+    expect(highlight('abc', 'ab abc')).toBe('abc'); // no whitespace in "abc" to satisfy "ab abc"
+    expect(highlight('ab abc', 'ab abc')).toBe('<mark>ab abc</mark>');
   });
 
   it('treats regex metacharacters in the query as literals', () => {

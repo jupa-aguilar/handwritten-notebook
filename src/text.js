@@ -41,31 +41,78 @@ export function searchTokens(query) {
   return foldText(query).split(/\s+/).filter(Boolean);
 }
 
-// A page is a search hit when its text contains every query word — as a
-// whole word, not a substring: "dos" must not credit a page for "todos" or
-// "mundos". Used both to filter the results list and to gate the word-box
-// overlays, so a box never appears on a page the search reports as a
-// non-match.
-export function pageHasAllTokens(page, tokens) {
-  if (tokens.length === 0) return true;
-  const hay = foldText(page.text || '');
-  const words = new Set(hay.split(/[^\p{L}\p{N}]+/u).filter(Boolean));
-  return tokens.every((t) => words.has(t));
-}
-
 // Strip everything but letters and digits, so an OCR word carrying whatever
 // punctuation Vision grouped onto it ("núcleo." "«mundo»") still matches the
-// bare token a search or citation was given.
+// bare token a citation was given.
 function bareWord(s) {
   return s.replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
-// Whether one OCR-detected word *is* a query token, whole-word rather than
-// substring. Shared by every word-box overlay (the flipbook's and the zoom
-// viewer's) so they draw exactly the boxes pageHasAllTokens/highlight agree
-// are hits, never a box on "todos" because the query was "dos".
+// Whether one OCR-detected word *is* a citation token, whole-word rather than
+// substring. Citation is the one caller left that wants this: a quote from a
+// model reading an OCR transcript should survive one mistranscribed word, so
+// it's matched any-of/whole-word rather than as a literal phrase (see
+// wordsMatchingPhrase below for the search box's own, substring version of
+// this same question).
 export function wordMatchesToken(word, token) {
   return bareWord(foldText(word)) === token;
+}
+
+// Index of the query phrase in `text`, or -1. Runs against foldText(text) —
+// 1:1 per character with the original (foldText's own invariant), which is
+// what lets this index double as an index into `text` itself for slicing a
+// snippet out of it. `\s+` stands in for the whitespace searchTokens split
+// the query on, so a query typed with single spaces still finds a phrase the
+// source wrapped onto two real lines. This is the one place that does the
+// whitespace-tolerant search — pageHasPhrase and the search results' snippet
+// both call it rather than re-implementing it, so they can't disagree.
+export function phraseIndex(text, query) {
+  const words = searchTokens(query);
+  if (!words.length) return -1;
+  const re = new RegExp(words.map(accentPattern).join('\\s+'), 'iu');
+  const m = re.exec(foldText(text));
+  return m ? m.index : -1;
+}
+
+// A page is a search hit when the literal phrase appears on it — real
+// PDF-style substring search, tolerant only of case, accents and whitespace
+// runs, like a Cmd+F. "cancion manana" no longer credits a page that only
+// ever puts those two words in unrelated sentences; the words have to run
+// together, in order, the way they were typed.
+export function pageHasPhrase(page, query) {
+  if (!searchTokens(query).length) return true; // empty query matches every page
+  return phraseIndex(page.text || '', query) >= 0;
+}
+
+// Which of a page's OCR words fall inside a genuine occurrence of the
+// (possibly multi-word) query phrase — a sliding window over page.words,
+// already in reading order. Every word in the window must *contain*
+// (substring, not equality) the matching query word, so a single-word query
+// degenerates to "does this OCR word contain the query" — no punctuation
+// stripped from either side, which is what lets "A.4" match the single OCR
+// word Vision transcribed it as. Boxes every occurrence, not just the first:
+// a phrase can genuinely appear more than once on a page, and a PDF-style
+// search highlights every one.
+//
+// Scope limit, accepted rather than chased: a query that starts or ends
+// *inside* one OCR word shared with the next query word at a boundary Vision
+// didn't segment on isn't found. An honest miss beats a wrong box — the same
+// call made for review-card anchoring.
+export function wordsMatchingPhrase(words, query) {
+  const qWords = searchTokens(query);
+  if (!qWords.length || !words?.length) return [];
+  const hit = new Set();
+  for (let i = 0; i + qWords.length <= words.length; i++) {
+    let ok = true;
+    for (let k = 0; k < qWords.length; k++) {
+      if (!foldText(words[i + k].t).includes(qWords[k])) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) for (let k = 0; k < qWords.length; k++) hit.add(i + k);
+  }
+  return [...hit].sort((a, b) => a - b).map((i) => words[i]);
 }
 
 // A hand-drawn rectangle's own words, in the same image-pixel space as
@@ -102,17 +149,15 @@ function accentPattern(token) {
 
 export function highlight(text, query) {
   const safe = escapeHtml(text);
-  const tokens = searchTokens(query);
-  if (tokens.length === 0) return safe;
-  // Mark every query word wherever it appears, whole-word only (the
-  // lookaround pair below) so "dos" doesn't light up half of "todos".
-  // Longest first so "abc" wins over "ab" when both are searched and overlap.
-  const pattern = [...tokens]
-    .sort((a, b) => b.length - a.length)
-    .map(accentPattern)
-    .join('|');
-  return safe.replace(
-    new RegExp(`(?<![\\p{L}\\p{N}])(${pattern})(?![\\p{L}\\p{N}])`, 'giu'),
-    '<mark>$1</mark>'
-  );
+  const words = searchTokens(query);
+  if (words.length === 0) return safe;
+  // One phrase pattern, not one alternative per word: a query is a literal,
+  // whitespace-tolerant substring match now, not "any of these words,
+  // whole-word only" — the same real PDF-style search as pageHasPhrase. \s+
+  // between query words tolerates a line break in the source. No
+  // word-boundary lookaround any more — "dos" marks inside "todos" on
+  // purpose. There's only one pattern, so "longest match wins" no longer
+  // applies — that was about choosing between independent alternatives.
+  const pattern = words.map(accentPattern).join('\\s+');
+  return safe.replace(new RegExp(pattern, 'giu'), '<mark>$&</mark>');
 }

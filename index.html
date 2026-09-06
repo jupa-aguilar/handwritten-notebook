@@ -51,8 +51,7 @@
             <button id="pages-btn" class="read-btn" title="All pages"><span class="read-icon">🗂</span><span class="read-label">Pages</span></button>
             <button id="zoom-btn" class="read-btn" title="Zoom in to read (Z)"><span class="read-icon">🔍</span><span class="read-label">Zoom</span></button>
             <button id="select-btn" class="read-btn" title="Frame part of the page to ask about (S)" aria-pressed="false"><span class="read-icon">🖼</span><span class="read-label">Frame</span></button>
-            <button id="panel-toggle" class="read-btn" title="Show page text"><span class="read-icon">📖</span><span class="read-label">Text</span></button>
-            <button id="chat-btn" class="read-btn" title="Chat about this notebook"><span class="read-icon">💬</span><span class="read-label">Chat</span></button>
+            <button id="panel-toggle" class="read-btn" title="Show the text/chat panel"><span class="read-icon">📑</span><span class="read-label">Panel</span></button>
             <button id="review-btn" class="read-btn" title="Review cards drawn from these pages (R)"><span class="read-icon">🎯</span><span class="read-label">Review</span><span id="review-badge" class="read-badge" hidden></span></button>
             <div class="bm-wrap">
               <button id="bookmark-toggle" class="read-btn" title="Bookmark this page (B)" aria-pressed="false"><span class="read-icon">🔖</span><span class="read-label">Mark</span></button>
@@ -125,7 +124,10 @@
 
       <aside id="panel" class="panel" hidden>
         <div class="panel-head">
-          <strong>Page text</strong>
+          <div class="panel-tabs">
+            <button id="panel-tab-text" class="panel-tab active" aria-pressed="true">📖 Text</button>
+            <button id="panel-tab-chat" class="panel-tab" aria-pressed="false">💬 Chat</button>
+          </div>
           <button id="proof-btn" class="btn ghost small" title="Check this transcription against the handwriting">✨ Check</button>
           <button id="panel-close" class="btn ghost small" aria-label="Close panel">✕</button>
         </div>
@@ -152,7 +154,10 @@
       <!-- Chat about the notebook, answered by a local model via LM Studio. -->
       <aside id="chat" class="panel chat-panel" hidden>
         <div class="panel-head chat-head">
-          <strong>💬 Chat</strong>
+          <div class="panel-tabs">
+            <button id="chat-tab-text" class="panel-tab" aria-pressed="false">📖 Text</button>
+            <button id="chat-tab-chat" class="panel-tab active" aria-pressed="true">💬 Chat</button>
+          </div>
           <button id="chat-marks-btn" class="btn ghost small" title="No marked messages yet" aria-label="Marked messages" aria-expanded="false">🔖</button>
           <button id="chat-think" class="btn ghost small" aria-label="Model thinking" aria-pressed="false">🧠</button>
           <button id="chat-clear" class="btn ghost small" title="Clear this conversation" aria-label="Clear this conversation">🧹</button>
@@ -565,8 +570,7 @@
               <div class="reading-bar help-bar">
                 <span class="read-btn"><span class="read-icon">🗂</span><span class="read-label">Pages</span></span>
                 <span class="read-btn"><span class="read-icon">🔍</span><span class="read-label">Zoom</span></span>
-                <span class="read-btn"><span class="read-icon">📖</span><span class="read-label">Text</span></span>
-                <span class="read-btn"><span class="read-icon">💬</span><span class="read-label">Chat</span></span>
+                <span class="read-btn"><span class="read-icon">📑</span><span class="read-label">Panel</span></span>
                 <span class="read-btn"><span class="read-icon">🎯</span><span class="read-label">Review</span><span class="read-badge">3</span></span>
                 <span class="read-btn"><span class="read-icon">🔖</span><span class="read-label">Mark</span></span>
               </div>
@@ -584,7 +588,7 @@
 
           <section class="help-section" id="help-search">
             <h3>Buscar</h3>
-            <p>La búsqueda mira dentro del texto transcrito de todas las páginas. Ignora mayúsculas y acentos, y una página aparece cuando contiene <em>todas</em> las palabras que escribiste, no la frase literal.</p>
+            <p>La búsqueda mira dentro del texto transcrito de todas las páginas. Ignora mayúsculas y acentos, y una página aparece cuando contiene la frase tal cual la escribiste — como en un PDF: da igual si el texto la parte en dos líneas, pero tiene que aparecer seguida, no repartida por la página.</p>
             <p>Lo que la hace distinta: además de listarte las páginas, <strong>dibuja un recuadro sobre cada palabra encontrada, encima de tu letra</strong>.</p>
             <div class="help-sample" aria-hidden="true">
               <svg viewBox="0 0 320 120" class="help-figure" role="img">

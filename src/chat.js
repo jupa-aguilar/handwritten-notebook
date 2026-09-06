@@ -136,6 +136,7 @@ let getContext = null; // () => { id, name, pages }, supplied by main.js
 let onSpendChanged = () => {}; // main.js redraws its counter
 let onGoToPage = () => {}; // main.js turns to a cited page
 let onVisibilityChanged = () => {}; // main.js keeps the viewer's chat tab in step
+let onSwitchToText = () => {}; // main.js: switch the panel's own tabs to Text
 const histories = new Map(); // notebookId -> [{ id, role, content, error?, marked? }]
 const loaded = new Set(); // notebookIds already read back from IndexedDB
 let streamCtrl = null; // AbortController while a reply is streaming
@@ -1000,9 +1001,8 @@ async function send() {
 async function setChatHidden(hidden) {
   $('#chat').hidden = hidden;
   if (!hidden) $('#panel').hidden = true; // one side panel at a time
-  // Keep the reading bar's lit button in step with which panel is open.
-  $('#chat-btn').classList.toggle('active', !hidden);
-  $('#panel-toggle').classList.toggle('active', !$('#panel').hidden);
+  // Keep the reading bar's one button lit whenever either tab is open.
+  $('#panel-toggle').classList.toggle('active', !hidden || !$('#panel').hidden);
   onVisibilityChanged(hidden);
   // The book shares the row with this panel; StPageFlip refits on 'resize'.
   // Harmless over the viewer, which re-fits to a stage this panel doesn't
@@ -1165,6 +1165,9 @@ export function initChat(opts) {
   if (opts.onSpendChanged) onSpendChanged = opts.onSpendChanged;
   if (opts.onGoToPage) onGoToPage = opts.onGoToPage;
   if (opts.onVisibilityChanged) onVisibilityChanged = opts.onVisibilityChanged;
+  if (opts.onSwitchToText) onSwitchToText = opts.onSwitchToText;
+
+  $('#chat-tab-text').addEventListener('click', () => onSwitchToText());
 
   $('#chat-subject-clear').addEventListener('click', () => setSubject(''));
 
@@ -1193,9 +1196,6 @@ export function initChat(opts) {
     if (jump) jumpToMessage(jump.dataset.id);
   });
 
-  $('#chat-btn').addEventListener('click', () =>
-    setChatHidden($('#chat').hidden === false)
-  );
   $('#chat-close').addEventListener('click', () => setChatHidden(true));
 
   const think = $('#chat-think');

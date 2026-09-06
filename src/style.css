@@ -933,6 +933,31 @@ body:not(.is-mobile) .book-area {
   color: var(--panel-ink);
   border-color: rgba(0, 0, 0, 0.2);
 }
+/* The tab strip inside each side panel's head: switch to the other one
+   without going back to the toolbar. */
+.panel-tabs {
+  display: flex;
+  gap: 4px;
+}
+.panel-tab {
+  border: none;
+  border-radius: 7px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--panel-ink);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.panel-tab:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+.panel-tab.active {
+  background: var(--accent);
+  color: #fff;
+  cursor: default;
+}
 .panel-body {
   flex: 1;
   overflow: auto;
@@ -1602,7 +1627,7 @@ kbd {
   gap: 8px;
   justify-content: flex-start;
 }
-.chat-head strong {
+.chat-head .panel-tabs {
   margin-right: auto;
 }
 /* Thinking toggle: dim when off (the default), accent when on. */
@@ -2226,7 +2251,7 @@ body.is-mobile.immersive .panel {
    an LM Studio on localhost, which on a phone means the phone itself. With a
    hosted key (or a LAN address) it works there like anywhere else, so the
    class is set from JS rather than keyed to phone mode. */
-body.chat-unavailable #chat-btn,
+body.chat-unavailable #panel-tab-chat,
 body.chat-unavailable #chat {
   display: none;
 }
@@ -2315,18 +2340,21 @@ body.is-mobile .panel.searching .panel-head {
   order: -2;
 }
 
-/* ---------- the chat, over the zoom viewer ----------
-   Reading a page and wanting to ask about it used to mean leaving the zoom
-   view, opening the chat, asking, and then finding your place again. Here the
-   panel floats over the viewer instead, docked to the right edge and full
-   height.
+/* ---------- the side panel, over the zoom viewer ----------
+   Reading a page and wanting to ask about it (or check its transcript) used
+   to mean leaving the zoom view, opening the panel, and then finding your
+   place again. Here whichever one is open floats over the viewer instead,
+   docked to the right edge and full height — and since the tab strip inside
+   it can switch from Chat to Text without closing anything, both ids need
+   the same treatment, not just whichever one #viewer-chat-tab opens.
 
    Two things it must not do. It must not take room from the stage: it is
    fixed, so the stage never changes size and the page underneath neither
    re-fits nor shifts. And it must not ride the zoom: it lives outside
    #viewer-content, the element the scale transform is applied to, so panning
    and zooming leave it exactly where it is. */
-body.viewing #chat {
+body.viewing #chat,
+body.viewing #panel {
   position: fixed;
   top: 0;
   right: 0;
