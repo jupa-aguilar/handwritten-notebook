@@ -49,7 +49,6 @@ import {
   ownOcrRecord,
   thisMonth,
 } from './usage.js';
-import { formatDueCount } from './srs.js';
 import {
   initChat,
   openChat,
@@ -674,13 +673,20 @@ function refreshSearch() {
   renderViewerHighlights();
 }
 
-// How many cards are waiting, painted on the Review button. Hidden at zero:
-// a badge reading 0 is a chore that isn't one.
+// Whether cards are waiting, marked on the Review button. A dot and not a
+// count: the number was never the thing to act on — that there is anything
+// at all is — and once a backlog builds it read "99+", which measures how
+// far behind you are and offers nothing to do about it now. The figure still
+// exists for anyone who wants it, in the tooltip and in the deck itself.
 function paintDueBadge(n) {
   const badge = $('#review-badge');
   if (!badge) return;
-  badge.textContent = formatDueCount(n);
   badge.hidden = !n;
+  // Rebuilt whole, so it has to carry the key back with it — a title set here
+  // is the one the reader actually hovers, never the markup's.
+  $('#review-btn').title = n
+    ? `${n} card${n === 1 ? '' : 's'} ready to review (R)`
+    : 'Review cards drawn from these pages (R)';
 }
 
 // ---------- highlight boxes over the page image ----------

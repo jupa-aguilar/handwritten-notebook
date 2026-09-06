@@ -6,7 +6,6 @@ import {
   isDue,
   dueCards,
   formatInterval,
-  formatDueCount,
 } from '../src/srs.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -170,10 +169,5 @@ describe('formatting', () => {
     expect(formatInterval(30)).toBe('1 mes');
     expect(formatInterval(90)).toBe('3 meses');
     expect(formatInterval(400)).toBe('1.1 a');
-  });
-
-  it('stops the badge counting past 99', () => {
-    expect(formatDueCount(7)).toBe('7');
-    expect(formatDueCount(140)).toBe('99+');
   });
 });

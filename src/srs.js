@@ -168,12 +168,6 @@ export function dueCards(cards, now = Date.now(), rng = Math.random) {
   return out;
 }
 
-// How a due count should read on a badge. Beyond three digits the number stops
-// being information and starts being a reproach.
-export function formatDueCount(n) {
-  return n > 99 ? '99+' : String(n);
-}
-
 // The interval on a grade button. Days are the unit the scheduler thinks in,
 // but nobody reads "0.007 d" or "45 d" as a length of time.
 export function formatInterval(days) {

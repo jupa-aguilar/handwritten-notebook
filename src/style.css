@@ -2551,19 +2551,20 @@ body.is-mobile.immersive .viewer-toolbar {
 .read-btn {
   position: relative;
 }
+/* A dot, not a count — see paintDueBadge. It only has to be seen, so it is
+   sized to be noticed beside the icon rather than read. */
 .read-badge {
   position: absolute;
-  top: 1px;
-  right: 4px;
-  min-width: 17px;
-  padding: 0 4px;
-  border-radius: 9px;
+  top: 4px;
+  right: 6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
   background: var(--accent);
-  color: #fff;
-  font-size: 0.62rem;
-  font-weight: 700;
-  line-height: 17px;
-  text-align: center;
+  /* Both grounds it can land on are dark — the top bar on desktop, the
+     floating bar on a phone — so a dark halo separates it from the emoji
+     behind it without having to know which one it is on. */
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55);
 }
 
 .review-stats {
