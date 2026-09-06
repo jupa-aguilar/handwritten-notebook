@@ -807,6 +807,59 @@ body:not(.is-mobile) .book-area {
 .page-indicator:hover {
   background: rgba(0, 0, 0, 0.08);
 }
+/* ---------- page-turn arrows ----------
+   Clicking the page itself no longer turns it (see the mousedown guard in
+   main.js), so the mouse needs somewhere to press. Deliberately quiet: small
+   discs in the margin that only surface while the pointer is over the book,
+   rather than the full-height bands these replaced — those laid a strip of
+   shade down the edge of the page and were in the way of reading. Below the
+   overlays' z-indexes, so a framing drag or its bar always wins. */
+.nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 4;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  /* These straddle the edge of the page — half on white paper, half on the
+     app's dark ground — and the fade below dims the whole button, chevron
+     included, so the disc alone can't carry it. The shadow is what keeps the
+     arrow readable while the disc stays faint enough to read past. */
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.18s ease, background 0.18s ease;
+}
+.nav-prev {
+  left: 4px;
+}
+.nav-next {
+  right: 4px;
+}
+.book-area:hover .nav {
+  opacity: 0.7;
+}
+.book-area .nav:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.62);
+}
+/* At the ends there is nowhere to go: same treatment as the pager's ⏮ ⏭. */
+.book-area .nav:disabled {
+  opacity: 0.12;
+  cursor: default;
+  background: rgba(0, 0, 0, 0.2);
+}
+
 .book-area.drag {
   outline: 3px dashed var(--accent);
   outline-offset: -16px;
@@ -2083,6 +2136,7 @@ body.is-mobile .viewer {
   inset: 0;
   z-index: 30;
 }
+body.is-mobile .nav,
 body.is-mobile #zoom-btn,
 body.is-mobile #select-btn,
 body.is-mobile #viewer-close {

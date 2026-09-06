@@ -473,6 +473,9 @@ function updatePager() {
   indicator.textContent = pages.length ? `${where} / ${pages.length}` : '';
   $('#first').disabled = currentPage <= 0;
   $('#last').disabled = currentPage >= pages.length - 1;
+  // The edge arrows answer the same question as ⏮ ⏭ about where the book ends.
+  $('#prev').disabled = currentPage <= 0;
+  $('#next').disabled = currentPage >= pages.length - 1;
 }
 
 function goFirst() {
@@ -3520,8 +3523,26 @@ function wire() {
     box.blur();
   });
 
+  $('#prev').addEventListener('click', () => turnPage(-1));
+  $('#next').addEventListener('click', () => turnPage(1));
   $('#first').addEventListener('click', goFirst);
   $('#last').addEventListener('click', goLast);
+
+  // StPageFlip turns the page on any click that lands on the book, which while
+  // reading fires constantly and unasked — so the mouse's mousedown never
+  // reaches it. Stopped at capture on .book-area, an ancestor the library
+  // never listens on, and only for presses on #book itself: the framing
+  // layer, the pager and the arrows above are siblings and keep their clicks.
+  // Touch is deliberately left alone (a separate touchstart listener), so a
+  // tablet still swipes the page across; the mouse has the arrows and the
+  // keyboard instead.
+  $('.book-area').addEventListener(
+    'mousedown',
+    (e) => {
+      if (e.target instanceof Element && e.target.closest('#book')) e.stopPropagation();
+    },
+    { capture: true }
+  );
 
   $('#bookmark-toggle').addEventListener('click', () => toggleBookmark());
   $('#bookmarks-btn').addEventListener('click', toggleBookmarksPop);

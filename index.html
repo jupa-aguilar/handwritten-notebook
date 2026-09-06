@@ -117,6 +117,12 @@
           <button id="frame-ask-btn" class="btn ghost small" title="Keep this passage in mind and ask your own question">💬 Ask about this</button>
         </div>
 
+        <!-- The mouse's way to turn a page, now that clicking the page itself
+             doesn't. They hug the book area rather than the window, so an open
+             side panel pushes them in with it. -->
+        <button id="prev" class="nav nav-prev" title="Previous page (←)" aria-label="Previous page">‹</button>
+        <button id="next" class="nav nav-next" title="Next page (→)" aria-label="Next page">›</button>
+
         <!-- The reading tools, floating over the page rather than competing
              with the notebook's name for room in the top bar. On phones this
              docks to the bottom edge, within thumb reach. -->
@@ -585,6 +591,7 @@
             <ul class="help-steps">
               <li><strong>Doble tap</strong> (o doble clic) sobre la página amplía en ese punto; otro doble tap vuelve a ajustarla.</li>
               <li><strong>Desliza</strong> con un dedo para pasar de página; con la página ampliada, un dedo la mueve.</li>
+              <li>En escritorio la página se pasa con <kbd>←</kbd> <kbd>→</kbd> o con las flechas que aparecen a los lados del libro al acercar el ratón. Hacer clic sobre la hoja no la pasa: así el puntero puede quedarse encima mientras lees.</li>
               <li><strong>Pellizca</strong> para ampliar y reducir dentro del visor.</li>
               <li>El número de página, abajo, abre <em>ir a la página…</em> si lo pulsas.</li>
               <li>En escritorio estas herramientas viven en la barra de arriba, como iconos sin etiqueta —el nombre sale al posar el ratón— junto a la búsqueda y a ＋ ☁ ? ⚙. Todo en una sola fila, para que nada flote encima de lo que estás leyendo; si la ventana se estrecha, la fila salta a dos líneas en vez de esconder nada.</li>
