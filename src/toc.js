@@ -14,7 +14,7 @@
 // testable without a model.
 
 import { complete } from './chat.js';
-import { bareTokens } from './text.js';
+import { bareTokens, foldText } from './text.js';
 
 const SYSTEM = `You are building the table of contents of a student's notebook, from the transcriptions of its pages.
 
@@ -22,7 +22,8 @@ Return the sections that BEGIN in the pages you are given, in the order they app
 
 Rules:
 - A section is a real division of the material: a chapter, a numbered heading, an exercise set, a topic the pages move on to. Not every paragraph, and not a heading you invented for one sentence. Fewer, truer entries are worth more than a dense list.
-- Where the page prints its own heading, use it as the title, exactly as written. Where the pages have no headings — handwritten notes usually do not — name the section yourself, in a few words, in the language of the page.
+- Where the page prints its own heading, take its words as the title. Where the pages have no headings — handwritten notes usually do not — name the section yourself, in a few words, in the language of the page.
+- Write every title the way it would be written inside a sentence, whatever the page does: the first word capitalised, the rest lower case, and capitals only where ordinary writing puts them — proper nouns and acronyms (RAID, CPU, IPv4, Docker). A heading the page prints in capitals is not a title in capitals, and a heading that capitalises Every Important Word is not one either.
 - "level" is 1 for a top-level section, 2 for a subsection inside it, 3 at the deepest. Follow the numbering the page itself uses when it has one (I.4 sits under I; J.2 under J).
 - "page" is the page number the section starts on, from the "--- Page N ---" lines below, and nothing else. Many scans print a number of their own ("PÁG. 9/14", "- 3 -"): that one belongs to the document that was scanned, not to this notebook, and is never the answer.
 - "anchor" is copied VERBATIM from that page's text: the first few words of the heading, or of the first line of the section where there is no heading. The app searches the scan for those words to mark the spot, so a paraphrase finds nothing.
@@ -146,6 +147,7 @@ export function batchPages(pages, budget) {
 // can disprove, not one it merely cannot confirm.
 export function placeEntries(entries, batch) {
   const pages = batch.filter((p) => (p.text || '').trim());
+  const textOf = new Map(batch.map((p) => [p.number, p.text || '']));
   const out = [];
   const seen = new Set();
   for (const e of entries) {
@@ -157,7 +159,7 @@ export function placeEntries(entries, batch) {
     const key = `${page}::${e.title.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ ...e, page });
+    out.push({ ...e, page, title: sentenceCase(e.title, textOf.get(page) || '') });
   }
   return out.sort((a, b) => a.page - b.page);
 }
@@ -202,6 +204,58 @@ function anchorScore(text, want) {
     if (run > best) best = run;
   }
   return best;
+}
+
+// One index, one way of writing. A notebook's headings are not consistent with
+// each other — this one shouts CONTENEDORES VS. MÁQUINAS VIRTUALES and the next
+// Capitalises Every Important Word — and a title copied off the page carries
+// that into a list where the entries sit one under another and the difference
+// is all you see. The prompt asks for ordinary sentence writing; this is the
+// same check the page numbers get, for the headings that arrive shouting
+// anyway.
+//
+// Which words keep their capitals is not a judgement to make in the abstract:
+// the page already made it. RAID is written RAID in the middle of a line about
+// striping, IPv4 is written IPv4, and "contenedores" is written in lower case
+// everywhere the writer was not shouting — so the page's own spelling of a word
+// is the answer, and a word the page never writes ordinarily is simply lowered.
+export function sentenceCase(title, text) {
+  if (!needsCasing(title)) return title;
+  const spelling = ordinarySpellings(text);
+  const out = title.replace(/[\p{L}\p{N}]+/gu, (w) => spelling.get(foldText(w)) || w.toLowerCase());
+  return out.replace(/\p{L}/u, (c) => c.toUpperCase());
+}
+
+// A title is left alone unless it is shouting (letters, none of them lower
+// case) or Title Cased (most of its words capitalised, which needs enough words
+// to be a pattern rather than a pair of proper nouns).
+function needsCasing(title) {
+  if (!/\p{Lu}/u.test(title)) return false;
+  if (!/\p{Ll}/u.test(title)) return true;
+  const words = title.match(/[\p{L}\p{N}]+/gu) || [];
+  if (words.length < 3) return false;
+  const capped = words.filter((w) => /^\p{Lu}/u.test(w)).length;
+  return capped / words.length >= 0.6;
+}
+
+// How the page writes each word in ordinary writing. A line that is itself a
+// heading says nothing about that — the same test that decides a title needs
+// fixing decides a line is not evidence, which is the point: a page whose
+// headings shout would otherwise teach that all its words are shouted. Within
+// the lines that remain, a word seen in lower case anywhere is an ordinary word
+// and that spelling wins; only a word never written in lower case — RAID, CPU,
+// Docker — keeps its capitals.
+function ordinarySpellings(text) {
+  const out = new Map();
+  for (const line of String(text || '').split(/\r?\n/)) {
+    if (needsCasing(line)) continue;
+    for (const w of line.match(/[\p{L}\p{N}]+/gu) || []) {
+      const key = foldText(w);
+      const seen = out.get(key);
+      if (seen === undefined || (/^\p{Lu}/u.test(seen) && !/^\p{Lu}/u.test(w))) out.set(key, w);
+    }
+  }
+  return out;
 }
 
 export async function tocForPages(batch, sofar, { signal, model } = {}) {

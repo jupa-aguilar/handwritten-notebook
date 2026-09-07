@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildTocPrompt, parseToc, batchPages, placeEntries } from '../src/toc.js';
+import { buildTocPrompt, parseToc, batchPages, placeEntries, sentenceCase } from '../src/toc.js';
 
 const batch = [
   { number: 37, text: 'I.4 Disco: por qué cambia el hardware\nAgrandar el disco es trivial.' },
@@ -189,5 +189,82 @@ describe('placeEntries', () => {
       [...notebook, { number: 40, text: '' }, { number: 41 }]
     );
     expect(got.map((e) => e.page)).toEqual([9]);
+  });
+});
+
+describe('sentenceCase', () => {
+  // The two pages from the notebook that showed this up: one heading shouted,
+  // the next capitalised every important word, and the index showed both.
+  const containers = [
+    'CONTENEDORES VS. MÁQUINAS VIRTUALES',
+    'Máquina virtual — más aislamiento y flexibilidad',
+    'Contenedor — proceso aislado, liviano y rápido',
+    'Comparte la familia de kernel y la arquitectura CPU del host.',
+  ].join('\n');
+  const raid = [
+    'RAID: Capacidad, Velocidad y Tolerancia a Fallas',
+    'RAID 0 — striping: máxima capacidad y velocidad',
+    'la paridad permite reconstruir datos faltantes',
+    'una dirección IPv4 y su máscara de subred',
+  ].join('\n');
+
+  it('brings a shouted heading down to ordinary writing', () => {
+    expect(sentenceCase('CONTENEDORES VS. MÁQUINAS VIRTUALES', containers)).toBe(
+      'Contenedores vs. máquinas virtuales'
+    );
+  });
+
+  it('keeps the capitals of a word the page never writes in lower case', () => {
+    expect(sentenceCase('RAID: CAPACIDAD Y VELOCIDAD', raid)).toBe('RAID: capacidad y velocidad');
+  });
+
+  it('restores the page\'s own spelling rather than a guess at it', () => {
+    expect(sentenceCase('IPV4 Y MÁSCARA DE SUBRED', raid)).toBe('IPv4 y máscara de subred');
+  });
+
+  it('takes Title Case down too, since the index shows both side by side', () => {
+    expect(sentenceCase('RAID: Capacidad, Velocidad y Tolerancia a Fallas', raid)).toBe(
+      'RAID: capacidad, velocidad y tolerancia a fallas'
+    );
+  });
+
+  it('leaves a title that is already written ordinarily', () => {
+    for (const t of [
+      'Planificación de CPU y colas multinivel',
+      'Imagen, Dockerfile, contenedor y volumen',
+      'Modelo OSI y encapsulación',
+    ]) {
+      expect(sentenceCase(t, raid)).toBe(t);
+    }
+  });
+
+  // Two capitalised words are as likely to be a name as a pattern.
+  it('leaves a short title alone', () => {
+    expect(sentenceCase('Docker Compose', containers)).toBe('Docker Compose');
+  });
+
+  it('lowers what the page never writes at all, but for the first word', () => {
+    expect(sentenceCase('TEMAS PENDIENTES DEL PARCIAL', '')).toBe('Temas pendientes del parcial');
+  });
+
+  it('ignores an all-capitals line as evidence of how a word is written', () => {
+    // "CONTENEDOR" appears in capitals on the diagram's label line; that line
+    // is shouting, so it must not be what makes the title shout back.
+    expect(sentenceCase('CONTENEDOR Y MÁQUINA VIRTUAL', 'VM CONTENEDOR\nun contenedor es un proceso')).toBe(
+      'Contenedor y máquina virtual'
+    );
+  });
+});
+
+describe('placeEntries casing', () => {
+  it('writes the title the way the page it landed on writes its words', () => {
+    const batch = [
+      { number: 4, text: 'RAID 0 — striping\nmáxima capacidad y velocidad del arreglo' },
+    ];
+    const got = placeEntries(
+      [{ level: 1, title: 'RAID: CAPACIDAD Y VELOCIDAD', page: 4, anchor: 'RAID 0 striping' }],
+      batch
+    );
+    expect(got[0].title).toBe('RAID: capacidad y velocidad');
   });
 });
