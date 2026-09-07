@@ -1962,7 +1962,10 @@ function backToReading() {
 // by design: to change it you build it again, which is what lets it ride the
 // sync manifest instead of needing a merge of its own.
 
-let building = null; // AbortController while a build is running
+// { controller, notebookId } while a build is running. The id is part of it
+// because the reader can switch notebooks mid-run: the panel must not show the
+// other notebook's progress, and the result must not land on the wrong one.
+let building = null;
 
 function setTocHidden(hidden) {
   $('#toc').hidden = hidden;
@@ -1981,6 +1984,17 @@ function setTocHidden(hidden) {
 
 function openToc() {
   setTocHidden(false);
+}
+
+// The notebook changed under us. The index on screen belongs to the one being
+// left — the panel only ever drew itself on the way open, so until now the only
+// way to see the new notebook's was to close it and open it again.
+//
+// A build still running is left to finish and lands on the notebook it started
+// from (buildToc holds that id), so switching away does not throw the reading
+// away; it just stops being this panel's business.
+async function tocNotebookChanged() {
+  await renderToc();
 }
 
 // I names the index the way T names the transcript and C the chat: it brings
@@ -2012,11 +2026,14 @@ async function renderToc() {
   const note = $('#toc-note');
   const build = $('#toc-build');
   const toc = await currentToc();
-  $('#toc-stop').hidden = !building;
-  build.hidden = !!building;
+  // A run reading some other notebook is not this panel's business: no Stop
+  // button here, and the Build button stays offered.
+  const busy = building?.notebookId === currentNotebookId;
+  $('#toc-stop').hidden = !busy;
+  build.hidden = !!busy;
   build.textContent = toc ? '🧭 Build it again' : '🧭 Build the index';
 
-  if (building) {
+  if (busy) {
     note.hidden = false;
     return; // the run writes its own progress into the note
   }
@@ -2072,7 +2089,13 @@ function goToTocEntry(index, anchor) {
 }
 
 async function buildToc() {
-  if (building) return;
+  // One at a time, whichever notebook asked: the run resolves the model once
+  // and spends against the same key, and two interleaving would race.
+  if (building) {
+    $('#toc-note').hidden = false;
+    $('#toc-note').textContent = 'Still reading another notebook. Wait for that to finish.';
+    return;
+  }
   // Entries point at a page by uuid, and a device that has never synced has
   // pages without one — `ensureSyncIds` exists for exactly that and is cheap
   // and idempotent. Without it the whole index came back pointing at one page,
@@ -2080,21 +2103,34 @@ async function buildToc() {
   // had none. It has to happen before anything reads `pages`, since refreshing
   // the array replaces the objects and `indexOf` on the old ones returns -1.
   await ensureSyncIds();
-  pages = await getPages(currentNotebookId);
+  // Every await below is a place the reader can switch notebooks, and this run
+  // is about the pages it started with: it saves against this id rather than
+  // whatever is current when it finishes, and paints only while that is still
+  // the notebook on screen.
+  const notebookId = currentNotebookId;
+  pages = await getPages(notebookId);
 
   const usable = pages.filter((p) => (p.text || '').trim());
   if (!usable.length) {
-    $('#toc-note').hidden = false;
-    $('#toc-note').textContent = 'Nothing to read yet: no page in this notebook has a transcription.';
+    if (currentNotebookId === notebookId) {
+      $('#toc-note').hidden = false;
+      $('#toc-note').textContent =
+        'Nothing to read yet: no page in this notebook has a transcription.';
+    }
     return;
   }
 
-  building = new AbortController();
-  const { signal } = building;
+  building = { controller: new AbortController(), notebookId };
+  const { signal } = building.controller;
+  // Painting into a panel that has moved on to another notebook would be this
+  // run talking about pages that are no longer on screen.
+  const mine = () => currentNotebookId === notebookId;
   const note = $('#toc-note');
-  note.hidden = false;
-  note.textContent = 'Reading the notebook…';
-  renderToc();
+  if (mine()) {
+    note.hidden = false;
+    note.textContent = 'Reading the notebook…';
+    renderToc();
+  }
 
   // Resolved once, so a missing key fails on the first press rather than
   // halfway through the notebook — the same bargain the card run makes.
@@ -2104,8 +2140,10 @@ async function buildToc() {
     ({ id: model, contextLength } = await resolveChatModel());
   } catch (err) {
     building = null;
-    note.textContent = err.message;
-    renderToc();
+    if (mine()) {
+      note.textContent = err.message;
+      renderToc();
+    }
     return;
   }
 
@@ -2122,7 +2160,9 @@ async function buildToc() {
   let failed = 0;
   for (const [i, batch] of batches.entries()) {
     if (signal.aborted) break;
-    note.textContent = `Reading pages ${batch[0].number}–${batch[batch.length - 1].number} — batch ${i + 1} of ${batches.length}, ${entries.length} sections so far…`;
+    if (mine()) {
+      note.textContent = `Reading pages ${batch[0].number}–${batch[batch.length - 1].number} — batch ${i + 1} of ${batches.length}, ${entries.length} sections so far…`;
+    }
     try {
       // Only the tail: enough for the levels to line up across the seam,
       // without re-sending the whole index every time.
@@ -2139,7 +2179,7 @@ async function buildToc() {
       console.error('Could not index pages', batch[0].number, err);
       failed++;
     }
-    renderToc();
+    if (mine()) renderToc();
   }
 
   const stopped = signal.aborted;
@@ -2147,16 +2187,17 @@ async function buildToc() {
   if (entries.length) {
     // A content change: the full ritual, so the index reaches the other
     // devices in the notebook's own manifest.
-    await setNotebookToc(currentNotebookId, {
+    await setNotebookToc(notebookId, {
       builtAt: Date.now(),
       model,
-      from: await pagesFingerprint(currentNotebookId),
+      from: await pagesFingerprint(notebookId),
       entries: entries.map(({ page, ...e }) => e), // the page number was only the model's handle
     });
-    await touchNotebook(currentNotebookId);
+    await touchNotebook(notebookId);
     scheduleSync();
   }
   await renderToc();
+  if (!mine()) return; // the note below is about a notebook nobody is reading
   if (!entries.length || stopped || failed) {
     $('#toc-note').hidden = false;
     $('#toc-note').textContent = entries.length
@@ -2371,6 +2412,7 @@ async function loadCurrentNotebook() {
   renderBook();
   refreshSearch();
   chatNotebookChanged();
+  tocNotebookChanged(); // another notebook, another index
   reviewNotebookChanged(); // its cards are a different deck
   updateOcrCue(); // pages waiting are counted per notebook
 }
@@ -4455,7 +4497,7 @@ function wire() {
   $('#toc-tab-chat').addEventListener('click', () => openChat());
   $('#toc-close').addEventListener('click', () => setTocHidden(true));
   $('#toc-build').addEventListener('click', buildToc);
-  $('#toc-stop').addEventListener('click', () => building?.abort());
+  $('#toc-stop').addEventListener('click', () => building?.controller.abort());
   // Delegated: the list is rebuilt on every render.
   $('#toc-body').addEventListener('click', (e) => {
     const item = e.target.closest('.toc-item');
