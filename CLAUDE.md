@@ -225,6 +225,13 @@ state beyond the OAuth credentials.
   `new Event('resize')`.
 - Search/bookmark overlays are absolutely positioned against `pageFlip.getRender().getRect()`
   and are cleared during a flip; a `ResizeObserver` on `.book-area` repositions them.
+- Its `resizeCanvas()` sizes the canvas backing store from the CSS box and ignores
+  `devicePixelRatio`, so on a Retina screen the book was drawn at half resolution and scaled
+  up — visibly softer than the same scan in the zoom viewer, which is a plain `<img>`.
+  `useDevicePixels()` replaces that method on the UI instance after `loadFromImages` and
+  scales the context back to CSS units, so `getRect()` and everything positioned against it
+  keep their meaning. It must re-apply the transform on every resize: assigning
+  `canvas.width` resets the context.
 
 ### Conventions
 

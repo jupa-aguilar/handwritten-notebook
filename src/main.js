@@ -234,6 +234,37 @@ function preloadImage(url) {
   });
 }
 
+// StPageFlip sizes its canvas backing store from the CSS box and never looks at
+// devicePixelRatio: its resizeCanvas() reads getComputedStyle and assigns those
+// numbers straight to canvas.width/height. On a Retina screen that leaves the
+// book drawn at half the resolution the display can show and then scaled up —
+// noticeably softer than the same scan in the zoom viewer, which is a plain
+// <img> and so gets the browser's full-resolution path. Redo the sizing at
+// device pixels and scale the context back to CSS units, so every coordinate
+// the library computes (getRect(), the overlays positioned against it, the
+// mouse math) keeps meaning exactly what it did before.
+//
+// Assigning canvas.width resets the whole 2D context state, so the transform
+// and the smoothing hint have to be set *after* it, on every resize.
+function useDevicePixels(flip) {
+  const ui = flip.getUI();
+  const canvas = ui.getCanvas();
+  const ctx = canvas.getContext('2d');
+  ui.resizeCanvas = () => {
+    const dpr = window.devicePixelRatio || 1; // read each time: monitors differ
+    const style = getComputedStyle(canvas);
+    const w = parseInt(style.getPropertyValue('width'), 10);
+    const h = parseInt(style.getPropertyValue('height'), 10);
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // A stored page is ~2300px wide and lands in a slot half that: the default
+    // bilinear step samples too sparsely and thins out pen strokes.
+    ctx.imageSmoothingQuality = 'high';
+  };
+  ui.resizeCanvas(); // the constructor already ran the unpatched one
+}
+
 // Each renderBook() call gets a token; if another render starts while this one
 // is awaiting image decode, the stale one bails out instead of clobbering it.
 let renderToken = 0;
@@ -335,6 +366,7 @@ async function renderBook() {
     showPageCorners: false,
   });
   pageFlip.loadFromImages(urls);
+  useDevicePixels(pageFlip);
   pageFlip.on('flip', (e) => {
     // The filler page above (when there is one) is StPageFlip's last loaded
     // index; clamping keeps currentPage a valid pages[] index even if that's
