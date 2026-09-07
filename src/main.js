@@ -3699,11 +3699,19 @@ let wakeHeader = () => {};
 
 // The toolbar collapses when the pointer is away from the top of the window
 // and the book area (flex: 1, see .stage) grows to fill what it gave up.
-// StPageFlip only refits on a real window 'resize' (same reason setPanelHidden
-// fires one), so a resize is dispatched once the CSS transition has settled.
+// StPageFlip refits on a window 'resize', and that is fired by the
+// ResizeObserver on .book-area in wire() — on every frame the area actually
+// changes size, so the book grows *with* the space. Firing it once at the end
+// of the 0.22s transition instead, which is what this used to do, left the
+// book at its old size for the whole animation and then snapped: two separate
+// movements for one action.
 function initHeaderAutoHide() {
   if (IS_MOBILE) return;
-  const PROXIMITY_PX = 72; // pointer this close to the top edge counts as "close enough"
+  // Close enough to the top edge to read as "I went up there for the toolbar"
+  // rather than "I happened to be reading the first line". Still a comfortable
+  // flick target — a throw at the top of the screen overshoots into it — but
+  // well clear of the page's own first paragraph.
+  const PROXIMITY_PX = 40;
   const COLLAPSE_DELAY_MS = 700;
   const toolbar = $('.toolbar');
   let collapseTimer = null;
@@ -3725,16 +3733,10 @@ function initHeaderAutoHide() {
     );
   }
 
-  function settleResize() {
-    setTimeout(() => window.dispatchEvent(new Event('resize')), 240);
-  }
-
   function expand() {
     clearTimeout(collapseTimer);
     collapseTimer = null;
-    if (!document.body.classList.contains('header-collapsed')) return;
     document.body.classList.remove('header-collapsed');
-    settleResize();
   }
 
   function scheduleCollapse() {
@@ -3743,7 +3745,6 @@ function initHeaderAutoHide() {
       collapseTimer = null;
       if (staysOpen()) return;
       document.body.classList.add('header-collapsed');
-      settleResize();
     }, COLLAPSE_DELAY_MS);
   }
 
@@ -4075,9 +4076,19 @@ function wire() {
   // resize, fullscreen toggles, or the text panel opening/closing. The observer
   // fires after layout settles, so StPageFlip (which refits on window 'resize')
   // has already recomputed its geometry by the time we read it.
+  // …and refit the book to it. StPageFlip only listens for a window 'resize',
+  // so this is where that gets fired: once per frame the area really changed,
+  // which is what makes the toolbar's 0.22s collapse one movement instead of
+  // the space opening and the book catching up afterwards. Coalesced through a
+  // frame so a burst of observations costs one refit.
+  let refitPending = 0;
   new ResizeObserver(() => {
     discardFrame(); // the geometry a rectangle was measured against no longer applies
-    requestAnimationFrame(updateHighlights);
+    cancelAnimationFrame(refitPending);
+    refitPending = requestAnimationFrame(() => {
+      window.dispatchEvent(new Event('resize'));
+      updateHighlights();
+    });
   }).observe($('.book-area'));
 
   // No toolbar button for this any more — the Mac app's own window already
