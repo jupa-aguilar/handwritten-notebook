@@ -10,7 +10,7 @@
 // the anchoring are all testable without a model or a DOM.
 
 import { complete } from './chat.js';
-import { foldText } from './text.js';
+import { bareTokens, foldText } from './text.js';
 import { newSchedule } from './srs.js';
 import { describeRecord, emptyStats } from './stats.js';
 
@@ -143,11 +143,6 @@ export function parseCards(raw) {
   return cards;
 }
 
-const tokens = (s) =>
-  foldText(s || '')
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-
 // Where on the page an anchor was written: the union of the word boxes of the
 // best-matching run of words, in image pixels.
 //
@@ -158,7 +153,7 @@ const tokens = (s) =>
 export function locateAnchor(page, anchor) {
   const words = page?.words;
   if (!words?.length) return null;
-  const want = tokens(anchor);
+  const want = bareTokens(anchor);
   if (!want.length) return null;
 
   const folded = words.map((w) => foldText(w.t));

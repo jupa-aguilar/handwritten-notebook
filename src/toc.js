@@ -14,6 +14,7 @@
 // testable without a model.
 
 import { complete } from './chat.js';
+import { bareTokens } from './text.js';
 
 const SYSTEM = `You are building the table of contents of a student's notebook, from the transcriptions of its pages.
 
@@ -23,7 +24,7 @@ Rules:
 - A section is a real division of the material: a chapter, a numbered heading, an exercise set, a topic the pages move on to. Not every paragraph, and not a heading you invented for one sentence. Fewer, truer entries are worth more than a dense list.
 - Where the page prints its own heading, use it as the title, exactly as written. Where the pages have no headings — handwritten notes usually do not — name the section yourself, in a few words, in the language of the page.
 - "level" is 1 for a top-level section, 2 for a subsection inside it, 3 at the deepest. Follow the numbering the page itself uses when it has one (I.4 sits under I; J.2 under J).
-- "page" is the page number the section starts on, from the numbers given below, and nothing else.
+- "page" is the page number the section starts on, from the "--- Page N ---" lines below, and nothing else. Many scans print a number of their own ("PÁG. 9/14", "- 3 -"): that one belongs to the document that was scanned, not to this notebook, and is never the answer.
 - "anchor" is copied VERBATIM from that page's text: the first few words of the heading, or of the first line of the section where there is no heading. The app searches the scan for those words to mark the spot, so a paraphrase finds nothing.
 - If a section was already listed in "Found so far", it began earlier: do not list it again.
 - Pages that only continue what came before contribute nothing. An empty list is the right answer for them.
@@ -126,7 +127,88 @@ export function batchPages(pages, budget) {
   return out;
 }
 
+// Where each section really starts.
+//
+// The page number is the one field in the reply that nothing checks against the
+// page it names, and it is the field the model gets wrong. Three fourteen-page
+// documents scanned into one notebook, every scan printing its own "PÁG. 9/14",
+// came back with each section placed by the number written on the page instead
+// of the "--- Page N ---" it was given: all three runs collapsed onto the
+// notebook's first fifteen pages, and most entries pointed at a page about
+// something else. The prompt now says not to, which helps and does not settle
+// it — a number is a claim, and this is the check.
+//
+// The anchor is the part that can be checked, because it was quoted from the
+// page. Where its words are on the page the model named, the number stands.
+// Where they are clearly on another page, the entry moves there. Where the
+// anchor is nowhere — a paraphrase, a page whose transcription is thin — there
+// is nothing to argue with and the claim is kept: this overrules a number it
+// can disprove, not one it merely cannot confirm.
+export function placeEntries(entries, batch) {
+  const pages = batch.filter((p) => (p.text || '').trim());
+  const out = [];
+  const seen = new Set();
+  for (const e of entries) {
+    const want = bareTokens(e.anchor);
+    const page = want.length ? bestPage(pages, want, e.page) : e.page;
+    if (page === null) continue;
+    // Relocation can bring two entries onto one page, the same way asking for
+    // the same pages twice could: one title per page either way.
+    const key = `${page}::${e.title.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...e, page });
+  }
+  return out.sort((a, b) => a.page - b.page);
+}
+
+function bestPage(pages, want, claimed) {
+  // cards.js's line, for the same reason: half the words is where "the model
+  // quoted this passage" stops and "these words are just common" starts.
+  const need = Math.max(2, Math.ceil(want.length * 0.5));
+  const scored = pages
+    .map((p) => ({ number: p.number, score: anchorScore(p.text, want) }))
+    .filter((p) => p.score >= need)
+    .sort((a, b) => b.score - a.score);
+  if (!scored.length) return claimed; // nothing found: nothing to say
+  if (scored.some((p) => p.number === claimed)) return claimed;
+  // Two pages carrying the heading equally well is a running header or a topic
+  // named twice, and choosing between them is a guess — the one thing this
+  // file will not do, since an entry on the wrong page is worse than none.
+  if (scored.length > 1 && scored[1].score === scored[0].score) return null;
+  return scored[0].number;
+}
+
+// How much of the anchor is written on a page: the best run of consecutive
+// words matching it, as a bag of words inside a sliding window. Same rule as
+// locateAnchor in cards.js, which matches the same anchors against the same
+// pages' word boxes, and for the same reason — the model retypes what it read
+// and Vision split the strokes its own way, so a literal comparison fails on
+// the one word either of them got wrong.
+function anchorScore(text, want) {
+  const words = bareTokens(text);
+  const size = Math.min(want.length, words.length);
+  if (!size) return 0;
+  const wanted = new Set(want);
+  const hit = words.map(
+    (w) => wanted.has(w) || want.some((t) => t.length > 3 && w.includes(t))
+  );
+  let run = 0;
+  for (let i = 0; i < size; i++) if (hit[i]) run++;
+  let best = run;
+  for (let i = size; i < words.length; i++) {
+    if (hit[i]) run++;
+    if (hit[i - size]) run--;
+    if (run > best) best = run;
+  }
+  return best;
+}
+
 export async function tocForPages(batch, sofar, { signal, model } = {}) {
   const allowed = new Set(batch.map((p) => p.number));
-  return parseToc(await complete(buildTocPrompt(batch, sofar), { signal, model }), allowed);
+  const found = parseToc(
+    await complete(buildTocPrompt(batch, sofar), { signal, model }),
+    allowed
+  );
+  return placeEntries(found, batch);
 }

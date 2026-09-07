@@ -41,6 +41,17 @@ export function searchTokens(query) {
   return foldText(query).split(/\s+/).filter(Boolean);
 }
 
+// A quoted fragment as bare words, punctuation dropped rather than split on.
+// This is the tokenising the anchor rules use — cards.js locating the box an
+// answer was written in, toc.js checking which page a section really starts on
+// — where both sides are approximations of the same ink and the punctuation
+// belongs to whoever wrote it down, not to the words.
+export function bareTokens(s) {
+  return foldText(s || '')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
 // Strip everything but letters and digits, so an OCR word carrying whatever
 // punctuation Vision grouped onto it ("núcleo." "«mundo»") still matches the
 // bare token a citation was given.

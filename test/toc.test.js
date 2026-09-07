@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildTocPrompt, parseToc, batchPages } from '../src/toc.js';
+import { buildTocPrompt, parseToc, batchPages, placeEntries } from '../src/toc.js';
 
 const batch = [
   { number: 37, text: 'I.4 Disco: por qué cambia el hardware\nAgrandar el disco es trivial.' },
@@ -110,5 +110,84 @@ describe('batchPages', () => {
 
   it('is empty for no pages', () => {
     expect(batchPages([], 1000)).toEqual([]);
+  });
+});
+
+describe('placeEntries', () => {
+  // The notebook that showed this up: three fourteen-page documents scanned
+  // into one, each page printing its own number, so the model answered with the
+  // number written on the page instead of the one it was given.
+  const notebook = [
+    { number: 9, text: 'RAID: capacidad, velocidad y tolerancia a fallas\nRAID 0 — striping\nPÁG. 9/14' },
+    { number: 10, text: 'Contenedores vs. máquinas virtuales\nMáquina virtual, contenedor\nPÁG. 10/14' },
+    { number: 23, text: 'IPv4, máscaras y subredes\nUna dirección y su máscara\nPÁG. 9/14' },
+    { number: 24, text: 'Firewall y acceso a servicios\nReglas de entrada y salida\nPÁG. 10/14' },
+  ];
+
+  it('keeps the page the model named when the anchor is written on it', () => {
+    const got = placeEntries(
+      [{ level: 1, title: 'RAID', page: 9, anchor: 'RAID: capacidad, velocidad' }],
+      notebook
+    );
+    expect(got.map((e) => e.page)).toEqual([9]);
+  });
+
+  it('moves an entry to the page that actually carries its anchor', () => {
+    const got = placeEntries(
+      [
+        { level: 1, title: 'IPv4, máscaras y subredes', page: 9, anchor: 'IPv4, máscaras y subredes' },
+        { level: 1, title: 'Firewall y acceso a servicios', page: 10, anchor: 'Firewall y acceso a servicios' },
+      ],
+      notebook
+    );
+    expect(got.map((e) => e.page)).toEqual([23, 24]);
+  });
+
+  it('matches an anchor the model retyped imperfectly, as locateAnchor does', () => {
+    const got = placeEntries(
+      [{ level: 1, title: 'Contenedores', page: 9, anchor: 'contenedores vs maquinas virtuales' }],
+      notebook
+    );
+    expect(got.map((e) => e.page)).toEqual([10]);
+  });
+
+  it('keeps the claim when the anchor is on no page at all', () => {
+    const got = placeEntries(
+      [{ level: 1, title: 'Algo', page: 10, anchor: 'una paráfrasis que nadie escribió' }],
+      notebook
+    );
+    expect(got.map((e) => e.page)).toEqual([10]);
+  });
+
+  it('drops an entry two pages carry equally rather than guessing', () => {
+    const twins = [
+      { number: 3, text: 'Ejercicios resueltos de la unidad' },
+      { number: 7, text: 'Ejercicios resueltos de la unidad' },
+    ];
+    expect(placeEntries([{ level: 1, title: 'Ejercicios', page: 5, anchor: 'Ejercicios resueltos' }], twins)).toEqual([]);
+  });
+
+  it('leaves an entry with no anchor where the model put it', () => {
+    const got = placeEntries([{ level: 1, title: 'Sin ancla', page: 10, anchor: '' }], notebook);
+    expect(got.map((e) => e.page)).toEqual([10]);
+  });
+
+  it('re-sorts by the corrected page, not the claimed one', () => {
+    const got = placeEntries(
+      [
+        { level: 1, title: 'IPv4', page: 9, anchor: 'IPv4, máscaras y subredes' },
+        { level: 1, title: 'RAID', page: 9, anchor: 'RAID: capacidad, velocidad' },
+      ],
+      notebook
+    );
+    expect(got.map((e) => e.title)).toEqual(['RAID', 'IPv4']);
+  });
+
+  it('ignores pages with no transcription', () => {
+    const got = placeEntries(
+      [{ level: 1, title: 'RAID', page: 9, anchor: 'RAID: capacidad, velocidad' }],
+      [...notebook, { number: 40, text: '' }, { number: 41 }]
+    );
+    expect(got.map((e) => e.page)).toEqual([9]);
   });
 });
