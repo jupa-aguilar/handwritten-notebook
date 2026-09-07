@@ -1,7 +1,8 @@
 // IndexedDB persistence.
 //
 // Stores:
-//   notebooks:          { id, name, createdAt, updatedAt }
+//   notebooks:          { id, name, createdAt, updatedAt, toc? }
+//     toc: the generated table of contents — see setNotebookToc, and toc.js
 //   pages:              { id, notebookId, order, name, blob, mediaType, width,
 //                         height, text, ocrStatus, error, bookmarked,
 //                         bookmarkLabel }
@@ -817,6 +818,44 @@ export async function ensureSyncIds() {
   await tx.done;
 }
 
+// The generated table of contents (src/toc.js), stored on the notebook rather
+// than in a file of its own the way cards are. The two look alike — both are
+// derived from the pages, both want to reach the other devices — and the
+// deciding difference is rhythm: a card is graded forty times in a sitting, so
+// putting it in the manifest would drag every page's text up to Drive forty
+// times, while an index is generated once and then left alone. It rides the
+// manifest, which costs one key there and nothing else: no store, no
+// tombstones, no third file to sweep on delete.
+//
+// The merge that follows from that is whole-notebook last-write-wins, so two
+// devices that regenerate at once keep one of the two whole. Right for
+// something derived and regenerable; it would be wrong the day the entries
+// become editable by hand.
+export async function setNotebookToc(id, toc) {
+  const db = await dbPromise;
+  const nb = await db.get('notebooks', id);
+  if (!nb) return;
+  if (toc) nb.toc = toc;
+  else delete nb.toc;
+  return db.put('notebooks', nb);
+}
+
+// What the pages look like right now, cheaply enough to ask every time the
+// index panel is drawn: how many there are and the newest edit among them.
+// Between them nothing worth regenerating for escapes — an edit moves the
+// timestamp (putPage owns it), an added or deleted page moves the count.
+//
+// Deliberately not the notebook's own updatedAt: touchNotebook is part of
+// *saving* the index, so an index measured against that would be stale the
+// instant it was written.
+export async function pagesFingerprint(notebookId) {
+  const db = await dbPromise;
+  const pages = await db.getAllFromIndex('pages', 'notebookId', notebookId);
+  let max = 0;
+  for (const p of pages) max = Math.max(max, p.modifiedAt || 0);
+  return { count: pages.length, max };
+}
+
 // Bump a notebook's updatedAt — the sync layer uses it for last-write-wins.
 export async function touchNotebook(id) {
   const db = await dbPromise;
@@ -888,11 +927,16 @@ export async function applyRemoteNotebook(manifest, resolveBlob, opts = {}) {
   // Pages the remote has that could not be fetched this time round.
   const missing = [];
   let nb = await getNotebookByUuid(manifest.uuid);
+  // The table of contents travels with the notebook's own fields, so it lands
+  // in all three branches — and the same last-write-wins rule that names the
+  // notebook decides it, whole. See setNotebookToc for why that is the right
+  // trade for something generated and regenerable.
   if (!nb) {
     const id = await db.add('notebooks', {
       uuid: manifest.uuid,
       name: manifest.name,
       ...(typeof manifest.order === 'number' ? { order: manifest.order } : {}),
+      ...(manifest.toc ? { toc: manifest.toc } : {}),
       createdAt: manifest.createdAt || Date.now(),
       updatedAt: manifest.updatedAt,
     });
@@ -902,6 +946,8 @@ export async function applyRemoteNotebook(manifest, resolveBlob, opts = {}) {
   } else {
     nb.name = manifest.name;
     if (typeof manifest.order === 'number') nb.order = manifest.order;
+    if (manifest.toc) nb.toc = manifest.toc;
+    else delete nb.toc;
     nb.updatedAt = manifest.updatedAt;
     await db.put('notebooks', nb);
   }

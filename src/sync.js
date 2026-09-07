@@ -331,6 +331,11 @@ async function pushNotebook(token, files, meta, nbId, onStatus = () => {}) {
     uuid: nb.uuid,
     name: nb.name,
     ...(typeof nb.order === 'number' ? { order: nb.order } : {}),
+    // The generated index. It rides here rather than in a file of its own the
+    // way cards do — see setNotebookToc in db.js for the rhythm argument — and
+    // the manifest is rebuilt from local state on every push, so a field left
+    // out of this object is destroyed by the next device to push.
+    ...(nb.toc ? { toc: nb.toc } : {}),
     createdAt: nb.createdAt,
     updatedAt: nb.updatedAt,
     pages: pages.map((p) => ({

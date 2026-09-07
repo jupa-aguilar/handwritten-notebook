@@ -17,6 +17,9 @@ import {
   nextOrder,
   clearAll,
   touchNotebook,
+  ensureSyncIds,
+  setNotebookToc,
+  pagesFingerprint,
   recordPageTombstone,
   recordNotebookTombstone,
   listArchived,
@@ -62,11 +65,13 @@ import {
   getStoredChatServerUrl,
   setChatServerUrl,
   getOpenAiKey,
+  contextCharBudget,
   setOpenAiKey,
   chatWorksWithoutLocalServer,
   resolveChatModel,
 } from './chat.js';
 import { locateAnchor } from './cards.js';
+import { batchPages, tocForPages } from './toc.js';
 import { initProof, openProof, closeProof } from './proofpanel.js';
 import { initProgress, openProgress, closeProgress } from './progress.js';
 import { initHelp, openHelp, closeHelp } from './help.js';
@@ -854,7 +859,10 @@ function refreshSearch() {
   const count = $('#search-count');
   // Typing a query takes the overlay over from any chat citation for good, so
   // that clearing the box later doesn't bring a stale passage back.
-  if (query) citedPassage = null;
+  if (query) {
+    citedPassage = null;
+    anchoredEntry = null;
+  }
 
   if (!query) {
     count.textContent = '';
@@ -944,6 +952,14 @@ function paintDueBadge(n) {
 // overlay over without the two fighting for it.
 let citedPassage = null; // { index, tokens }
 
+// Where an index entry sent the reader: the page, and the rectangle its
+// heading was written in. Kept apart from citedPassage because it is found a
+// different way and means a different thing — a citation quotes a sentence and
+// boxes its words wherever they fall, an index entry names a *place*, and
+// locateAnchor's contiguous run is what finds one. Boxing every loose match
+// would light up half a table for a heading like "Objetivo".
+let anchoredEntry = null; // { index, rect }
+
 // Which of #panel/#chat the single toolbar button reopens to, since the two
 // are now one button and one tab strip rather than two independent buttons.
 let lastPanelTab = 'text';
@@ -997,6 +1013,7 @@ function highlightPlan(index) {
   if (citedPassage?.index === index && citedPassage.tokens.length) {
     return { cited: true, tokens: citedPassage.tokens };
   }
+  if (anchoredEntry?.index === index) return { cited: true, rect: anchoredEntry.rect };
   return { cited: false, query: '' };
 }
 
@@ -1007,6 +1024,11 @@ function highlightPlan(index) {
 // contiguous, gated on the page actually containing the phrase, so a box
 // never appears on a page the search reports as a non-match.
 function matchedWords(page, plan) {
+  // An index entry arrives as one rectangle from locateAnchor rather than as
+  // tokens. Turning it back into the words inside it — wordsInRect, which the
+  // framing tool already needed — keeps both renderers on their existing "here
+  // is a list of words to box" contract, so neither has to learn a new shape.
+  if (plan.rect) return wordsInRect(page.words, plan.rect);
   if (plan.cited) {
     return page.words.filter((w) => plan.tokens.some((t) => wordMatchesToken(w.t, t)));
   }
@@ -1827,13 +1849,14 @@ function setPanelHidden(hidden) {
   $('#panel').hidden = hidden;
   if (!hidden) {
     $('#chat').hidden = true; // one side panel at a time — two would squeeze the book
+    $('#toc').hidden = true;
     lastPanelTab = 'text';
     updatePanel();
   }
   // The reading bar shows which view you're in, so an open panel is visible
   // even when the panel itself is off to the side. The one button now covers
   // both tabs, so it lights up whenever either is open.
-  $('#panel-toggle').classList.toggle('active', !hidden || !$('#chat').hidden);
+  $('#panel-toggle').classList.toggle('active', !hidden || !$('#chat').hidden || !$('#toc').hidden);
   window.dispatchEvent(new Event('resize'));
 }
 
@@ -1864,6 +1887,14 @@ function toggleUnifiedPanel() {
     toggleChat(); // closes it — see chat.js, it flips on the current hidden state
     return;
   }
+  if (!$('#toc').hidden) {
+    setTocHidden(true);
+    return;
+  }
+  if (lastPanelTab === 'toc') {
+    openToc();
+    return;
+  }
   const wantChat = lastPanelTab === 'chat' && !document.body.classList.contains('chat-unavailable');
   if (wantChat) openChat();
   else openPanel();
@@ -1888,7 +1919,218 @@ function backToReading() {
     refreshSearch(); // drops the results, the .searching class and the boxes
   }
   if (!$('#panel').hidden) setPanelHidden(true);
+  else if (!$('#toc').hidden) setTocHidden(true);
   else if (!$('#chat').hidden) toggleChat();
+}
+
+// ---------- the notebook's index ----------
+
+// Built by the model out of the pages (src/toc.js), stored on the notebook
+// (setNotebookToc in db.js), and shown here as a third side panel. Read-only
+// by design: to change it you build it again, which is what lets it ride the
+// sync manifest instead of needing a merge of its own.
+
+let building = null; // AbortController while a build is running
+
+function setTocHidden(hidden) {
+  $('#toc').hidden = hidden;
+  if (!hidden) {
+    $('#panel').hidden = true;
+    $('#chat').hidden = true;
+    lastPanelTab = 'toc';
+    renderToc();
+  }
+  $('#panel-toggle').classList.toggle(
+    'active',
+    !hidden || !$('#panel').hidden || !$('#chat').hidden
+  );
+  window.dispatchEvent(new Event('resize'));
+}
+
+function openToc() {
+  setTocHidden(false);
+}
+
+// I names the index the way T names the transcript and C the chat: it brings
+// that side up, or puts the panel away when it is already the one showing.
+function toggleTocShortcut() {
+  if (!$('#toc').hidden) setTocHidden(true);
+  else openToc();
+}
+
+// Read from the store rather than a module-level copy: the notebook list is a
+// local in every function that needs it here, and the index changes from
+// exactly two places (a build, and a pull landing one from another device).
+async function currentToc() {
+  const nb = (await listNotebooks()).find((n) => n.id === currentNotebookId);
+  return nb?.toc || null;
+}
+
+// Whether the index still describes the notebook. The fingerprint is the pages'
+// count and their newest edit — see pagesFingerprint, and note it deliberately
+// ignores the notebook's own updatedAt, which saving the index moves.
+async function tocIsStale(toc) {
+  if (!toc?.from) return true;
+  const now = await pagesFingerprint(currentNotebookId);
+  return now.count !== toc.from.count || now.max !== toc.from.max;
+}
+
+async function renderToc() {
+  const body = $('#toc-body');
+  const note = $('#toc-note');
+  const build = $('#toc-build');
+  const toc = await currentToc();
+  $('#toc-stop').hidden = !building;
+  build.hidden = !!building;
+  build.textContent = toc ? '🧭 Build it again' : '🧭 Build the index';
+
+  if (building) {
+    note.hidden = false;
+    return; // the run writes its own progress into the note
+  }
+  if (!toc?.entries?.length) {
+    note.hidden = true;
+    body.innerHTML = `<div class="panel-note">No index yet. Building one reads every transcribed page once and asks the model where the sections are — and names them itself on pages that have no headings.</div>`;
+    return;
+  }
+
+  const stale = await tocIsStale(toc);
+  note.hidden = !stale;
+  if (stale) {
+    note.textContent =
+      'The notebook has changed since this index was built, so it may be missing or misplacing sections.';
+  }
+
+  const byUuid = new Map(pages.flatMap((p, i) => (p.uuid ? [[p.uuid, i]] : [])));
+  body.innerHTML = toc.entries
+    .map((e) => {
+      const at = byUuid.get(e.pageUuid);
+      // A page that is gone is shown greyed rather than dropped: that is the
+      // notebook having moved on, which is exactly what the note above says.
+      const missing = at === undefined;
+      const here = !missing && visiblePages().includes(pages[at]);
+      return `<button class="toc-item lvl${e.level}${missing ? ' missing' : ''}${here ? ' current' : ''}"
+          ${missing ? 'disabled' : `data-index="${at}" data-anchor="${escapeHtml(e.anchor || '')}"`}
+          title="${missing ? 'That page is no longer in this notebook' : `Go to page ${at + 1}`}">
+          <span class="toc-title">${escapeHtml(e.title)}</span>
+          <span class="toc-page">${missing ? '—' : at + 1}</span>
+        </button>`;
+    })
+    .join('');
+  body.querySelector('.toc-item.current')?.scrollIntoView({ block: 'center' });
+}
+
+// Turn to the section and mark where it starts. locateAnchor is the right tool
+// and a chat citation's token matching is not: a citation quotes a sentence and
+// boxes its words wherever they fall, which for a heading like "Objetivo"
+// would light up half a table. This finds the best contiguous run and refuses
+// below half the words, so a heading it cannot place lands on the page
+// unmarked rather than marking the wrong line.
+function goToTocEntry(index, anchor) {
+  const page = pages[index];
+  anchoredEntry = null;
+  citedPassage = null;
+  if (page && anchor) {
+    const rect = locateAnchor(page, anchor);
+    if (rect) anchoredEntry = { index, rect };
+  }
+  if (!goToPage(index)) return;
+  updateHighlights();
+  renderViewerHighlights();
+}
+
+async function buildToc() {
+  if (building) return;
+  // Entries point at a page by uuid, and a device that has never synced has
+  // pages without one — `ensureSyncIds` exists for exactly that and is cheap
+  // and idempotent. Without it the whole index came back pointing at one page,
+  // because every entry's undefined uuid resolved to the single page that also
+  // had none. It has to happen before anything reads `pages`, since refreshing
+  // the array replaces the objects and `indexOf` on the old ones returns -1.
+  await ensureSyncIds();
+  pages = await getPages(currentNotebookId);
+
+  const usable = pages.filter((p) => (p.text || '').trim());
+  if (!usable.length) {
+    $('#toc-note').hidden = false;
+    $('#toc-note').textContent = 'Nothing to read yet: no page in this notebook has a transcription.';
+    return;
+  }
+
+  building = new AbortController();
+  const { signal } = building;
+  const note = $('#toc-note');
+  note.hidden = false;
+  note.textContent = 'Reading the notebook…';
+  renderToc();
+
+  // Resolved once, so a missing key fails on the first press rather than
+  // halfway through the notebook — the same bargain the card run makes.
+  let model;
+  let contextLength;
+  try {
+    ({ id: model, contextLength } = await resolveChatModel());
+  } catch (err) {
+    building = null;
+    note.textContent = err.message;
+    renderToc();
+    return;
+  }
+
+  // The batch is sized from the model's own context rather than a constant of
+  // ours: the same code runs against a 1M-token hosted model and a local one
+  // with a few thousand.
+  const budget = Math.max(2000, contextCharBudget(contextLength, [], !!getOpenAiKey()));
+  const batches = batchPages(
+    usable.map((p) => ({ number: pages.indexOf(p) + 1, text: p.text, uuid: p.uuid })),
+    budget
+  );
+
+  const entries = [];
+  let failed = 0;
+  for (const [i, batch] of batches.entries()) {
+    if (signal.aborted) break;
+    note.textContent = `Reading pages ${batch[0].number}–${batch[batch.length - 1].number} — batch ${i + 1} of ${batches.length}, ${entries.length} sections so far…`;
+    try {
+      // Only the tail: enough for the levels to line up across the seam,
+      // without re-sending the whole index every time.
+      const found = await tocForPages(batch, entries.slice(-8), { signal, model });
+      const uuidByNumber = new Map(batch.map((b) => [b.number, b.uuid]));
+      for (const e of found) {
+        entries.push({ level: e.level, title: e.title, page: e.page, anchor: e.anchor });
+        entries[entries.length - 1].pageUuid = uuidByNumber.get(e.page);
+      }
+    } catch (err) {
+      if (signal.aborted) break;
+      // One batch's failure is not the run's, exactly as with cards: the pages
+      // after it are still worth reading.
+      console.error('Could not index pages', batch[0].number, err);
+      failed++;
+    }
+    renderToc();
+  }
+
+  const stopped = signal.aborted;
+  building = null;
+  if (entries.length) {
+    // A content change: the full ritual, so the index reaches the other
+    // devices in the notebook's own manifest.
+    await setNotebookToc(currentNotebookId, {
+      builtAt: Date.now(),
+      model,
+      from: await pagesFingerprint(currentNotebookId),
+      entries: entries.map(({ page, ...e }) => e), // the page number was only the model's handle
+    });
+    await touchNotebook(currentNotebookId);
+    scheduleSync();
+  }
+  await renderToc();
+  if (!entries.length || stopped || failed) {
+    $('#toc-note').hidden = false;
+    $('#toc-note').textContent = entries.length
+      ? `${stopped ? 'Stopped early. ' : ''}${failed ? `${failed} batch(es) could not be read. ` : ''}Built ${entries.length} section(s).`
+      : `${stopped ? 'Stopped.' : 'The model found no sections to list.'}`;
+  }
 }
 
 // ---------- bookmarks ----------
@@ -2092,6 +2334,7 @@ async function loadCurrentNotebook() {
   pages = await getPages(currentNotebookId);
   currentPage = getSavedPage(currentNotebookId);
   citedPassage = null; // it pointed at a page in the notebook we just left
+  anchoredEntry = null;
   $('#search').value = '';
   renderBook();
   refreshSearch();
@@ -2510,6 +2753,28 @@ async function retranscribeNotebook(id) {
 
 // ---------- export / import (backup) ----------
 
+// The index, translated for a backup file and back. Entries point at a page by
+// uuid, and this format has never carried one — an import mints fresh uuids and
+// identifies pages only by their order. So the two ends translate: on the way
+// out uuid → order, on the way in order → the uuid just minted. An entry whose
+// page isn't in the file is dropped rather than left dangling.
+function tocByOrder(toc, pages) {
+  if (!toc?.entries?.length) return null;
+  const orderByUuid = new Map(pages.map((p) => [p.uuid, p.order]));
+  const entries = toc.entries
+    .filter((e) => orderByUuid.has(e.pageUuid))
+    .map(({ pageUuid, ...e }) => ({ ...e, pageOrder: orderByUuid.get(pageUuid) }));
+  return entries.length ? { toc: { ...toc, entries } } : null;
+}
+
+function tocByUuid(toc, uuidByOrder) {
+  if (!toc?.entries?.length) return null;
+  const entries = toc.entries
+    .filter((e) => uuidByOrder.has(e.pageOrder))
+    .map(({ pageOrder, ...e }) => ({ ...e, pageUuid: uuidByOrder.get(pageOrder) }));
+  return entries.length ? { ...toc, entries } : null;
+}
+
 const EXPORT_FORMAT = 'my-notebook-export';
 const EXPORT_VERSION = 1;
 
@@ -2561,7 +2826,7 @@ async function exportNotebook(id) {
       format: EXPORT_FORMAT,
       version: EXPORT_VERSION,
       exportedAt: Date.now(),
-      notebook: { name: nb.name },
+      notebook: { name: nb.name, ...(tocByOrder(nb.toc, nbPages) || {}) },
       pages: exported,
     };
     const safe = (nb.name || 'notebook').replace(/[^\w.-]+/g, '_').slice(0, 60);
@@ -2597,10 +2862,13 @@ async function importNotebookFromFile(file) {
     const name = (data.notebook?.name || 'Imported notebook').trim();
     const newId = await addNotebook(name);
     let order = 0;
+    const uuidByOrder = new Map();
     for (const p of data.pages) {
       if (!p.image) continue;
+      const uuid = crypto.randomUUID();
+      uuidByOrder.set(typeof p.order === 'number' ? p.order : order, uuid);
       await addPage({
-        uuid: crypto.randomUUID(),
+        uuid,
         notebookId: newId,
         order: typeof p.order === 'number' ? p.order : order,
         name: p.name || `page-${order + 1}`,
@@ -2618,6 +2886,8 @@ async function importNotebookFromFile(file) {
       });
       order++;
     }
+    const toc = tocByUuid(data.notebook?.toc, uuidByOrder);
+    if (toc) await setNotebookToc(newId, toc);
     setOcrStatus(`Imported ${order} page(s)`);
     await switchNotebook(newId, { closeModal: true });
     scheduleSync();
@@ -4024,6 +4294,7 @@ function wire() {
     if (e.key === 'a' || e.key === 'A') $('#file-input').click();
     if (e.key === 'h' || e.key === 'H') openHelp();
     if (e.key === 'k' || e.key === 'K') openSettings();
+    if (e.key === 'i' || e.key === 'I') toggleTocShortcut();
     if (e.key === 'g' || e.key === 'G') openGoto();
     // Shift claims the second action on a letter the app already spends, and
     // it is always the one standing right beside the plain key's: the bookmark
@@ -4147,6 +4418,17 @@ function wire() {
   $('#panel-toggle').addEventListener('click', toggleUnifiedPanel);
   $('#panel-close').addEventListener('click', () => setPanelHidden(true));
   $('#panel-tab-chat').addEventListener('click', () => openChat());
+  $('#panel-tab-toc').addEventListener('click', openToc);
+  $('#toc-tab-text').addEventListener('click', openPanel);
+  $('#toc-tab-chat').addEventListener('click', () => openChat());
+  $('#toc-close').addEventListener('click', () => setTocHidden(true));
+  $('#toc-build').addEventListener('click', buildToc);
+  $('#toc-stop').addEventListener('click', () => building?.abort());
+  // Delegated: the list is rebuilt on every render.
+  $('#toc-body').addEventListener('click', (e) => {
+    const item = e.target.closest('.toc-item');
+    if (item?.dataset.index) goToTocEntry(Number(item.dataset.index), item.dataset.anchor || '');
+  });
 
   // Delegated, because the panel's contents are rebuilt on every page turn —
   // and there are now as many of these as there are pages on screen.
@@ -4256,6 +4538,7 @@ function wire() {
       syncViewerChatTab();
     },
     onSwitchToText: openPanel,
+    onSwitchToToc: openToc,
   });
 
   initReview({

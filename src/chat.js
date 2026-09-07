@@ -137,6 +137,7 @@ let onSpendChanged = () => {}; // main.js redraws its counter
 let onGoToPage = () => {}; // main.js turns to a cited page
 let onVisibilityChanged = () => {}; // main.js keeps the viewer's chat tab in step
 let onSwitchToText = () => {}; // main.js: switch the panel's own tabs to Text
+let onSwitchToToc = () => {}; // …and to the index
 const histories = new Map(); // notebookId -> [{ id, role, content, error?, marked? }]
 const loaded = new Set(); // notebookIds already read back from IndexedDB
 let streamCtrl = null; // AbortController while a reply is streaming
@@ -1015,7 +1016,13 @@ async function send() {
 
 async function setChatHidden(hidden) {
   $('#chat').hidden = hidden;
-  if (!hidden) $('#panel').hidden = true; // one side panel at a time
+  if (!hidden) {
+    // One side panel at a time — two would squeeze the book. Three of them now,
+    // and the rule is still written by hand in each: there is no active-tab
+    // abstraction, because "which tab is active" *is* "which aside is showing".
+    $('#panel').hidden = true;
+    $('#toc').hidden = true;
+  }
   // Keep the reading bar's one button lit whenever either tab is open.
   $('#panel-toggle').classList.toggle('active', !hidden || !$('#panel').hidden);
   onVisibilityChanged(hidden);
@@ -1202,8 +1209,10 @@ export function initChat(opts) {
   if (opts.onGoToPage) onGoToPage = opts.onGoToPage;
   if (opts.onVisibilityChanged) onVisibilityChanged = opts.onVisibilityChanged;
   if (opts.onSwitchToText) onSwitchToText = opts.onSwitchToText;
+  if (opts.onSwitchToToc) onSwitchToToc = opts.onSwitchToToc;
 
   $('#chat-tab-text').addEventListener('click', () => onSwitchToText());
+  $('#chat-tab-toc').addEventListener('click', () => onSwitchToToc());
 
   $('#chat-subject-clear').addEventListener('click', () => setSubject(''));
 

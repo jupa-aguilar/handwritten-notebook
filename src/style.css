@@ -2509,7 +2509,8 @@ body.is-mobile .panel.searching .panel-head {
    #viewer-content, the element the scale transform is applied to, so panning
    and zooming leave it exactly where it is. */
 body.viewing #chat,
-body.viewing #panel {
+body.viewing #panel,
+body.viewing #toc {
   position: fixed;
   top: 0;
   right: 0;
@@ -3417,4 +3418,75 @@ body.is-mobile.immersive .viewer-toolbar {
   font-size: 0.85rem;
   cursor: pointer;
   padding: 0 2px;
+}
+
+/* ---------- the notebook's index ---------- */
+
+/* The build/stop row sits under the head rather than at the foot: unlike the
+   proofreader's verdicts it is not something you answer, it is the one thing
+   you can do here, and a long list would push it off the bottom. */
+.toc-actions {
+  margin: 0 0 4px;
+  flex: 0 0 auto;
+}
+.toc-note {
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+}
+.toc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.toc-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--panel-ink);
+  font-family: Georgia, serif;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+.toc-item:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+/* Depth by indent alone, and lighter as it goes: a heading three levels down
+   is a detail of the one above it, and should read as one. */
+.toc-item.lvl1 {
+  font-weight: 600;
+  margin-top: 6px;
+}
+.toc-item.lvl2 {
+  padding-left: 24px;
+}
+.toc-item.lvl3 {
+  padding-left: 40px;
+  font-size: 0.86rem;
+  color: #6c6256;
+}
+.toc-item.current {
+  background: rgba(200, 116, 60, 0.16);
+}
+/* The page it named is gone. Shown rather than dropped, because that is the
+   notebook having moved on and the note above says so. */
+.toc-item.missing {
+  opacity: 0.45;
+  cursor: default;
+}
+.toc-title {
+  flex: 1;
+  min-width: 0;
+}
+.toc-page {
+  flex: none;
+  font-size: 0.78rem;
+  color: #8a7d6c;
+  font-variant-numeric: tabular-nums;
 }
