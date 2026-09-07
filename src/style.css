@@ -117,14 +117,20 @@ body:not(.is-mobile) .reading-bar:not(.help-bar) {
    sliver once the pointer wanders off and unfurls again on proximity to the
    top edge (see initHeaderAutoHide in main.js, which drives `.header-collapsed`
    and also decides when *not* to collapse — a popover open, or focus inside
-   the bar). The max-height is a deliberate overestimate: animating from an
-   unknown "auto" height needs a fixed ceiling, and one taller than the bar
-   ever gets only clips the easing, never the content. */
+   the bar).
+
+   This used to ease the height over 0.22s, and the animation was the problem
+   rather than the polish. The book below is sized by flex, so easing the bar
+   resized the book area on every frame of it — and StPageFlip rebuilds its
+   canvas on each resize, which clears it. Measured in an Electron probe: the
+   animated version showed a frame with no book at all in both directions,
+   where snapping shows none. Two hundred milliseconds of easing on a bar that
+   is mostly icons was not worth a black flash across the page being read.
+   The max-height stays a deliberate overestimate — the layout wants a number,
+   and one taller than the bar ever gets only ever clips nothing. */
 body:not(.is-mobile).header-autohide .toolbar {
   max-height: 260px;
   opacity: 1;
-  transition: max-height 0.22s ease, opacity 0.18s ease, padding-top 0.22s ease,
-    padding-bottom 0.22s ease;
 }
 /* overflow:hidden lives only here, not on the rule above: the sync and key-tip
    popovers are absolutely positioned *below* the toolbar's own box (anchored

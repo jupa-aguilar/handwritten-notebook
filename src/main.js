@@ -3698,13 +3698,11 @@ function wireViewer() {
 let wakeHeader = () => {};
 
 // The toolbar collapses when the pointer is away from the top of the window
-// and the book area (flex: 1, see .stage) grows to fill what it gave up.
-// StPageFlip refits on a window 'resize', and that is fired by the
-// ResizeObserver on .book-area in wire() — on every frame the area actually
-// changes size, so the book grows *with* the space. Firing it once at the end
-// of the 0.22s transition instead, which is what this used to do, left the
-// book at its old size for the whole animation and then snapped: two separate
-// movements for one action.
+// and the book area (flex: 1, see .stage) grows to fill what it gave up. That
+// happens in one step, deliberately — see the note on .toolbar in style.css
+// for why the easing had to go — and StPageFlip refits from the ResizeObserver
+// on .book-area in wire(), which is where the window 'resize' it listens for
+// gets dispatched.
 function initHeaderAutoHide() {
   if (IS_MOBILE) return;
   // Close enough to the top edge to read as "I went up there for the toolbar"
@@ -4077,10 +4075,12 @@ function wire() {
   // fires after layout settles, so StPageFlip (which refits on window 'resize')
   // has already recomputed its geometry by the time we read it.
   // …and refit the book to it. StPageFlip only listens for a window 'resize',
-  // so this is where that gets fired: once per frame the area really changed,
-  // which is what makes the toolbar's 0.22s collapse one movement instead of
-  // the space opening and the book catching up afterwards. Coalesced through a
-  // frame so a burst of observations costs one refit.
+  // so this is where that gets fired — on the size actually changing rather
+  // than on a timer guessing when it might have. Coalesced through a frame,
+  // because a resize rebuilds the canvas and rebuilding it clears it: one
+  // refit per change is a size change nobody sees, several in quick succession
+  // is a black flash across the page (which is exactly what an eased toolbar
+  // height produced, and why it no longer eases).
   let refitPending = 0;
   new ResizeObserver(() => {
     discardFrame(); // the geometry a rectangle was measured against no longer applies
