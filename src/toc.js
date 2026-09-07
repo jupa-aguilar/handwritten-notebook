@@ -21,10 +21,10 @@ const SYSTEM = `You are building the table of contents of a student's notebook, 
 Return the sections that BEGIN in the pages you are given, in the order they appear.
 
 Rules:
-- A section is a real division of the material: a chapter, a numbered heading, an exercise set, a topic the pages move on to. Not every paragraph, and not a heading you invented for one sentence. Fewer, truer entries are worth more than a dense list.
+- A section is a division the page itself makes: a heading it writes, a numbered division, an exercise set, a topic the pages move on to. List every heading a page writes — the one it opens with and the ones written under it — because the sections under a subject are the shape of the material and this list is what shows it. Not a paragraph that merely goes on, and not a heading you invented for a sentence that has none: a page with four headings gives four entries, not nine.
 - Where the page prints its own heading, take its words as the title. Where the pages have no headings — handwritten notes usually do not — name the section yourself, in a few words, in the language of the page.
 - Write every title the way it would be written inside a sentence, whatever the page does: the first word capitalised, the rest lower case, and capitals only where ordinary writing puts them — proper nouns and acronyms (RAID, CPU, IPv4, Docker). A heading the page prints in capitals is not a title in capitals, and a heading that capitalises Every Important Word is not one either.
-- "level" is 1 for a top-level section, 2 for a subsection inside it, 3 at the deepest. Follow the numbering the page itself uses when it has one (I.4 sits under I; J.2 under J).
+- "level" is 1 for a top-level section, 2 for a subsection inside it, 3 at the deepest. Where the page numbers its headings, follow that numbering (I.4 sits under I; J.2 under J). Where it does not, follow the page: the heading a page opens with is that page's own subject and is level 1, and a heading that begins further down the same page is a section of it, level 2.
 - "page" is the page number the section starts on, from the "--- Page N ---" lines below, and nothing else. Many scans print a number of their own ("PÁG. 9/14", "- 3 -"): that one belongs to the document that was scanned, not to this notebook, and is never the answer.
 - "anchor" is copied VERBATIM from that page's text: the first few words of the heading, or of the first line of the section where there is no heading. The app searches the scan for those words to mark the spot, so a paraphrase finds nothing.
 - If a section was already listed in "Found so far", it began earlier: do not list it again.
@@ -105,6 +105,16 @@ function digJson(raw) {
   return [];
 }
 
+// A batch's reply carries every heading its pages write, and the budget above
+// only measures what goes up. Against a hosted model the budget alone puts the
+// whole notebook in one request — forty pages asking for one JSON of a hundred
+// and thirty entries, long enough to be cut off by the model's own output
+// limit. A cut-off reply is not JSON at all, so the batch would yield nothing
+// rather than less. A dozen pages is still a run long enough to put a section
+// under the subject it belongs to, and it costs the same: every page is sent
+// once either way.
+const MAX_PAGES_PER_BATCH = 12;
+
 // How the run is cut up. A table of contents needs to see consecutive pages to
 // place a subsection under its parent, so this batches rather than going page
 // by page — and it sizes the batch from the model's own context rather than a
@@ -116,7 +126,7 @@ export function batchPages(pages, budget) {
   let used = 0;
   for (const p of pages) {
     const size = (p.text || '').length + 40; // the "--- Page N ---" line included
-    if (batch.length && used + size > budget) {
+    if (batch.length && (used + size > budget || batch.length >= MAX_PAGES_PER_BATCH)) {
       out.push(batch);
       batch = [];
       used = 0;
@@ -152,58 +162,122 @@ export function placeEntries(entries, batch) {
   const seen = new Set();
   for (const e of entries) {
     const want = bareTokens(e.anchor);
-    const page = want.length ? bestPage(pages, want, e.page) : e.page;
-    if (page === null) continue;
+    const found = want.length ? bestPage(pages, want, e.page) : { page: e.page, at: -1 };
+    if (found === null) continue;
+    const { page, at } = found;
     // Relocation can bring two entries onto one page, the same way asking for
     // the same pages twice could: one title per page either way.
     const key = `${page}::${e.title.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ ...e, page, title: sentenceCase(e.title, textOf.get(page) || '') });
+    out.push({ ...e, page, at, title: sentenceCase(e.title, textOf.get(page) || '') });
   }
-  return out.sort((a, b) => a.page - b.page);
+  levelByPlace(out);
+  // Page order, and within a page the order the headings were written in —
+  // which is what the anchors' offsets give us. It used to be the order the
+  // model listed them, with the note that a subsection ahead of its parent
+  // renders as a stray indent; now the page itself settles it. An entry whose
+  // anchor was never located goes last on its page: it is the one we know
+  // least about, and it was never promoted, so it cannot be a parent.
+  return out
+    .sort((a, b) => a.page - b.page || writtenAt(a) - writtenAt(b))
+    .map(({ at, ...e }) => e);
 }
 
+const writtenAt = (e) => (e.at >= 0 ? e.at : Number.MAX_SAFE_INTEGER);
+
+// How far into a page a heading can start and still be the page's own title.
+// Enough for the printed furniture these scans carry above it — "TEMA", "DÍA
+// MES AÑO", "PÁGINA 2/16" — and not enough for a line of prose to have gone by.
+const HEADS_THE_PAGE = 200;
+
+// Which entries are a page's subject and which are sections of it.
+//
+// These notebooks are written to a convention: the page's subject at its head,
+// underlined twice, and its sections below it underlined once. The underline is
+// ink and the index is built from the transcription, so the model never sees
+// it — but position says the same thing, and says it in the text. The heading a
+// page opens with is its subject; a heading that begins further down that page
+// is a section of it.
+//
+// So the earliest-placed entry on a page is level 1, provided its anchor really
+// is at the head of the page — a page that opens mid-paragraph is a page whose
+// title was on the one before, and there is nothing here to promote. Only then
+// are that page's other entries pushed under it, since the demotion only means
+// anything relative to a title we actually found.
+function levelByPlace(placed) {
+  const byPage = new Map();
+  for (const e of placed) {
+    if (!byPage.has(e.page)) byPage.set(e.page, []);
+    byPage.get(e.page).push(e);
+  }
+  for (const group of byPage.values()) {
+    const located = group.filter((e) => e.at >= 0).sort((a, b) => a.at - b.at);
+    const head = located[0];
+    if (!head || head.at > HEADS_THE_PAGE) continue;
+    head.level = 1;
+    for (const e of group) if (e !== head) e.level = Math.max(2, e.level);
+  }
+}
+
+// The page an anchor was written on, and where on it: { page, at }, or null
+// when the anchor is on two pages equally. `page` falls back to the model's
+// claim when the anchor is nowhere, and `at` is -1 when nothing located it.
 function bestPage(pages, want, claimed) {
   // cards.js's line, for the same reason: half the words is where "the model
   // quoted this passage" stops and "these words are just common" starts.
   const need = Math.max(2, Math.ceil(want.length * 0.5));
   const scored = pages
-    .map((p) => ({ number: p.number, score: anchorScore(p.text, want) }))
+    .map((p) => ({ number: p.number, ...findAnchor(p.text, want) }))
     .filter((p) => p.score >= need)
     .sort((a, b) => b.score - a.score);
-  if (!scored.length) return claimed; // nothing found: nothing to say
-  if (scored.some((p) => p.number === claimed)) return claimed;
+  if (!scored.length) return { page: claimed, at: -1 }; // nothing to say
+  const mine = scored.find((p) => p.number === claimed);
+  if (mine) return { page: mine.number, at: mine.at };
   // Two pages carrying the heading equally well is a running header or a topic
   // named twice, and choosing between them is a guess — the one thing this
   // file will not do, since an entry on the wrong page is worse than none.
   if (scored.length > 1 && scored[1].score === scored[0].score) return null;
-  return scored[0].number;
+  return { page: scored[0].number, at: scored[0].at };
 }
 
-// How much of the anchor is written on a page: the best run of consecutive
-// words matching it, as a bag of words inside a sliding window. Same rule as
-// locateAnchor in cards.js, which matches the same anchors against the same
-// pages' word boxes, and for the same reason — the model retypes what it read
-// and Vision split the strokes its own way, so a literal comparison fails on
-// the one word either of them got wrong.
-function anchorScore(text, want) {
-  const words = bareTokens(text);
+// How much of the anchor is written on a page, and where. The best run of
+// consecutive words matching it, as a bag of words inside a sliding window:
+// the same rule as locateAnchor in cards.js, which matches the same anchors
+// against the same pages' word boxes, and for the same reason — the model
+// retypes what it read and Vision split the strokes its own way, so a literal
+// comparison fails on the one word either of them got wrong.
+//
+// `at` is where that run starts in the text, which is what tells a page's own
+// heading from a section further down it.
+function findAnchor(text, want) {
+  const words = wordsWithPlace(text);
   const size = Math.min(want.length, words.length);
-  if (!size) return 0;
+  if (!size) return { score: 0, at: -1 };
   const wanted = new Set(want);
   const hit = words.map(
-    (w) => wanted.has(w) || want.some((t) => t.length > 3 && w.includes(t))
+    ({ w }) => wanted.has(w) || want.some((t) => t.length > 3 && w.includes(t))
   );
   let run = 0;
   for (let i = 0; i < size; i++) if (hit[i]) run++;
-  let best = run;
+  let best = { score: run, start: 0 };
   for (let i = size; i < words.length; i++) {
     if (hit[i]) run++;
     if (hit[i - size]) run--;
-    if (run > best) best = run;
+    if (run > best.score) best = { score: run, start: i - size + 1 };
   }
-  return best;
+  return { score: best.score, at: words[best.start].at };
+}
+
+// bareTokens' words, each with the offset it was written at. Same splitting, so
+// the two cannot disagree about what a word is.
+function wordsWithPlace(text) {
+  const out = [];
+  for (const m of String(text || '').matchAll(/[\p{L}\p{N}]+/gu)) {
+    const [w] = bareTokens(m[0]);
+    if (w) out.push({ w, at: m.index });
+  }
+  return out;
 }
 
 // One index, one way of writing. A notebook's headings are not consistent with

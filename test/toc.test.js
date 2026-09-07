@@ -111,6 +111,16 @@ describe('batchPages', () => {
   it('is empty for no pages', () => {
     expect(batchPages([], 1000)).toEqual([]);
   });
+
+  // The reply has to come back whole: a hosted budget would otherwise put a
+  // whole notebook in one request, and its answer is one JSON of every heading
+  // in it.
+  it('caps a batch at a dozen pages however big the budget is', () => {
+    const many = Array.from({ length: 40 }, (_, i) => ({ number: i + 1, text: 'x' }));
+    const batches = batchPages(many, 10_000_000);
+    expect(batches.every((b) => b.length <= 12)).toBe(true);
+    expect(batches.flat().map((p) => p.number)).toEqual(many.map((p) => p.number));
+  });
 });
 
 describe('placeEntries', () => {
@@ -266,5 +276,106 @@ describe('placeEntries casing', () => {
       batch
     );
     expect(got[0].title).toBe('RAID: capacidad y velocidad');
+  });
+});
+
+describe('placeEntries levels', () => {
+  // A page of the notebook this came from: the subject at the head, underlined
+  // twice, then its sections underlined once. The transcription keeps the order
+  // and loses the underlines, which is the whole problem.
+  const page = [
+    'PÁGINA 2/16  DÍA  MES  AÑO',
+    'Núcleo, usuario y concepto de proceso',
+    'Dos niveles de privilegio',
+    'Espacio de núcleo (anillo 0): accede al hardware, memoria física.',
+    'Biblioteca ≠ llamada al sistema',
+    'Una función de biblioteca corre dentro del proceso.',
+  ].join('\n');
+  const batch = [{ number: 16, text: page }];
+
+  it('makes the heading a page opens with its top-level entry', () => {
+    const got = placeEntries(
+      [{ level: 2, title: 'Núcleo, usuario y concepto de proceso', page: 16, anchor: 'Núcleo, usuario y concepto de proceso' }],
+      batch
+    );
+    expect(got.map((e) => e.level)).toEqual([1]);
+  });
+
+  it('puts the headings further down that page under it', () => {
+    const got = placeEntries(
+      [
+        { level: 1, title: 'Dos niveles de privilegio', page: 16, anchor: 'Dos niveles de privilegio' },
+        { level: 1, title: 'Núcleo, usuario y concepto de proceso', page: 16, anchor: 'Núcleo, usuario y concepto de proceso' },
+        { level: 1, title: 'Biblioteca ≠ llamada al sistema', page: 16, anchor: 'Biblioteca llamada al sistema' },
+      ],
+      batch
+    );
+    expect(got.map((e) => [e.title, e.level])).toEqual([
+      ['Núcleo, usuario y concepto de proceso', 1],
+      ['Dos niveles de privilegio', 2],
+      ['Biblioteca ≠ llamada al sistema', 2],
+    ]);
+  });
+
+  it('keeps a deeper level the model asked for', () => {
+    const got = placeEntries(
+      [
+        { level: 1, title: 'Núcleo, usuario y concepto de proceso', page: 16, anchor: 'Núcleo, usuario y concepto de proceso' },
+        { level: 3, title: 'Dos niveles de privilegio', page: 16, anchor: 'Dos niveles de privilegio' },
+      ],
+      batch
+    );
+    expect(got.map((e) => e.level)).toEqual([1, 3]);
+  });
+
+  // A page that opens mid-paragraph is a page whose title was on the one
+  // before: there is nothing at its head to promote, and nothing to demote
+  // the rest against either.
+  it('promotes nothing on a page that opens in the middle of something', () => {
+    const continues = [{
+      number: 17,
+      text:
+        'reduce el tiempo de interrupción del servicio, porque la réplica ya tiene ' +
+        'una copia actualizada y el nodo activo puede caer sin que nadie lo note. ' +
+        'El orquestador decide dónde corre cada máquina virtual.\n' +
+        'Latencia\nLa ubicación depende de la carga.',
+    }];
+    const got = placeEntries(
+      [{ level: 2, title: 'Latencia', page: 17, anchor: 'Latencia La ubicación depende' }],
+      continues
+    );
+    expect(got.map((e) => e.level)).toEqual([2]);
+  });
+
+  it('leaves the level alone when the anchor was never located', () => {
+    const got = placeEntries(
+      [{ level: 2, title: 'Algo', page: 16, anchor: 'una paráfrasis que nadie escribió' }],
+      batch
+    );
+    expect(got.map((e) => e.level)).toEqual([2]);
+  });
+
+  it('levels each page on its own head, not the notebook\'s first', () => {
+    const two = [
+      { number: 4, text: 'Arquitecturas del kernel y familias Linux\nKernel monolítico: servicios dentro del núcleo.' },
+      { number: 5, text: 'Memoria protegida, virtual y swap\nMemoria virtual\nCada proceso ve direcciones propias.' },
+    ];
+    const got = placeEntries(
+      [
+        { level: 1, title: 'Arquitecturas del kernel y familias Linux', page: 4, anchor: 'Arquitecturas del kernel y familias Linux' },
+        { level: 2, title: 'Memoria protegida, virtual y swap', page: 5, anchor: 'Memoria protegida, virtual y swap' },
+        { level: 1, title: 'Memoria virtual', page: 5, anchor: 'Memoria virtual Cada proceso ve' },
+      ],
+      two
+    );
+    expect(got.map((e) => [e.page, e.level])).toEqual([[4, 1], [5, 1], [5, 2]]);
+  });
+
+  it('does not leak the anchor offset it worked from', () => {
+    const [e] = placeEntries(
+      [{ level: 1, title: 'Núcleo, usuario y concepto de proceso', page: 16, anchor: 'Núcleo, usuario y concepto de proceso' }],
+      batch
+    );
+    expect(Object.keys(e).sort()).toEqual(['anchor', 'level', 'page', 'title']);
   });
 });
