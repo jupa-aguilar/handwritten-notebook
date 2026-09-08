@@ -827,10 +827,30 @@ export async function ensureSyncIds() {
 // manifest, which costs one key there and nothing else: no store, no
 // tombstones, no third file to sweep on delete.
 //
-// The merge that follows from that is whole-notebook last-write-wins, so two
+// The merge is whole-index last-write-wins by its own builtAt (pickToc), so two
 // devices that regenerate at once keep one of the two whole. Right for
 // something derived and regenerable; it would be wrong the day the entries
 // become editable by hand.
+
+// Which of two copies of the index survives a merge. Deliberately *not* the
+// notebook's own last-write-wins, which decides its name: the index is the one
+// notebook field a device may simply not have, and "I have no index" is not an
+// edit — it must never beat "I built one". Otherwise a phone that bookmarked a
+// page after the desktop built the index wins the notebook record, pushes a
+// manifest with no index in it, and the index is gone from every device at
+// once: nothing rebuilds one by itself. Nothing deletes one either — building
+// again replaces it — so absent always loses, and between two real ones the
+// newer builtAt wins.
+//
+// The same rule makes the loss recoverable, which matters because older builds
+// of the app strip the field on every push: whichever device still holds an
+// index publishes it back the next time it pulls a manifest without one.
+function pickToc(local, remote) {
+  if (!remote) return local || null;
+  if (!local) return remote;
+  return (remote.builtAt || 0) >= (local.builtAt || 0) ? remote : local;
+}
+
 export async function setNotebookToc(id, toc) {
   const db = await dbPromise;
   const nb = await db.get('notebooks', id);
@@ -927,28 +947,33 @@ export async function applyRemoteNotebook(manifest, resolveBlob, opts = {}) {
   // Pages the remote has that could not be fetched this time round.
   const missing = [];
   let nb = await getNotebookByUuid(manifest.uuid);
-  // The table of contents travels with the notebook's own fields, so it lands
-  // in all three branches — and the same last-write-wins rule that names the
-  // notebook decides it, whole. See setNotebookToc for why that is the right
-  // trade for something generated and regenerable.
+  // The table of contents travels in the notebook's own fields, so it lands in
+  // all three branches — but it is settled on its own terms before them, by
+  // builtAt rather than by whichever side named the notebook last. See pickToc.
+  const toc = pickToc(nb?.toc, manifest.toc);
+  // Ours is the copy that survived: the push-back has to carry it, or Drive
+  // keeps the manifest without one and no other device ever sees an index.
+  if (toc && toc !== manifest.toc) merged = true;
   if (!nb) {
     const id = await db.add('notebooks', {
       uuid: manifest.uuid,
       name: manifest.name,
       ...(typeof manifest.order === 'number' ? { order: manifest.order } : {}),
-      ...(manifest.toc ? { toc: manifest.toc } : {}),
+      ...(toc ? { toc } : {}),
       createdAt: manifest.createdAt || Date.now(),
       updatedAt: manifest.updatedAt,
     });
     nb = await db.get('notebooks', id);
-  } else if ((nb.updatedAt || 0) > (manifest.updatedAt || 0)) {
-    merged = true; // the side that edited last names the notebook
   } else {
-    nb.name = manifest.name;
-    if (typeof manifest.order === 'number') nb.order = manifest.order;
-    if (manifest.toc) nb.toc = manifest.toc;
+    if (toc) nb.toc = toc;
     else delete nb.toc;
-    nb.updatedAt = manifest.updatedAt;
+    if ((nb.updatedAt || 0) > (manifest.updatedAt || 0)) {
+      merged = true; // the side that edited last names the notebook
+    } else {
+      nb.name = manifest.name;
+      if (typeof manifest.order === 'number') nb.order = manifest.order;
+      nb.updatedAt = manifest.updatedAt;
+    }
     await db.put('notebooks', nb);
   }
 

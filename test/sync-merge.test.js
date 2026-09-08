@@ -337,3 +337,78 @@ describe('a page whose image will not come down', () => {
     expect(res.missing).toEqual([]);
   });
 });
+
+// The index is the one notebook field a device may simply not have, so it is
+// merged on its own builtAt instead of riding the notebook's last-write-wins.
+// Losing that rule is silent and total: a phone that bookmarked a page after
+// the desktop built the index would win the notebook, push a manifest with no
+// index in it, and no device would ever show one again.
+describe("the notebook's index", () => {
+  const toc = (builtAt, title = 'A section') => ({
+    builtAt,
+    model: 'm',
+    from: { count: 1, max: 1 },
+    entries: [{ level: 1, title, anchor: 'a', pageUuid: 'pg-1' }],
+  });
+
+  it('arrives with a notebook this device has never seen', async () => {
+    const res = await db.applyRemoteNotebook(manifest({ toc: toc(500) }), resolveBlob, {});
+    expect((await db.getNotebook(res.id)).toc.entries[0].title).toBe('A section');
+  });
+
+  it('comes down even when this device edited the notebook more recently', async () => {
+    await givenLocalNotebook({ updatedAt: 2000 });
+
+    const res = await db.applyRemoteNotebook(
+      manifest({ name: 'Remote name', updatedAt: 1000, toc: toc(1000) }),
+      resolveBlob,
+      { lastSyncAt: 900 }
+    );
+
+    const nb = await db.getNotebook(res.id);
+    expect(nb.name).toBe('Local name'); // the notebook is still ours
+    expect(nb.toc.builtAt).toBe(1000); // the index is theirs anyway
+  });
+
+  it('survives a remote that has none, and is pushed back', async () => {
+    await rawPut('notebooks', [
+      { id: 1, uuid: 'nb-1', name: 'Local name', createdAt: 1, updatedAt: 500, toc: toc(400) },
+    ]);
+
+    const res = await db.applyRemoteNotebook(
+      manifest({ updatedAt: 1000 }), // an older build stripped the field
+      resolveBlob,
+      { lastSyncAt: 400 }
+    );
+
+    expect((await db.getNotebook(res.id)).toc.builtAt).toBe(400);
+    expect(res.merged).toBe(true); // …so the push-back puts it back on Drive
+  });
+
+  it('keeps the newer of two, whichever side named the notebook', async () => {
+    await rawPut('notebooks', [
+      { id: 1, uuid: 'nb-1', name: 'Local name', createdAt: 1, updatedAt: 2000, toc: toc(3000, 'Mine') },
+    ]);
+
+    const res = await db.applyRemoteNotebook(
+      manifest({ updatedAt: 1000, toc: toc(2000, 'Theirs') }),
+      resolveBlob,
+      { lastSyncAt: 900 }
+    );
+
+    expect((await db.getNotebook(res.id)).toc.entries[0].title).toBe('Mine');
+  });
+
+  it('does not claim a merge when neither side has one', async () => {
+    await givenLocalNotebook({ updatedAt: 1000 });
+
+    const res = await db.applyRemoteNotebook(
+      manifest({ updatedAt: 1000 }),
+      resolveBlob,
+      { lastSyncAt: 900 }
+    );
+
+    expect(res.merged).toBe(false);
+    expect((await db.getNotebook(res.id)).toc).toBeUndefined();
+  });
+});
