@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { buildTocPrompt, parseToc, batchPages, placeEntries, sentenceCase } from '../src/toc.js';
+import {
+  buildTocPrompt,
+  parseToc,
+  batchPages,
+  placeEntries,
+  sentenceCase,
+  branchRows,
+  visibleRows,
+} from '../src/toc.js';
 
 const batch = [
   { number: 37, text: 'I.4 Disco: por qué cambia el hardware\nAgrandar el disco es trivial.' },
@@ -377,5 +385,65 @@ describe('placeEntries levels', () => {
       batch
     );
     expect(Object.keys(e).sort()).toEqual(['anchor', 'level', 'page', 'title']);
+  });
+});
+
+// Folding is what makes the levels worth having on a long notebook, and the
+// arithmetic is the kind that looks obvious and is wrong at the seams: a
+// subsection that ends a run, a level-3 under a level-1, a branch folded
+// inside a folded branch.
+describe('folding', () => {
+  const tree = (...levels) => levels.map((level, i) => ({ level, title: `t${i}`, page: i + 1 }));
+
+  describe('branchRows', () => {
+    it('names only the rows with something under them', () => {
+      // 1, [2, 2], 1  →  only the first has sections
+      expect(branchRows(tree(1, 2, 2, 1))).toEqual([0]);
+    });
+
+    it('sees a branch that ends the list', () => {
+      expect(branchRows(tree(1, 1, 2))).toEqual([1]);
+    });
+
+    it('counts a level-3 under a level-1 as a branch, however it was numbered', () => {
+      expect(branchRows(tree(1, 3))).toEqual([0]);
+    });
+
+    it('finds nothing to fold in a flat index', () => {
+      expect(branchRows(tree(1, 1, 1))).toEqual([]);
+      expect(branchRows([])).toEqual([]);
+    });
+  });
+
+  describe('visibleRows', () => {
+    it('shows everything when nothing is folded', () => {
+      expect(visibleRows(tree(1, 2, 3, 1))).toEqual([0, 1, 2, 3]);
+    });
+
+    it('takes a branch and everything under it', () => {
+      // Folding row 0 hides its subsection AND that subsection's own.
+      expect(visibleRows(tree(1, 2, 3, 1), new Set([0]))).toEqual([0, 3]);
+    });
+
+    it('stops at the next row of the same level', () => {
+      expect(visibleRows(tree(1, 2, 1, 2), new Set([0]))).toEqual([0, 2, 3]);
+    });
+
+    it('leaves a fold made inside a fold alone, so unfolding restores it', () => {
+      const entries = tree(1, 2, 3, 3, 1);
+      // Row 1 is folded inside row 0. While 0 is shut, only 0 and 4 are drawn…
+      expect(visibleRows(entries, new Set([0, 1]))).toEqual([0, 4]);
+      // …and opening 0 finds row 1 still folded rather than blown open.
+      expect(visibleRows(entries, new Set([1]))).toEqual([0, 1, 4]);
+    });
+
+    it('ignores a fold on a row with nothing under it', () => {
+      expect(visibleRows(tree(1, 1, 1), new Set([1]))).toEqual([0, 1, 2]);
+    });
+
+    it('folds every branch at once, which is what Collapse all asks for', () => {
+      const entries = tree(1, 2, 3, 1, 2);
+      expect(visibleRows(entries, new Set(branchRows(entries)))).toEqual([0, 3]);
+    });
   });
 });

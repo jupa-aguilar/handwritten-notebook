@@ -332,6 +332,38 @@ function ordinarySpellings(text) {
   return out;
 }
 
+// ---------- folding ----------
+//
+// The entries are flat, one level apiece, so a heading's sections are simply
+// the entries after it that sit deeper — up to the next one at its own level
+// or above. That is enough to fold a branch without ever building the tree,
+// and folding is what makes the levels worth having: on a long notebook the
+// index is only navigable if the subjects can be seen without their sections.
+
+// The rows with something under them: the only ones a twisty belongs on.
+export function branchRows(entries = []) {
+  const out = [];
+  for (const [i, e] of entries.entries()) {
+    if ((entries[i + 1]?.level || 0) > e.level) out.push(i);
+  }
+  return out;
+}
+
+// The rows to draw, given which are folded. A folded row takes its children
+// with it, and theirs — but a row folded *inside* a fold contributes nothing
+// while it is hidden, so unfolding a branch shows it exactly as it was left.
+export function visibleRows(entries = [], collapsed = new Set()) {
+  const out = [];
+  let foldedAt = null;
+  for (const [i, e] of entries.entries()) {
+    if (foldedAt !== null && e.level > foldedAt) continue;
+    foldedAt = null;
+    out.push(i);
+    if (collapsed.has(i) && (entries[i + 1]?.level || 0) > e.level) foldedAt = e.level;
+  }
+  return out;
+}
+
 export async function tocForPages(batch, sofar, { signal, model } = {}) {
   const allowed = new Set(batch.map((p) => p.number));
   const found = parseToc(

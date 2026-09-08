@@ -71,7 +71,7 @@ import {
   resolveChatModel,
 } from './chat.js';
 import { locateAnchor } from './cards.js';
-import { batchPages, tocForPages } from './toc.js';
+import { batchPages, tocForPages, branchRows, visibleRows } from './toc.js';
 import { initProof, openProof, closeProof } from './proofpanel.js';
 import { initProgress, openProgress, closeProgress } from './progress.js';
 import { initHelp, openHelp, closeHelp } from './help.js';
@@ -1967,6 +1967,14 @@ function backToReading() {
 // other notebook's progress, and the result must not land on the wrong one.
 let building = null;
 
+// Which branches are folded, by their position in the index on screen. Reset
+// whenever that index changes underneath them — another notebook, or one built
+// again — because the positions would then point at other sections entirely.
+// Deliberately not stored anywhere: open is the state the index is meant to be
+// found in, and a fold is a move you make while reading, not a preference.
+let folded = new Set();
+let foldedFor = '';
+
 function setTocHidden(hidden) {
   $('#toc').hidden = hidden;
   if (!hidden) {
@@ -2025,6 +2033,7 @@ async function renderToc() {
   const body = $('#toc-body');
   const note = $('#toc-note');
   const build = $('#toc-build');
+  const fold = $('#toc-fold');
   const toc = await currentToc();
   // A run reading some other notebook is not this panel's business: no Stop
   // button here, and the Build button stays offered.
@@ -2032,6 +2041,7 @@ async function renderToc() {
   $('#toc-stop').hidden = !busy;
   build.hidden = !!busy;
   build.textContent = toc ? '🧭 Build it again' : '🧭 Build the index';
+  fold.hidden = true; // until there is a tree to fold, decided below
 
   if (busy) {
     note.hidden = false;
@@ -2043,6 +2053,14 @@ async function renderToc() {
     return;
   }
 
+  // A different index than the folds were made in: they are positions in it,
+  // and in this one they would name other sections.
+  const key = `${currentNotebookId}:${toc.builtAt || 0}`;
+  if (key !== foldedFor) {
+    foldedFor = key;
+    folded = new Set();
+  }
+
   const stale = await tocIsStale(toc);
   note.hidden = !stale;
   if (stale) {
@@ -2050,23 +2068,62 @@ async function renderToc() {
       'The notebook has changed since this index was built, so it may be missing or misplacing sections.';
   }
 
+  const branches = branchRows(toc.entries);
+  // An index of one level has nothing to fold, and a button that does nothing
+  // is worse than no button.
+  fold.hidden = !branches.length;
+  const allShut = branches.length > 0 && branches.every((i) => folded.has(i));
+  fold.textContent = allShut ? '⊞ Expand all' : '⊟ Collapse all';
+
+  const branch = new Set(branches);
   const byUuid = new Map(pages.flatMap((p, i) => (p.uuid ? [[p.uuid, i]] : [])));
-  body.innerHTML = toc.entries
-    .map((e) => {
+  body.innerHTML = visibleRows(toc.entries, folded)
+    .map((row) => {
+      const e = toc.entries[row];
       const at = byUuid.get(e.pageUuid);
       // A page that is gone is shown greyed rather than dropped: that is the
       // notebook having moved on, which is exactly what the note above says.
       const missing = at === undefined;
       const here = !missing && visiblePages().includes(pages[at]);
-      return `<button class="toc-item lvl${e.level}${missing ? ' missing' : ''}${here ? ' current' : ''}"
+      const open = !folded.has(row);
+      // The twisty is a button of its own — the row itself already means "turn
+      // to this page", and a button inside a button is not markup a browser
+      // keeps. A leaf gets the same width as an empty span, so every title in
+      // the list starts on the same column whether or not it has sections.
+      const twisty = branch.has(row)
+        ? `<button class="toc-twisty" data-fold="${row}" aria-expanded="${open}"
+             title="${open ? 'Collapse this section' : 'Expand this section'}">${open ? '▾' : '▸'}</button>`
+        : '<span class="toc-twisty leaf" aria-hidden="true"></span>';
+      // The state classes sit on the row as well as the entry: the mark for
+      // "you are here" has to take in the twisty beside it, or the row reads
+      // as highlighted from the title onwards and the tree loses its column.
+      return `<div class="toc-row lvl${e.level}${missing ? ' missing' : ''}${here ? ' current' : ''}">${twisty}<button class="toc-item${missing ? ' missing' : ''}${here ? ' current' : ''}"
           ${missing ? 'disabled' : `data-index="${at}" data-anchor="${escapeHtml(e.anchor || '')}"`}
           title="${missing ? 'That page is no longer in this notebook' : `Go to page ${at + 1}`}">
           <span class="toc-title">${escapeHtml(e.title)}</span>
           <span class="toc-page">${missing ? '—' : at + 1}</span>
-        </button>`;
+        </button></div>`;
     })
     .join('');
   body.querySelector('.toc-item.current')?.scrollIntoView({ block: 'center' });
+}
+
+// One branch. Folding is a view of the index and not a change to it, so it
+// touches neither the store nor the sync.
+function foldBranch(row) {
+  if (folded.has(row)) folded.delete(row);
+  else folded.add(row);
+  renderToc();
+}
+
+// All of them, the way a file tree's collapse-all works — and back open again
+// once everything is shut, so one button covers both directions in a row that
+// has room for one.
+async function foldAllToc() {
+  const branches = branchRows((await currentToc())?.entries || []);
+  const allShut = branches.length > 0 && branches.every((i) => folded.has(i));
+  folded = allShut ? new Set() : new Set(branches);
+  renderToc();
 }
 
 // Turn to the section and mark where it starts. locateAnchor is the right tool
@@ -4502,8 +4559,12 @@ function wire() {
   $('#toc-close').addEventListener('click', () => setTocHidden(true));
   $('#toc-build').addEventListener('click', buildToc);
   $('#toc-stop').addEventListener('click', () => building?.controller.abort());
+  $('#toc-fold').addEventListener('click', foldAllToc);
   // Delegated: the list is rebuilt on every render.
   $('#toc-body').addEventListener('click', (e) => {
+    // The twisty first: it sits inside the row it folds.
+    const twisty = e.target.closest('.toc-twisty[data-fold]');
+    if (twisty) return foldBranch(Number(twisty.dataset.fold));
     const item = e.target.closest('.toc-item');
     if (item?.dataset.index) goToTocEntry(Number(item.dataset.index), item.dataset.anchor || '');
   });

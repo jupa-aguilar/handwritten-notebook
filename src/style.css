@@ -3438,11 +3438,41 @@ body.is-mobile.immersive .viewer-toolbar {
   flex-direction: column;
   gap: 1px;
 }
+/* A row is the twisty and the entry side by side. They have to be two buttons:
+   the entry means "turn to this page" and the twisty means "show me what is
+   under this", and a button inside a button is not markup a browser keeps. */
+.toc-row {
+  display: flex;
+  align-items: baseline;
+}
+.toc-twisty {
+  flex: none;
+  width: 20px;
+  padding: 6px 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #9a8d7c;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  text-align: center;
+  cursor: pointer;
+}
+.toc-twisty:hover {
+  color: var(--panel-ink);
+  background: rgba(0, 0, 0, 0.06);
+}
+/* A leaf keeps the column so every title starts on the same line, whether or
+   not the section it names has anything under it. */
+.toc-twisty.leaf {
+  cursor: default;
+}
 .toc-item {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 6px 8px;
   border: none;
   border-radius: 7px;
@@ -3458,26 +3488,38 @@ body.is-mobile.immersive .viewer-toolbar {
   background: rgba(0, 0, 0, 0.06);
 }
 /* Depth by indent alone, and lighter as it goes: a heading three levels down
-   is a detail of the one above it, and should read as one. */
-.toc-item.lvl1 {
-  font-weight: 600;
+   is a detail of the one above it, and should read as one. The indent is on
+   the row so the twisty travels with its own title rather than staying in a
+   column of its own. */
+.toc-row.lvl1 {
   margin-top: 6px;
 }
-.toc-item.lvl2 {
-  padding-left: 24px;
+.toc-row.lvl1 .toc-item {
+  font-weight: 600;
 }
-.toc-item.lvl3 {
-  padding-left: 40px;
+.toc-row.lvl2 {
+  padding-left: 18px;
+}
+.toc-row.lvl3 {
+  padding-left: 36px;
+}
+.toc-row.lvl3 .toc-item {
   font-size: 0.86rem;
   color: #6c6256;
 }
-.toc-item.current {
+/* Both marks are painted on the row rather than the entry, so they take in the
+   twisty column too: highlighted from the title onwards, the tree would lose
+   the line its levels are read down. */
+.toc-row.current {
   background: rgba(200, 116, 60, 0.16);
+  border-radius: 7px;
 }
 /* The page it named is gone. Shown rather than dropped, because that is the
    notebook having moved on and the note above says so. */
-.toc-item.missing {
+.toc-row.missing {
   opacity: 0.45;
+}
+.toc-item.missing {
   cursor: default;
 }
 .toc-title {
@@ -3489,4 +3531,11 @@ body.is-mobile.immersive .viewer-toolbar {
   font-size: 0.78rem;
   color: #8a7d6c;
   font-variant-numeric: tabular-nums;
+}
+/* A 20px column is a mouse target, not a thumb one: the twisty and the title
+   sit side by side, so a miss here turns the page instead of folding it. */
+body.is-mobile .toc-twisty {
+  width: 40px;
+  padding: 10px 0;
+  font-size: 0.8rem;
 }
