@@ -2084,6 +2084,10 @@ function goToTocEntry(index, anchor) {
     if (rect) anchoredEntry = { index, rect };
   }
   if (!goToPage(index)) return;
+  // On a phone the index is the whole screen, not a panel beside the book, so
+  // leaving it open would hide the very page it just turned to. Closed before
+  // the overlays are drawn, so they are measured against the final layout.
+  if (IS_MOBILE) setTocHidden(true);
   updateHighlights();
   renderViewerHighlights();
 }
