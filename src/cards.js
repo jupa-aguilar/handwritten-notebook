@@ -10,7 +10,7 @@
 // the anchoring are all testable without a model or a DOM.
 
 import { complete } from './chat.js';
-import { bareTokens, foldText } from './text.js';
+import { bareTokens, foldText, textRows } from './text.js';
 import { newSchedule } from './srs.js';
 import { describeRecord, emptyStats } from './stats.js';
 
@@ -225,7 +225,7 @@ export function cropRect(page, box) {
 
   rect = snap(
     rect,
-    rows(words).map((r) => ({ lo: r.y0, hi: r.y1, keep: r })),
+    textRows(words).map((r) => ({ lo: r.y0, hi: r.y1, keep: r })),
     'y0',
     'y1',
     box.y,
@@ -277,25 +277,6 @@ function snap(rect, spans, loKey, hiKey, keepLo, keepHi) {
   return out;
 }
 
-// Words grouped into the lines they were written on, by vertical overlap.
-function rows(words) {
-  const sorted = [...words].sort((a, b) => a.y - b.y);
-  const out = [];
-  for (const w of sorted) {
-    const last = out[out.length - 1];
-    // More than half of the word's height shared with the row it is joining:
-    // a superscript or a caret sits above its line, not on it.
-    const overlap = last ? Math.min(last.y1, w.y + w.h) - Math.max(last.y0, w.y) : 0;
-    if (last && overlap > w.h * 0.5) {
-      last.y0 = Math.min(last.y0, w.y);
-      last.y1 = Math.max(last.y1, w.y + w.h);
-    } else {
-      out.push({ y0: w.y, y1: w.y + w.h });
-    }
-  }
-  return out;
-}
-
 // The rectangle behind a hint: the card's passage with a line of context above
 // and below, so the crop can be shown with the answer itself covered and still
 // say something. What comes back is the sentence around the gap — which is how
@@ -328,7 +309,7 @@ export function hintRect(page, box, context = HINT_CONTEXT) {
   const words = page?.words;
   if (!box || !words?.length) return null;
 
-  const lines = rows(words);
+  const lines = textRows(words);
   let first = -1;
   let last = -1;
   for (const [i, r] of lines.entries()) {

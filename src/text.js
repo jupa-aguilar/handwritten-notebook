@@ -275,3 +275,35 @@ export function highlight(text, query) {
   const pattern = words.map(accentPattern).join('\\s+');
   return safe.replace(new RegExp(pattern, 'giu'), '<mark>$&</mark>');
 }
+
+// Words grouped into the lines they were written on, by vertical overlap.
+// Lives here rather than beside either caller because "which words are on the
+// same line" is the same question for the review card cropping a passage and
+// for guided reading walking one, and two answers to it would drift.
+//
+// Rows come back in the order they were written down the page, each with its
+// own words sorted along it — so a caller can read a line as well as measure
+// one.
+export function textRows(words) {
+  const sorted = [...(words || [])].sort((a, b) => a.y - b.y);
+  const out = [];
+  for (const w of sorted) {
+    const last = out[out.length - 1];
+    // More than half of the word's height shared with the row it is joining:
+    // a superscript or a caret sits above its line, not on it.
+    const overlap = last ? Math.min(last.y1, w.y + w.h) - Math.max(last.y0, w.y) : 0;
+    if (last && overlap > w.h * 0.5) {
+      last.y0 = Math.min(last.y0, w.y);
+      last.y1 = Math.max(last.y1, w.y + w.h);
+      last.words.push(w);
+    } else {
+      out.push({ y0: w.y, y1: w.y + w.h, words: [w] });
+    }
+  }
+  for (const row of out) {
+    row.words.sort((a, b) => a.x - b.x);
+    row.x0 = Math.min(...row.words.map((w) => w.x));
+    row.x1 = Math.max(...row.words.map((w) => w.x + w.w));
+  }
+  return out;
+}

@@ -71,6 +71,7 @@ import {
   resolveChatModel,
 } from './chat.js';
 import { locateAnchor } from './cards.js';
+import { guidedPlan, stepTransform, stepAt } from './guided.js';
 import { batchPages, tocForPages, branchRows, visibleRows } from './toc.js';
 import { initProof, openProof, closeProof } from './proofpanel.js';
 import { initProgress, openProgress, closeProgress } from './progress.js';
@@ -150,6 +151,7 @@ let vTy = 0;
 let vNatW = 0;            // page image natural size (px)
 let vNatH = 0;
 let vDrag = null;         // { x, y, tx, ty } while panning
+let guided = null;        // { plan, index } while guided reading is walking the page
 
 // ---------- helpers ----------
 
@@ -300,6 +302,7 @@ async function renderBook() {
     el.hidden = true;
     $('#pager').hidden = true;
     if (IS_MOBILE) $('#viewer').hidden = true; // let the empty message show
+    updateGuidedBtn(); // nothing to walk in an empty notebook
     return;
   }
   empty.hidden = true;
@@ -3644,6 +3647,7 @@ function syncViewerChatTab() {
 
 function closeViewer() {
   if (IS_MOBILE) return; // on phones the viewer IS the reading view
+  exitGuided();
   $('#viewer').hidden = true;
   setViewing(false);
   if (viewerUrl) {
@@ -3663,7 +3667,7 @@ function closeViewer() {
 // the reader's current magnification so they don't have to re-zoom every
 // page; jumps that land somewhere new (opening the viewer, a search/bookmark/
 // thumbnail jump) pass { fit:true } to reset to fit-to-screen.
-function loadViewerPage(index, { fit = false } = {}) {
+function loadViewerPage(index, { fit = false, guidedFrom = null } = {}) {
   // Capture the zoom relative to the OLD page's fit before its dimensions
   // change, so the new page opens at the same magnification, not the same
   // raw scale (pages may differ in size).
@@ -3694,6 +3698,19 @@ function loadViewerPage(index, { fit = false } = {}) {
 
   showViewerAtFactor(factor);
   renderViewerHighlights();
+  updateGuidedBtn();
+
+  // Guided reading survives the page turn it asked for: the plan is per page,
+  // so the new one is picked up at the end the reader arrived from.
+  if (guided) {
+    const stage = guidedStage();
+    const plan = guidedPlan(pages[viewerPage], stage);
+    if (!plan) exitGuided(); // an untranscribed page has no lines to walk
+    else {
+      setGuided(plan, guidedFrom === 'end' ? plan.steps.length - 1 : 0);
+      applyGuidedStep(guided.index);
+    }
+  }
 }
 
 // Fit the current page to the stage, then multiply by `factor` (1 = plain
@@ -3758,7 +3775,9 @@ function zoomViewerBy(factor) {
 // re-fit if the page was at fit scale, otherwise just keep the pan in bounds.
 function refitViewer() {
   if ($('#viewer').hidden) return;
-  if (Math.abs(vScale - vFit) < 0.001) {
+  if (guided) {
+    syncGuided();
+  } else if (Math.abs(vScale - vFit) < 0.001) {
     fitViewer();
   } else {
     clampViewerPan();
@@ -3772,6 +3791,127 @@ function toggleImmersive() {
   const on = document.body.classList.toggle('immersive');
   $('#immersive-btn').textContent = on ? '⤡' : '⛶';
   requestAnimationFrame(refitViewer);
+}
+
+// ---------- guided reading ----------
+
+// The walk itself is geometry and lives in guided.js; what is here is the
+// part that has a screen in it. The plan depends on the stage as much as on
+// the page — the windows are cut to the width of the glass — so it is rebuilt
+// on a page turn, on a rotation, and on entering or leaving immersive mode.
+
+function setGuided(plan, index) {
+  guided = { plan, index, step: () => guided.plan.steps[guided.index] };
+}
+
+function guidedStage() {
+  const r = $('#viewer-stage').getBoundingClientRect();
+  return { w: r.width, h: r.height };
+}
+
+function toggleGuided() {
+  if (guided) exitGuided();
+  else enterGuided();
+}
+
+function enterGuided() {
+  if (!syncGuided({ lineStart: true })) return; // no transcription: nothing to walk
+  document.body.classList.add('guided');
+  $('#viewer-content').classList.add('stepping');
+  updateGuidedBtn();
+}
+
+function exitGuided() {
+  guided = null;
+  document.body.classList.remove('guided');
+  $('#viewer-content').classList.remove('stepping');
+  updateGuidedBtn();
+}
+
+// Build (or rebuild) the plan for the page and stage as they are now, and
+// stand on whichever step is nearest what is already on screen. That last
+// part is what makes this safe to call on a resize: the reader keeps their
+// place across a rotation even though every window moved.
+function syncGuided({ lineStart = false } = {}) {
+  const stage = guidedStage();
+  // Guided reading never goes through fitViewer, so the fit baseline it
+  // clamps against has to be refreshed here or a rotation leaves it stale.
+  vFit = Math.min(stage.w / vNatW, stage.h / vNatH) || 1;
+  const plan = guidedPlan(pages[viewerPage], stage);
+  if (!plan) {
+    if (guided) exitGuided();
+    return false;
+  }
+  // Where the reader is, in the page's own pixels: the step they are standing
+  // on if there is one, and otherwise the middle of what is on screen. Asking
+  // the transform after the stage has changed size would answer for a stage
+  // that no longer exists — which is how a rotation used to jump four lines.
+  const here = guided
+    ? { x: guided.step().ink.x, y: guided.step().y + guided.step().h / 2 }
+    : { x: (stage.w / 2 - vTx) / vScale, y: (stage.h / 2 - vTy) / vScale };
+  let index = stepAt(plan, here);
+  // Turning it on lands at the head of the line it found, never halfway along
+  // one — reading starts at the left. A rotation keeps the piece it was on.
+  if (lineStart) index -= plan.steps[index].part;
+  setGuided(plan, index);
+  applyGuidedStep(index);
+  return true;
+}
+
+function applyGuidedStep(i) {
+  if (!guided) return;
+  const { plan } = guided;
+  guided.index = Math.max(0, Math.min(i, plan.steps.length - 1));
+  const step = plan.steps[guided.index];
+  const stage = guidedStage();
+  // The plan's magnification, held to the same bounds the pinch obeys: a page
+  // of very large handwriting mustn't be shrunk below its own fit.
+  const scale = Math.min(Math.max(vFit, plan.scale), Math.max(8, vFit));
+  const t = stepTransform(step, scale, stage);
+  vScale = t.scale;
+  vTx = t.tx;
+  vTy = t.ty;
+  clampViewerPan();
+  applyViewerTransform();
+  paintGuidedStep(step);
+}
+
+// One step forward or back. Running off the end of a page turns it and starts
+// on the next — the page break is not something the reader should have to
+// notice, let alone answer with a different gesture.
+function guidedStep(delta) {
+  if (!guided) return;
+  const next = guided.index + delta;
+  if (next >= 0 && next < guided.plan.steps.length) {
+    applyGuidedStep(next);
+    return;
+  }
+  const page = viewerPage + Math.sign(delta);
+  if (page < 0 || page >= pages.length) return;
+  loadViewerPage(page, { guidedFrom: delta > 0 ? 'start' : 'end' });
+}
+
+// The band being read, and how far down the page it has got. The band marks
+// the step's own words, not the whole window: the tail of the next piece is
+// usually on screen too, and leaving it dimmed is what tells the reader where
+// this tap ends and the next one starts.
+function paintGuidedStep(step) {
+  const spot = $('#guided-spot');
+  const pad = step.h * 0.35; // a line's ink is not all of its line
+  const lead = step.h * 0.2;
+  spot.style.left = `${step.ink.x - lead}px`;
+  spot.style.top = `${step.y - pad}px`;
+  spot.style.width = `${step.ink.w + lead * 2}px`;
+  spot.style.height = `${step.h + pad * 2}px`;
+  const done = (guided.index + 1) / guided.plan.steps.length;
+  $('#guided-progress').firstElementChild.style.width = `${done * 100}%`;
+}
+
+function updateGuidedBtn() {
+  const btn = $('#guided-btn');
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', guided ? 'true' : 'false');
+  btn.disabled = !pages[viewerPage]?.words?.length;
 }
 
 // Overlays live inside the transformed content sized to the page's native
@@ -3815,9 +3955,18 @@ function renderViewerHighlights() {
 function wireViewer() {
   const stage = $('#viewer-stage');
 
+  // iOS reports a two-finger gesture on its own, and more reliably than the
+  // pointer stream does: mid-pinch WebKit sometimes delivers only one of the
+  // two pointers, and that lone finger travelling was read as a swipe — a
+  // pinch meaning "let me zoom" moved the reading on a line instead. Measured
+  // on the phone; the pointer path below still catches the pinches that do
+  // arrive whole, and on every other browser it is the only path there is.
+  stage.addEventListener('gesturestart', () => exitGuided());
+
   $('#zoom-btn').addEventListener('click', () => openViewer());
   $('#viewer-close').addEventListener('click', closeViewer);
   $('#immersive-btn').addEventListener('click', toggleImmersive);
+  $('#guided-btn').addEventListener('click', toggleGuided);
   $('#viewer-prev').addEventListener('click', () => loadViewerPage(viewerPage - 1));
   $('#viewer-next').addEventListener('click', () => loadViewerPage(viewerPage + 1));
   $('#viewer-zoom-in').addEventListener('click', () => zoomViewerBy(1.25));
@@ -3953,6 +4102,7 @@ function wireViewer() {
       const [a, b] = [...pointers.values()];
       const rect = stage.getBoundingClientRect();
       tap = null; // two fingers is a pinch, never a tap
+      exitGuided(); // pinching is the reader taking the wheel back
       pinch = {
         dist: Math.hypot(a.x - b.x, a.y - b.y),
         midX: (a.x + b.x) / 2 - rect.left,
@@ -3964,8 +4114,18 @@ function wireViewer() {
       swipe = null; // a second finger cancels any pending page swipe
       vDrag = null;
     } else if (pointers.size === 1) {
-      if (e.pointerType === 'touch') tap = { x: e.clientX, y: e.clientY, t: Date.now() };
-      if (e.pointerType === 'touch' && vScale <= vFit + 0.001) {
+      // Guided reading answers taps, whatever the pointer is — the desktop is
+      // where this gets tried before a phone ever sees it. Nothing pans by
+      // hand while it is on: the steps are the panning.
+      if (guided) {
+        tap = { x: e.clientX, y: e.clientY, t: Date.now() };
+        swipe = { x: e.clientX, y: e.clientY, t: Date.now() };
+      } else if (e.pointerType === 'touch') {
+        tap = { x: e.clientX, y: e.clientY, t: Date.now() };
+      }
+      if (guided) {
+        vDrag = null;
+      } else if (e.pointerType === 'touch' && vScale <= vFit + 0.001) {
         swipe = { x: e.clientX, y: e.clientY, t: Date.now() };
       } else {
         vDrag = { x: e.clientX, y: e.clientY, tx: vTx, ty: vTy };
@@ -4035,6 +4195,41 @@ function wireViewer() {
         vDrag = { x: p.x, y: p.y, tx: vTx, ty: vTy };
       }
     }
+    // A step lands on the tap itself rather than after the double-tap window:
+    // waiting 320ms to be sure it wasn't half of a double is the difference
+    // between a page that answers and one that lags. A stray double tap costs
+    // one extra step, which the left side of the screen takes back.
+    if (guided && pointers.size === 0) {
+      if (e.pointerType === 'touch') lastTouchAt = Date.now();
+      const rect = stage.getBoundingClientRect();
+      const from = tap || swipe;
+      tap = null;
+      swipe = null;
+      if (!from) return;
+      const dx = e.clientX - from.x;
+      const dy = e.clientY - from.y;
+      // A sideways flick steps the way it points; every other touch steps by
+      // where it landed, left third back and the rest on. No slop and no time
+      // limit, so nothing a finger does here comes to nothing — the panning
+      // viewer's tap rules left a dead band between "drifted too far to be a
+      // tap" (16px) and "far enough to be a swipe" (50px), and a thumb on a
+      // moving hand lands in it. Nothing else is on offer in this mode, so
+      // acting on every touch costs nothing and guessing wrong costs one tap
+      // back.
+      //
+      // "Sideways" is only asked to beat "up and down", not to beat it by
+      // half again: a thumb crossing a 283px-tall landscape screen arcs
+      // 100-200px vertically, and the stricter rule threw out nine of twenty
+      // deliberate swipes on the phone. The stray finger of a half-delivered
+      // pinch is caught by gesturestart twenty milliseconds earlier.
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+        guidedStep(dx < 0 ? 1 : -1);
+      } else {
+        guidedStep(from.x - rect.left < rect.width * 0.3 ? -1 : 1);
+      }
+      return;
+    }
+
     if (e.pointerType === 'touch' && pointers.size === 0) {
       lastTouchAt = Date.now();
       const now = Date.now();
@@ -4396,6 +4591,25 @@ function wire() {
 
     // When the zoom viewer is open it captures the keyboard.
     if (!$('#viewer').hidden) {
+      // Guided reading takes the arrows (and the space bar) for as long as it
+      // is on: while walking a page, "next" means the next piece of a line,
+      // not the next sheet.
+      if (guided && !e.metaKey) {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+          e.preventDefault();
+          guidedStep(1);
+          return;
+        }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          guidedStep(-1);
+          return;
+        }
+        if (e.key === 'Escape') {
+          exitGuided();
+          return;
+        }
+      }
       // Escape peels off one layer at a time: the chat floating over the
       // viewer first, the viewer only once nothing is left on top of it.
       if (e.key === 'Escape' && document.body.classList.contains('viewing') && !$('#chat').hidden) {
@@ -4413,6 +4627,7 @@ function wire() {
       // nothing else — even though it gets there a different way: iOS has no
       // Fullscreen API, so the viewer hides its own bars instead.
       else if (e.key === 'f' || e.key === 'F') toggleImmersive();
+      else if (e.key === 'l' || e.key === 'L') toggleGuided();
       return;
     }
 

@@ -247,6 +247,10 @@
            below the toolbar and becomes the one and only reading view. -->
       <div id="viewer" class="viewer" hidden>
         <button id="immersive-btn" class="immersive-btn" title="Full screen (F)" aria-label="Full screen">⛶</button>
+        <!-- Guided reading: the page walked one piece of a line at a time, so
+             a line too wide for the screen is read by tapping rather than by
+             dragging out and back. See src/guided.js. -->
+        <button id="guided-btn" class="guided-btn" title="Guided reading (L)" aria-label="Guided reading" aria-pressed="false">📖</button>
 
         <!-- The chat, collapsed to a tab against the right edge. Asking about
              the page you are reading shouldn't cost leaving the zoom view,
@@ -258,8 +262,16 @@
           <div id="viewer-content" class="viewer-content">
             <img id="viewer-img" class="viewer-img" alt="" draggable="false" />
             <div id="viewer-highlights" class="viewer-highlights"></div>
+            <!-- The band guided reading is standing on. Inside the transformed
+                 content like the highlights, so it is positioned in the page's
+                 own pixels and pans and scales with it. -->
+            <div id="guided-spot" class="guided-spot"></div>
           </div>
         </div>
+        <!-- How far down the page the walk has got. A line rather than a
+             counter: in immersive mode there is no toolbar to put a counter
+             in, and "how much is left" is the only part worth reading. -->
+        <div id="guided-progress" class="guided-progress"><i></i></div>
         <div class="viewer-toolbar">
           <button id="viewer-prev" class="btn ghost small" title="Previous page (←)" aria-label="Previous page">‹</button>
           <button id="viewer-indicator" class="viewer-indicator" title="Go to page… (⌘⌥G)">1 / 1</button>
@@ -629,6 +641,14 @@
               <li>El número de página, abajo, abre <em>ir a la página…</em> si lo pulsas.</li>
               <li>En escritorio estas herramientas viven en la barra de arriba, como iconos sin etiqueta —el nombre y su atajo de teclado salen al posar el ratón— junto a la búsqueda y a ＋ ☁ ? ⚙. Todo en una sola fila, para que nada flote encima de lo que estás leyendo; si la ventana se estrecha, la fila salta a dos líneas en vez de esconder nada.</li>
             </ul>
+            <p>En horizontal, una página cargada obliga a ampliar tanto que la línea deja de caber en la pantalla, y cada renglón cuesta arrastrar hasta el final y volver al principio. El <strong>📖</strong> del visor hace ese camino por ti: parte cada línea por los huecos entre palabras y te va poniendo delante un trozo cada vez, ya ampliado.</p>
+            <ul class="help-steps">
+              <li><strong>Toca</strong> para seguir; toca en el tercio izquierdo para volver atrás. Deslizar de lado hace lo mismo.</li>
+              <li>La banda clara marca lo que toca leer ahora — lo demás sigue ahí, sólo atenuado.</li>
+              <li>Al terminar la última línea pasa de página sola y sigue por arriba.</li>
+              <li><strong>Pellizca</strong> cuando quieras para salir y mover la página a mano.</li>
+            </ul>
+            <p class="help-note">Se apoya en la transcripción: los trozos se cortan por las cajas de las palabras, así que en una página sin transcribir el botón está apagado.</p>
             <p class="help-note">Con <strong>Mark</strong> pones un marcador en la página que estás leyendo; el <strong>▾</strong> de al lado abre la lista para saltar entre ellos.</p>
           </section>
 
@@ -771,6 +791,7 @@
           <dt><kbd>E</kbd></dt><dd>Explain the passage you framed or selected</dd>
           <dt><kbd>Q</kbd></dt><dd>Ask your own question about it</dd>
           <dt><kbd>X</kbd></dt><dd>Copy the transcription of what you framed</dd>
+          <dt><kbd>L</kbd></dt><dd>Guided reading: walk the page a piece of a line at a time</dd>
           <dt><kbd>F</kbd></dt><dd>Full screen</dd>
           <dt><kbd>Esc</kbd></dt><dd>Back to reading: clear the search, close the panel</dd>
         </dl>
