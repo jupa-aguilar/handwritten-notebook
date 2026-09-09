@@ -45,16 +45,100 @@ const LONG_LINE = 0.9; // which line counts as "long": the 90th percentile
 // screen falls outside the band, where it reads as already read.
 const LEAD = 0.4; // of a line's height
 
+// ---------- pages that are not one column of prose ----------
+
+// A table breaks the assumption this file is built on: that a row of pixels
+// is a line of text. Read as lines, "5 | Franjas por bloque con la paridad"
+// is one step — a cut across two cells, and a sentence broken where no
+// sentence breaks. So a page with columns is walked cell by cell instead:
+// down the rows, left to right across each one, and line by line inside a
+// cell.
+//
+// Columns are found as gutters no word crosses. Prose never has one — some
+// line always runs through the middle of the page — which makes this test
+// conservative by construction rather than by tuning.
+const GUTTER = 0.035; // of the ink's width; below this it is a word space
+
+// Rows cannot be found the same way. In the table this was written for, the
+// gap between the two lines of one cell crosses the whole page, because the
+// cells either side of it are empty at that height — separating rows by
+// full-width gaps would split that cell in half, which is the same wrong cut
+// moved somewhere else. What separates a row from a line is how big the gap
+// is, not how wide.
+//
+// And "big" is measured against the ink, not against the page's other gaps:
+// in a table most gaps *are* row separations, so their median is the thing
+// being looked for and using it merged the whole page into one row. Two lines
+// of one cell sit closer together than the ink is tall; two rows do not.
+const ROW_GAP = 1; // × the height of a line's ink
+
+// And a column has to be a column: a date or a marginal number sitting in the
+// margin of an ordinary page would otherwise turn the whole page into a table.
+const MIN_LANE_ROWS = 3;
+
+// Maximal spans of ink along one axis, split wherever the gap exceeds `gap`.
+function lanes(spans, gap) {
+  const sorted = [...spans].sort((a, b) => a.lo - b.lo);
+  const out = [];
+  for (const s of sorted) {
+    const last = out[out.length - 1];
+    if (last && s.lo - last.hi <= gap) last.hi = Math.max(last.hi, s.hi);
+    else out.push({ lo: s.lo, hi: s.hi });
+  }
+  return out;
+}
+
+// The page read as cells: rows of lines, ordered the way a table is read.
+// Null when the page is one column, which is the ordinary case and the one
+// the rest of this file already handles.
+function cells(words, rows, ink) {
+  const x0 = Math.min(...rows.map((r) => r.x0));
+  const x1 = Math.max(...rows.map((r) => r.x1));
+  const columns = lanes(
+    words.map((w) => ({ lo: w.x, hi: w.x + w.w })),
+    (x1 - x0) * GUTTER
+  );
+  if (columns.length < 2) return null;
+
+  const bands = lanes(
+    words.map((w) => ({ lo: w.y, hi: w.y + w.h })),
+    Math.max(ink, 1) * ROW_GAP
+  );
+
+  // Each cell's own lines, in reading order: down the bands, across the
+  // columns, down the lines within one cell.
+  const out = [];
+  for (const band of bands) {
+    for (const col of columns) {
+      const inside = words.filter(
+        (w) =>
+          w.y + w.h / 2 >= band.lo && w.y + w.h / 2 <= band.hi &&
+          w.x + w.w / 2 >= col.lo && w.x + w.w / 2 <= col.hi
+      );
+      if (inside.length) out.push(...textRows(inside));
+    }
+  }
+  const perLane = columns.map(
+    (col) => out.filter((r) => r.x0 + (r.x1 - r.x0) / 2 >= col.lo && r.x0 + (r.x1 - r.x0) / 2 <= col.hi).length
+  );
+  if (Math.min(...perLane) < MIN_LANE_ROWS) return null;
+  return out;
+}
+
 export function guidedPlan(page, stage, { inkPx = INK_PX } = {}) {
-  const rows = textRows(page?.words);
-  if (!rows.length || !(stage?.w > 0) || !(stage?.h > 0)) return null;
+  const lines = textRows(page?.words);
+  if (!lines.length || !(stage?.w > 0) || !(stage?.h > 0)) return null;
 
   // The median line, not the mean: a page's tallest "line" is regularly a
   // stray accent or a box drawn round a result, and either would shrink
   // everything else to pay for it.
-  const heights = rows.map((r) => r.y1 - r.y0).sort((a, b) => a - b);
+  const heights = lines.map((r) => r.y1 - r.y0).sort((a, b) => a - b);
   const ink = heights[Math.floor(heights.length / 2)];
   if (!(ink > 0)) return null;
+
+  // On a table these are the cells' own lines, in the order a table is read;
+  // on every other page they are the page's lines, unchanged.
+  const rows = cells(page.words, lines, ink) || lines;
 
   const widths = rows.map((r) => r.x1 - r.x0).sort((a, b) => a - b);
   const width = widths[Math.floor((widths.length - 1) * LONG_LINE)];

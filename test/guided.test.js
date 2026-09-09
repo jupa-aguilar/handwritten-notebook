@@ -157,3 +157,86 @@ describe('stepAt', () => {
     expect(plan.steps.filter((s) => s.line === 0)).toHaveLength(2); // the rest don't
   });
 });
+
+
+// A table like the one this was written for: a narrow column of levels, a
+// wide description, and a right-hand column — with one description running to
+// two lines, which is the case that breaks the naive answer.
+function cellWords(text, x, y, wordW = 150) {
+  return text.split(' ').map((t, i) => ({ t, x: x + i * (wordW + 20), y, w: wordW, h: 40 }));
+}
+
+function tablePage() {
+  const words = [];
+  const rows = [
+    ['0', ['Solo franjas'], 'Ninguna'],
+    ['1', ['Solo espejado'], 'Un disco'],
+    ['3', ['Franjas muy finas mas paridad'], 'Un disco'],
+    ['4', ['Franjas por bloque dedicado'], 'Un disco'],
+    ['5', ['Franjas por bloque con paridad', 'distribuida entre todos discos'], 'Un disco'],
+    ['6', ['Como el cinco con dos'], 'Dos discos'],
+  ];
+  let y = 200;
+  for (const [level, body, right] of rows) {
+    words.push(...cellWords(level, 60, y, 60));
+    body.forEach((text, i) => words.push(...cellWords(text, 300, y + i * 70)));
+    words.push(...cellWords(right, 1750, y, 140));
+    y += body.length * 70 + 90; // rows are further apart than lines within one
+  }
+  return { width: 2400, height: 3000, words };
+}
+
+describe('a page with columns', () => {
+  const page = tablePage();
+  const plan = guidedPlan(page, stage);
+
+  it('never puts two cells in one step', () => {
+    const gutters = [[240, 300], [1650, 1750]]; // between the columns
+    for (const s of plan.steps) {
+      for (const [lo, hi] of gutters) {
+        const crosses = s.ink.x < lo && s.ink.x + s.ink.w > hi;
+        expect(crosses, `paso en ${s.ink.x}..${s.ink.x + s.ink.w}`).toBe(false);
+      }
+    }
+  });
+
+  it('reads across the row before moving down', () => {
+    // The first three steps are the three cells of the first row.
+    const [a, b, c] = plan.steps;
+    expect(a.ink.x).toBeLessThan(b.ink.x);
+    expect(b.ink.x).toBeLessThan(c.ink.x);
+    expect(a.y).toBe(b.y);
+    expect(b.y).toBe(c.y);
+  });
+
+  it('keeps a two-line cell whole, and reads it before the cell beside it', () => {
+    // The row for level 5: its two lines must follow each other, with the
+    // right-hand cell after both — not between them.
+    const five = plan.steps.findIndex((s) => s.ink.x < 240 && s.y > 700);
+    const after = plan.steps.slice(five + 1, five + 4);
+    expect(after[0].ink.x).toBeGreaterThan(240); // the description's first line
+    expect(after[1].ink.x).toBeGreaterThan(240); // …and its second
+    expect(after[1].y).toBeGreaterThan(after[0].y);
+    expect(after[2].ink.x).toBeGreaterThan(1650); // then the right-hand cell
+  });
+
+  it('is magnified by the widest cell, not by the widest row', () => {
+    const asLines = guidedPlan({ ...page, words: page.words.map((w) => ({ ...w })) }, stage);
+    expect(plan.scale).toBe(asLines.scale); // same page, same plan
+    // A cell line is far shorter than the row it sits in, so the cap on
+    // pieces per line binds much later.
+    const rowWide = 1750 + 140 * 2 - 60;
+    expect(plan.win).toBeLessThan(rowWide);
+    expect(plan.scale).toBeGreaterThan((stage.w * 2) / rowWide);
+  });
+
+  it('leaves an ordinary page alone, margin scribbles included', () => {
+    const prose = pageOf(6);
+    prose.words.push({ t: '12/4', x: 20, y: 100, w: 60, h: 55 }); // a date in the margin
+    prose.words.push({ t: 'ojo', x: 20, y: 280, w: 60, h: 55 });
+    const p = guidedPlan(prose, stage);
+    // Two words in the margin are not a column: the page still reads in lines.
+    expect(p.steps.filter((s) => s.line === 0)).toHaveLength(2);
+    expect(p.steps[0].ink.x).toBeLessThan(120);
+  });
+});
