@@ -325,6 +325,27 @@ export function stepTransform(step, scale, stage) {
   };
 }
 
+// Which step to start on when guided reading is switched on.
+//
+// With the whole page on screen, nothing has been chosen: the middle of a
+// page you can see all of is not where you were reading, and starting there
+// — which is what asking "what is nearest the centre of the view" answered —
+// drops the reader into the middle of a paragraph with no way to predict it.
+// So it starts at the top.
+//
+// Zoomed in, the part on screen *is* the choice: the reader pinched or
+// double-tapped their way to it. Then it starts at the head of the line
+// nearest that, never halfway along one.
+export function startStep(plan, view, stage) {
+  if (!plan?.steps.length) return 0;
+  if (!(view?.scale > view?.fit * 1.05)) return 0;
+  const at = stepAt(plan, {
+    x: (stage.w / 2 - view.tx) / view.scale,
+    y: (stage.h / 2 - view.ty) / view.scale,
+  });
+  return at - plan.steps[at].part;
+}
+
 // Which step is nearest a point on the page, so guided reading can be picked
 // up where the reader already was — when it is switched on mid-page, and
 // again after a rotation, where every window moves and the step that was on

@@ -71,7 +71,7 @@ import {
   resolveChatModel,
 } from './chat.js';
 import { locateAnchor } from './cards.js';
-import { guidedPlan, stepTransform, stepAt, corridorsOf } from './guided.js';
+import { guidedPlan, stepTransform, stepAt, startStep, corridorsOf } from './guided.js';
 import { readLayout } from './layout.js';
 import { batchPages, tocForPages, branchRows, visibleRows } from './toc.js';
 import { initProof, openProof, closeProof } from './proofpanel.js';
@@ -3858,7 +3858,7 @@ function toggleGuided() {
 }
 
 function enterGuided() {
-  if (!syncGuided({ lineStart: true })) return; // no transcription: nothing to walk
+  if (!syncGuided()) return; // no transcription: nothing to walk
   document.body.classList.add('guided');
   $('#viewer-content').classList.add('stepping');
   updateGuidedBtn();
@@ -3875,7 +3875,7 @@ function exitGuided() {
 // stand on whichever step is nearest what is already on screen. That last
 // part is what makes this safe to call on a resize: the reader keeps their
 // place across a rotation even though every window moved.
-function syncGuided({ lineStart = false } = {}) {
+function syncGuided() {
   const stage = guidedStage();
   // Guided reading never goes through fitViewer, so the fit baseline it
   // clamps against has to be refreshed here or a rotation leaves it stale.
@@ -3885,17 +3885,14 @@ function syncGuided({ lineStart = false } = {}) {
     if (guided) exitGuided();
     return false;
   }
-  // Where the reader is, in the page's own pixels: the step they are standing
-  // on if there is one, and otherwise the middle of what is on screen. Asking
-  // the transform after the stage has changed size would answer for a stage
-  // that no longer exists — which is how a rotation used to jump four lines.
-  const here = guided
-    ? { x: guided.step().ink.x, y: guided.step().y + guided.step().h / 2 }
-    : { x: (stage.w / 2 - vTx) / vScale, y: (stage.h / 2 - vTy) / vScale };
-  let index = stepAt(plan, here);
-  // Turning it on lands at the head of the line it found, never halfway along
-  // one — reading starts at the left. A rotation keeps the piece it was on.
-  if (lineStart) index -= plan.steps[index].part;
+  // A walk already under way keeps its place across the rebuild, asked for in
+  // the page's own pixels: asking the transform after the stage has changed
+  // size would answer for a stage that no longer exists, which is how a
+  // rotation used to jump four lines. Switching it on is startStep's
+  // question instead — the top of the page, or the part being looked at.
+  const index = guided
+    ? stepAt(plan, { x: guided.step().ink.x, y: guided.step().y + guided.step().h / 2 })
+    : startStep(plan, { scale: vScale, fit: vFit, tx: vTx, ty: vTy }, stage);
   setGuided(plan, index);
   applyGuidedStep(index);
   judgeLayout(pages[viewerPage]);

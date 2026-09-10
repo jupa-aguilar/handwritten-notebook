@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { guidedPlan, stepTransform, stepAt } from '../src/guided.js';
+import { guidedPlan, stepTransform, stepAt, startStep } from '../src/guided.js';
 
 // A handwritten line: `n` words of 120px on a 55px-tall row, 40px apart.
 function line(n, y, x0 = 100) {
@@ -109,6 +109,34 @@ describe('stepTransform', () => {
     const lineMid = (step.y + step.h / 2) * scale + ty;
     expect(lineMid).toBeCloseTo(stage.h * 0.42, 6);
     expect(lineMid).toBeLessThan(stage.h / 2);
+  });
+});
+
+describe('startStep', () => {
+  const plan = guidedPlan(pageOf(8), stage);
+  const fit = Math.min(stage.w / 2000, stage.h / 2800);
+
+  it('starts at the top when the whole page is on screen', () => {
+    const view = { scale: fit, fit, tx: 0, ty: 0 };
+    expect(startStep(plan, view, stage)).toBe(0);
+    // …which is not what the middle of that view is nearest to.
+    const centre = { x: stage.w / 2 / fit, y: stage.h / 2 / fit };
+    expect(stepAt(plan, centre)).toBeGreaterThan(0);
+  });
+
+  it('starts where the reader had zoomed in', () => {
+    const target = plan.steps[9];
+    const t = stepTransform(target, plan.scale, stage);
+    const at = startStep(plan, { scale: t.scale, fit, tx: t.tx, ty: t.ty }, stage);
+    expect(plan.steps[at].line).toBe(target.line);
+  });
+
+  it('starts at the head of that line, never halfway along it', () => {
+    const target = plan.steps.find((s) => s.part === 1);
+    const t = stepTransform(target, plan.scale, stage);
+    const at = startStep(plan, { scale: t.scale, fit, tx: t.tx, ty: t.ty }, stage);
+    expect(plan.steps[at].part).toBe(0);
+    expect(plan.steps[at].line).toBe(target.line);
   });
 });
 
