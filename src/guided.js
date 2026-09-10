@@ -128,7 +128,10 @@ function bandsOf(words, ink, at = LINE_GAP) {
   );
 }
 
-function cells(words, rows, ink) {
+// The bands, their lanes, and the corridors that recur through enough of them
+// to be worth believing in. Shared by the walk below and by corridorsOf, which
+// is what layout.js shows a model.
+function analyse(words, ink) {
   const gutter = Math.max(ink, 1) * GUTTER;
   const within = (b) =>
     words.filter((w) => {
@@ -150,7 +153,9 @@ function cells(words, rows, ink) {
     const sub = columns ? bandsOf(ws, ink, 0) : [band];
     bands.push(...(sub.length > 1 ? sub : [band]));
   }
-  if (bands.length < MIN_BANDS) return null;
+  // Too few bands for a corridor to prove itself in; the walk still needs the
+  // bands, so this answers with no corridors rather than with nothing.
+  const enough = bands.length >= MIN_BANDS;
 
   const inBands = bands.map(within);
   const perBand = inBands.map((ws) => lanes(ws.map((w) => ({ lo: w.x, hi: w.x + w.w })), gutter));
@@ -171,8 +176,42 @@ function cells(words, rows, ink) {
       last.bands.add(c.b);
     } else grid.push({ lo: c.lo, hi: c.hi, bands: new Set([c.b]) });
   }
-  const columns = grid.filter((g) => g.bands.size >= MIN_BANDS);
-  if (columns.length < MIN_COLUMNS) return null;
+  return {
+    inBands,
+    perBand,
+    corridors: enough ? grid.filter((g) => g.bands.size >= MIN_BANDS) : [],
+  };
+}
+
+// The corridors a page has, in its own pixels, with how many rows each one
+// runs through. What they *mean* is not decided here — see layout.js.
+export function corridorsOf(page) {
+  const lines = textRows(page?.words);
+  if (!lines.length) return [];
+  const heights = lines.map((r) => r.y1 - r.y0).sort((a, b) => a - b);
+  const ink = heights[Math.floor(heights.length / 2)];
+  if (!(ink > 0)) return [];
+  return analyse(page.words, ink).corridors.map((c) => ({
+    x: Math.round((c.lo + c.hi) / 2),
+    width: Math.round(c.hi - c.lo),
+    rows: c.bands.size,
+  }));
+}
+
+// The page read as cells, or null when it is not laid out in columns.
+//
+// `accepted` is a judgement already made about this page's corridors (their x
+// positions, from layout.js). Given one, it is obeyed exactly — including an
+// empty one, which says this page has no columns and is not a question the
+// geometry gets to reopen. Without one, a corridor has to be part of a grid.
+function cells(words, ink, accepted) {
+  const { inBands, perBand, corridors } = analyse(words, ink);
+  const columns = accepted
+    ? accepted.map((x) => ({ lo: x - 1, hi: x + 1 }))
+    : corridors.length >= MIN_COLUMNS
+      ? corridors
+      : [];
+  if (!columns.length) return null;
 
   // A band splits only where its own gap has a column running through it, so
   // a heading that reaches across one is not cut by it, and a page that is
@@ -209,8 +248,10 @@ export function guidedPlan(page, stage, { inkPx = INK_PX } = {}) {
   if (!(ink > 0)) return null;
 
   // On a table these are the cells' own lines, in the order a table is read;
-  // on every other page they are the page's lines, unchanged.
-  const rows = cells(page.words, lines, ink) || lines;
+  // on every other page they are the page's lines, unchanged. A page whose
+  // corridors have been judged (layout.js) carries the verdict with it.
+  const judged = Array.isArray(page.layout?.columns) ? page.layout.columns : null;
+  const rows = cells(page.words, ink, judged) || lines;
 
   const widths = rows.map((r) => r.x1 - r.x0).sort((a, b) => a - b);
   const width = widths[Math.floor((widths.length - 1) * LONG_LINE)];

@@ -994,6 +994,11 @@ export async function applyRemoteNotebook(manifest, resolveBlob, opts = {}) {
         name: pm.name,
         text: pm.text || '',
         words: pm.words || [],
+        // Whichever side has one wins, the remote first — the same reasoning
+        // as pickToc. A layout costs a request to work out (layout.js) and a
+        // device that has not read this page yet simply hasn't got one; an
+        // absent verdict must not erase a made one.
+        layout: pm.layout || local.layout || null,
         ocrStatus: pm.ocrStatus,
         error: pm.error || '',
         bookmarked: !!pm.bookmarked,
@@ -1029,6 +1034,7 @@ export async function applyRemoteNotebook(manifest, resolveBlob, opts = {}) {
         height: pm.height,
         text: pm.text || '',
         words: pm.words || [],
+        layout: pm.layout || null,
         ocrStatus: pm.ocrStatus,
         error: pm.error || '',
         bookmarked: !!pm.bookmarked,

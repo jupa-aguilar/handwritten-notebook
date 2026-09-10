@@ -127,6 +127,40 @@ describe('a page both sides have', () => {
     expect(page.bookmarkLabel).toBe('Chorus');
     expect(page.words).toHaveLength(1);
   });
+
+  // A layout verdict costs a request to work out (layout.js), and a device
+  // that has not read the page in guided reading simply hasn't got one. An
+  // absent verdict must not erase a made one — the same rule as the index.
+  it('keeps a layout the remote does not carry', async () => {
+    const layout = { kind: 'table', columns: [240, 800], at: 700 };
+    await givenLocalNotebook({ pages: [localPage({ modifiedAt: 500, layout })] });
+
+    const res = await db.applyRemoteNotebook(
+      manifest({ pages: [manifestPage({ modifiedAt: 900 })] }),
+      resolveBlob,
+      { lastSyncAt: 400 }
+    );
+
+    const [page] = await db.getPages(res.id);
+    expect(page.layout).toEqual(layout);
+  });
+
+  it('takes the remote verdict over the local one', async () => {
+    await givenLocalNotebook({
+      pages: [localPage({ modifiedAt: 500, layout: { kind: 'table', columns: [240] } })],
+    });
+
+    const res = await db.applyRemoteNotebook(
+      manifest({
+        pages: [manifestPage({ modifiedAt: 900, layout: { kind: 'diagram', columns: [] } })],
+      }),
+      resolveBlob,
+      { lastSyncAt: 400 }
+    );
+
+    const [page] = await db.getPages(res.id);
+    expect(page.layout).toEqual({ kind: 'diagram', columns: [] });
+  });
 });
 
 describe('a page only this device has', () => {

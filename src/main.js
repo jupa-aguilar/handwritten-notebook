@@ -71,7 +71,8 @@ import {
   resolveChatModel,
 } from './chat.js';
 import { locateAnchor } from './cards.js';
-import { guidedPlan, stepTransform, stepAt } from './guided.js';
+import { guidedPlan, stepTransform, stepAt, corridorsOf } from './guided.js';
+import { readLayout } from './layout.js';
 import { batchPages, tocForPages, branchRows, visibleRows } from './toc.js';
 import { initProof, openProof, closeProof } from './proofpanel.js';
 import { initProgress, openProgress, closeProgress } from './progress.js';
@@ -3439,6 +3440,10 @@ async function swapPageImage(page, file) {
     height: processed.height,
     text: '',
     words: [],
+    // Judged on a picture that no longer exists (layout.js): its corridors
+    // were measured in those pixels, and the new scan gets its own verdict
+    // once it has been transcribed and read.
+    layout: null,
     error: '',
     ocrStatus: TRANSCRIPTION_ENABLED ? 'pending' : 'skipped',
   });
@@ -3709,6 +3714,7 @@ function loadViewerPage(index, { fit = false, guidedFrom = null } = {}) {
     else {
       setGuided(plan, guidedFrom === 'end' ? plan.steps.length - 1 : 0);
       applyGuidedStep(guided.index);
+      judgeLayout(pages[viewerPage]);
     }
   }
 }
@@ -3800,6 +3806,43 @@ function toggleImmersive() {
 // the page — the windows are cut to the width of the glass — so it is rebuilt
 // on a page turn, on a rotation, and on entering or leaving immersive mode.
 
+// ---------- what a page's corridors mean ----------
+
+// The geometry finds a page's vertical corridors exactly and cannot tell a
+// table's columns from the air around a drawing; a model looking at the page
+// can (layout.js). The verdict is asked for once, kept on the page like its
+// transcription, and synced with it.
+//
+// Asked for lazily — the first time a page with corridors is walked — rather
+// than when the page is transcribed. It costs a request either way, and this
+// way the only pages paid for are the ones actually read like this. A page
+// with no corridors is never sent: there is nothing to judge.
+const judging = new Set();
+
+async function judgeLayout(page) {
+  if (!page || page.layout || !page.words?.length) return;
+  if (judging.has(page.id)) return;
+  if (document.body.classList.contains('chat-unavailable')) return;
+  if (!corridorsOf(page).length) return;
+  judging.add(page.id);
+  try {
+    const [model, image] = await Promise.all([resolveChatModel(), pageForModel(page)]);
+    const layout = await readLayout(page, { model: model.id, image });
+    if (!layout) return; // no answer read: leave the page to the geometry
+    page.layout = layout;
+    await putPage(page);
+    await touchNotebook(page.notebookId);
+    scheduleSync();
+    // The verdict may disagree with what is on screen; syncGuided rebuilds
+    // the plan and keeps the reader on the line they were reading.
+    if (guided && pages[viewerPage]?.id === page.id) syncGuided();
+  } catch (err) {
+    console.error('Could not judge the page layout', err);
+  } finally {
+    judging.delete(page.id);
+  }
+}
+
 function setGuided(plan, index) {
   guided = { plan, index, step: () => guided.plan.steps[guided.index] };
 }
@@ -3855,6 +3898,7 @@ function syncGuided({ lineStart = false } = {}) {
   if (lineStart) index -= plan.steps[index].part;
   setGuided(plan, index);
   applyGuidedStep(index);
+  judgeLayout(pages[viewerPage]);
   return true;
 }
 

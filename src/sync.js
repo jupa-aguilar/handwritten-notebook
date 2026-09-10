@@ -347,6 +347,10 @@ async function pushNotebook(token, files, meta, nbId, onStatus = () => {}) {
       height: p.height,
       text: p.text || '',
       words: p.words || [],
+      // What this page's corridors were judged to mean (layout.js). Costs a
+      // request to work out, so it travels rather than being redone per
+      // device; absent on a page nobody has read this way yet.
+      ...(p.layout ? { layout: p.layout } : {}),
       ocrStatus: p.ocrStatus,
       error: p.error || '',
       bookmarked: !!p.bookmarked,
