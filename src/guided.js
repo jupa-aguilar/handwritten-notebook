@@ -50,31 +50,36 @@ const LEAD = 0.4; // of a line's height
 // A table breaks the assumption this file is built on: that a row of pixels
 // is a line of text. Read as lines, "5 | Franjas por bloque con la paridad"
 // is one step — a cut across two cells, and a sentence broken where no
-// sentence breaks. So a page with columns is walked cell by cell instead:
-// down the rows, left to right across each one, and line by line inside a
-// cell.
+// sentence breaks. So the parts of a page laid out in columns are walked cell
+// by cell: down the rows, left to right across each one, line by line inside
+// a cell.
 //
-// Columns are found as gutters no word crosses. Prose never has one — some
-// line always runs through the middle of the page — which makes this test
-// conservative by construction rather than by tuning.
-const GUTTER = 0.035; // of the ink's width; below this it is a word space
+// Three measurements from the page this was written for, which is half prose
+// and half table, decide the shape of all of it.
 
-// Rows cannot be found the same way. In the table this was written for, the
-// gap between the two lines of one cell crosses the whole page, because the
-// cells either side of it are empty at that height — separating rows by
-// full-width gaps would split that cell in half, which is the same wrong cut
-// moved somewhere else. What separates a row from a line is how big the gap
-// is, not how wide.
-//
-// And "big" is measured against the ink, not against the page's other gaps:
-// in a table most gaps *are* row separations, so their median is the thing
-// being looked for and using it merged the whole page into one row. Two lines
-// of one cell sit closer together than the ink is tall; two rows do not.
-const ROW_GAP = 1; // × the height of a line's ink
+// A gap this wide is not a word space. Measured against the ink's height,
+// which is what word spacing scales with — a fraction of the page's width
+// came out *below* the word spacing on a page holding few words, and turned
+// every word into a column of its own.
+const GUTTER = 1.2; // × the height of a line's ink
 
-// And a column has to be a column: a date or a marginal number sitting in the
-// margin of an ordinary page would otherwise turn the whole page into a table.
-const MIN_LANE_ROWS = 3;
+// What separates a row from a second line of the same cell is how big the
+// gap is — measured against the low quarter of the page's own line gaps. Not
+// the median: in a table most gaps *are* row separations, so the median is
+// the very thing being looked for. Not the ink either: handwriting leaves
+// more air between lines than its letters are tall, and every line became a
+// band of its own.
+const ROW_GAP = 1.6;
+const LINE_GAP = 0.25; // which gap counts as a line gap: the lower quartile
+
+// And one hole is not a column. Handwriting is full of them — on the pages
+// this was measured against, up to a tenth of the word spaces are wider than
+// the gutter test: line ends, indents, the air around a worked example. A
+// column is a vertical thing, so it has to run through several bands before
+// it is believed. In the table it was written for, four corridors run through
+// ten bands each; the widest accidental gap on a page of prose runs through
+// one.
+const MIN_BANDS = 3;
 
 // Maximal spans of ink along one axis, split wherever the gap exceeds `gap`.
 function lanes(spans, gap) {
@@ -88,40 +93,98 @@ function lanes(spans, gap) {
   return out;
 }
 
-// The page read as cells: rows of lines, ordered the way a table is read.
-// Null when the page is one column, which is the ordinary case and the one
-// the rest of this file already handles.
-function cells(words, rows, ink) {
-  const x0 = Math.min(...rows.map((r) => r.x0));
-  const x1 = Math.max(...rows.map((r) => r.x1));
-  const columns = lanes(
-    words.map((w) => ({ lo: w.x, hi: w.x + w.w })),
-    (x1 - x0) * GUTTER
-  );
-  if (columns.length < 2) return null;
-
-  const bands = lanes(
+// The page read as cells, or null when nothing on it is laid out in columns —
+// the ordinary case, and the one the rest of this file already handles.
+//
+// The columns are looked for inside each band rather than down the whole
+// page, which is not how this was written the first time: the heading above
+// the table ("C.3 Los niveles") reaches past the first column and closes that
+// gutter for every row beneath it. A title, a caption, fourteen lines of
+// prose above the table — any of them would have done the same. Per band, the
+// heading is just a band that happens to have one column in it.
+// Rows of ink, by the rule above, over whatever words are given. `at` says
+// which gap to call a line gap: the lower quartile over a whole page, where
+// prose has to survive the guess, and the smallest one inside a band already
+// known to have columns, where everything is a table and the smallest gap is
+// the leading of a wrapped cell.
+function bandsOf(words, ink, at = LINE_GAP) {
+  const rows = textRows(words);
+  const gaps = [];
+  for (let i = 1; i < rows.length; i++) gaps.push(Math.max(0, rows[i].y0 - rows[i - 1].y1));
+  gaps.sort((a, b) => a - b);
+  const line = gaps.length ? gaps[Math.floor((gaps.length - 1) * at)] : ink;
+  return lanes(
     words.map((w) => ({ lo: w.y, hi: w.y + w.h })),
-    Math.max(ink, 1) * ROW_GAP
+    Math.max(line, ink * 0.5) * ROW_GAP
   );
+}
 
-  // Each cell's own lines, in reading order: down the bands, across the
-  // columns, down the lines within one cell.
-  const out = [];
-  for (const band of bands) {
-    for (const col of columns) {
-      const inside = words.filter(
-        (w) =>
-          w.y + w.h / 2 >= band.lo && w.y + w.h / 2 <= band.hi &&
-          w.x + w.w / 2 >= col.lo && w.x + w.w / 2 <= col.hi
-      );
-      if (inside.length) out.push(...textRows(inside));
-    }
+function cells(words, rows, ink) {
+  const gutter = Math.max(ink, 1) * GUTTER;
+  const within = (b) =>
+    words.filter((w) => {
+      const cy = w.y + w.h / 2;
+      return cy >= b.lo && cy <= b.hi;
+    });
+
+  // A table whose cells rarely wrap hides its rows: nearly every gap on the
+  // page is a row separation, so the quarter that is supposed to pick out a
+  // line gap picks a row gap instead and the whole table comes back as one
+  // band. Asking again inside a band that has columns answers it, because in
+  // there the smallest gap is a cell's own leading — a measure too eager to
+  // use on a page of prose, where it would cut a paragraph into a band per
+  // line, and safe here.
+  const bands = [];
+  for (const band of bandsOf(words, ink)) {
+    const ws = within(band);
+    const columns = lanes(ws.map((w) => ({ lo: w.x, hi: w.x + w.w })), gutter).length > 1;
+    const sub = columns ? bandsOf(ws, ink, 0) : [band];
+    bands.push(...(sub.length > 1 ? sub : [band]));
   }
-  const perLane = columns.map(
-    (col) => out.filter((r) => r.x0 + (r.x1 - r.x0) / 2 >= col.lo && r.x0 + (r.x1 - r.x0) / 2 <= col.hi).length
-  );
-  if (Math.min(...perLane) < MIN_LANE_ROWS) return null;
+  if (bands.length < MIN_BANDS) return null;
+
+  const inBands = bands.map(within);
+  const perBand = inBands.map((ws) => lanes(ws.map((w) => ({ lo: w.x, hi: w.x + w.w })), gutter));
+
+  // Every gap between one band's lanes is a candidate corridor; the ones that
+  // overlap down the page are the same corridor seen from several rows.
+  const candidates = [];
+  perBand.forEach((cols, b) => {
+    for (let i = 1; i < cols.length; i++) candidates.push({ lo: cols[i - 1].hi, hi: cols[i].lo, b });
+  });
+  candidates.sort((a, b) => a.lo - b.lo);
+  const grid = [];
+  for (const c of candidates) {
+    const last = grid[grid.length - 1];
+    if (last && c.lo < last.hi && c.hi > last.lo) {
+      last.lo = Math.max(last.lo, c.lo);
+      last.hi = Math.min(last.hi, c.hi);
+      last.bands.add(c.b);
+    } else grid.push({ lo: c.lo, hi: c.hi, bands: new Set([c.b]) });
+  }
+  const columns = grid.filter((g) => g.bands.size >= MIN_BANDS);
+  if (!columns.length) return null;
+
+  // A band splits only where its own gap has a column running through it, so
+  // a heading that reaches across one is not cut by it, and a page that is
+  // prose above and a table below keeps its prose whole.
+  const out = [];
+  perBand.forEach((cols, b) => {
+    const cuts = [];
+    for (let i = 1; i < cols.length; i++) {
+      const lo = cols[i - 1].hi;
+      const hi = cols[i].lo;
+      if (columns.some((g) => g.lo < hi && g.hi > lo)) cuts.push((lo + hi) / 2);
+    }
+    const edges = [-Infinity, ...cuts, Infinity];
+    for (let i = 1; i < edges.length; i++) {
+      const inCell = inBands[b].filter((w) => {
+        const cx = w.x + w.w / 2;
+        return cx > edges[i - 1] && cx <= edges[i];
+      });
+      if (inCell.length) out.push(...textRows(inCell));
+    }
+  });
   return out;
 }
 
