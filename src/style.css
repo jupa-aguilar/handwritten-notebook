@@ -3620,10 +3620,17 @@ body.guided .guided-spot {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: env(safe-area-inset-bottom, 0px);
+  bottom: 0;
   height: 22px;
   z-index: 12;
   touch-action: none; /* the drag is ours; the browser must not pan with it */
+}
+/* Only where the line meets the edge of the glass does it need lifting clear
+   of the home indicator. Out of immersive mode the reading bar is already
+   below it, and the same lift put it behind the toolbar's row — invisible,
+   and unreachable under the buttons that sit above it. */
+body.is-mobile.immersive .guided-progress {
+  bottom: env(safe-area-inset-bottom, 0px);
 }
 body.guided .guided-progress {
   display: block;
