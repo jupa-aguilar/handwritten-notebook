@@ -3621,9 +3621,17 @@ body.guided .guided-spot {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 22px;
+  /* As tall as the empty strip under the toolbar's buttons, and no taller: the
+     line sits in the toolbar's own bottom padding, above it in the stacking
+     order, so a band that reached the buttons would take their taps. That
+     padding is 10px on a desktop and 10px plus the home-indicator inset on a
+     phone. */
+  height: 10px;
   z-index: 12;
   touch-action: none; /* the drag is ours; the browser must not pan with it */
+}
+body.is-mobile .guided-progress {
+  height: 22px;
 }
 /* Only where the line meets the edge of the glass does it need lifting clear
    of the home indicator. Out of immersive mode the reading bar is already
@@ -3672,9 +3680,4 @@ body.guided .guided-progress {
 .guided-progress.scrubbing i::after {
   transform: scale(1.6);
 }
-/* The bar reaches up across the toolbar's own row; the toolbar keeps its
-   buttons by sitting above it, so only the empty strip below them drags. */
-.viewer-toolbar {
-  position: relative;
-  z-index: 13;
-}
+
