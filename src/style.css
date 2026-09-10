@@ -3643,19 +3643,23 @@ body.is-mobile.immersive .guided-progress {
 body.guided .guided-progress {
   display: block;
 }
+/* The line rides 5px up inside its band rather than on its floor: the grip is
+   centred on it and hangs 4px below, and the floor is where the footer (or the
+   edge of the window) begins — sat on it, the grip was cut in half. Moving the
+   line, not the band, keeps the band exactly the size of the free strip. */
 .guided-progress::before {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: 5px;
   height: 3px;
   background: rgba(255, 255, 255, 0.12);
 }
 .guided-progress i {
   position: absolute;
   left: 0;
-  bottom: 0;
+  bottom: 5px;
   height: 3px;
   width: 0;
   background: var(--accent);
