@@ -4004,6 +4004,40 @@ function wireViewer() {
   // arrive whole, and on every other browser it is the only path there is.
   stage.addEventListener('gesturestart', () => exitGuided());
 
+  // The progress line is also the way along it. Dragging beats tapping the
+  // moment a page has more steps than patience — and it is the only control
+  // on screen in immersive mode besides the two buttons.
+  const bar = $('#guided-progress');
+  let scrubbing = null;
+  const stepUnder = (clientX) => {
+    const r = bar.getBoundingClientRect();
+    const at = Math.max(0, Math.min(1, (clientX - r.left) / (r.width || 1)));
+    return Math.round(at * (guided.plan.steps.length - 1));
+  };
+  bar.addEventListener('pointerdown', (e) => {
+    if (!guided) return;
+    scrubbing = e.pointerId;
+    bar.setPointerCapture(e.pointerId);
+    bar.classList.add('scrubbing');
+    // Under a finger the page follows rather than easing after it; the
+    // transition comes back when the finger leaves.
+    $('#viewer-content').classList.remove('stepping');
+    applyGuidedStep(stepUnder(e.clientX));
+    e.preventDefault();
+  });
+  bar.addEventListener('pointermove', (e) => {
+    if (scrubbing !== e.pointerId || !guided) return;
+    applyGuidedStep(stepUnder(e.clientX));
+  });
+  const dropBar = (e) => {
+    if (scrubbing !== e.pointerId) return;
+    scrubbing = null;
+    bar.classList.remove('scrubbing');
+    if (guided) $('#viewer-content').classList.add('stepping');
+  };
+  bar.addEventListener('pointerup', dropBar);
+  bar.addEventListener('pointercancel', dropBar);
+
   $('#zoom-btn').addEventListener('click', () => openViewer());
   $('#viewer-close').addEventListener('click', closeViewer);
   $('#immersive-btn').addEventListener('click', toggleImmersive);

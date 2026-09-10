@@ -3609,23 +3609,65 @@ body.guided .guided-spot {
   }
 }
 
+/* How far down the page the walk has got, and the way to move it: the line
+   is dragged like a slider, which is the only way to cross a page of sixty
+   steps without sixty taps.
+   The element is a 22px band of nothing with the line at its foot — a 3px
+   target is not a target — and it reaches upward, never down into the home
+   indicator's own gesture. */
 .guided-progress {
   display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: env(safe-area-inset-bottom, 0px);
+  height: 22px;
+  z-index: 12;
+  touch-action: none; /* the drag is ours; the browser must not pan with it */
+}
+body.guided .guided-progress {
+  display: block;
+}
+.guided-progress::before {
+  content: '';
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   height: 3px;
   background: rgba(255, 255, 255, 0.12);
-  z-index: 12;
-}
-body.guided .guided-progress {
-  display: block;
 }
 .guided-progress i {
-  display: block;
-  height: 100%;
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
   width: 0;
   background: var(--accent);
   transition: width 260ms ease;
+}
+/* The grip. Small enough to ignore while reading, there enough to say the
+   line can be taken hold of. */
+.guided-progress i::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  bottom: -4px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--accent);
+  transition: transform 120ms ease;
+}
+.guided-progress.scrubbing i {
+  transition: none; /* under a finger it follows, it doesn't chase */
+}
+.guided-progress.scrubbing i::after {
+  transform: scale(1.6);
+}
+/* The bar reaches up across the toolbar's own row; the toolbar keeps its
+   buttons by sitting above it, so only the empty strip below them drags. */
+.viewer-toolbar {
+  position: relative;
+  z-index: 13;
 }
