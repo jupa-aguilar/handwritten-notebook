@@ -242,9 +242,10 @@ describe('a page with columns', () => {
 });
 
 
-// Bands separated far enough to be rows, each with a word missing from the
-// middle. Whether the holes line up is the whole question: a column runs down
-// the page, a gap where a line happened to end does not.
+// Bands separated far enough to be rows, each with words missing from the
+// middle. Whether the holes line up, and whether there are enough of them to
+// be a grid, is the whole question: a table has corridors running down it, a
+// drawing has a gap that recurs by luck.
 function holedPage(skipAt) {
   const words = [];
   for (let band = 0; band < 5; band++) {
@@ -256,7 +257,7 @@ function holedPage(skipAt) {
     // needs a shape of its own.
     for (const y of [top, top + 85]) {
       for (let i = 0; i < 9; i++) {
-        if (i === skip) continue;
+        if (skip.includes(i)) continue;
         words.push({ t: `b${band}w${i}`, x: 100 + i * 160, y, w: 120, h: 55 });
       }
     }
@@ -264,27 +265,31 @@ function holedPage(skipAt) {
   return { width: 2400, height: 3000, words };
 }
 
-describe('one hole is not a column', () => {
+describe('what counts as a column', () => {
   // Cells and pieces both make steps; what tells them apart is that two cells
   // are two rows, while two pieces of one line share theirs.
   const rowsIn = (plan) => new Set(plan.steps.map((s) => s.line)).size;
   const LINES = 10; // five rows of two lines
 
-  it('splits when the holes line up down the page', () => {
-    const plan = guidedPlan(holedPage(() => 4), stage);
-    expect(rowsIn(plan)).toBe(LINES * 2); // every line cut in two cells
+  it('splits when two corridors run down the page', () => {
+    const plan = guidedPlan(holedPage(() => [3, 6]), stage);
+    expect(rowsIn(plan)).toBe(LINES * 3); // every line cut into three cells
     const first = plan.steps.filter((s) => Math.round(s.y) === 200 && s.part === 0);
-    expect(first.map((s) => s.ink.x)).toEqual([100, 100 + 5 * 160]);
+    expect(first.map((s) => s.ink.x)).toEqual([100, 100 + 4 * 160, 100 + 7 * 160]);
   });
 
-  it('leaves the page alone when they do not', () => {
-    // Every row has a hole, each somewhere else: five accidents, not a column.
-    const plan = guidedPlan(holedPage((b) => [1, 4, 7, 2, 5][b]), stage);
+  it('leaves one corridor alone, however faithfully it recurs', () => {
+    // Every row has the same gap and nothing else: a drawing, not a table.
+    expect(rowsIn(guidedPlan(holedPage(() => [3]), stage))).toBe(LINES);
+  });
+
+  it('wants more than two rows to believe in a corridor', () => {
+    const plan = guidedPlan(holedPage((b) => (b < 2 ? [3, 6] : [[1], [5], [7]][b - 2])), stage);
     expect(rowsIn(plan)).toBe(LINES);
   });
 
-  it('wants more than two rows to believe in a column', () => {
-    const plan = guidedPlan(holedPage((b) => (b < 2 ? 4 : [1, 7, 2][b - 2])), stage);
+  it('leaves the page alone when the holes do not line up', () => {
+    const plan = guidedPlan(holedPage((b) => [[1], [3], [5], [7], [1]][b]), stage);
     expect(rowsIn(plan)).toBe(LINES);
   });
 });

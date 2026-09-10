@@ -81,6 +81,15 @@ const LINE_GAP = 0.25; // which gap counts as a line gap: the lower quartile
 // one.
 const MIN_BANDS = 3;
 
+// And one corridor is not a grid. Measured over sixty pages that this found
+// columns in: every page it read better has two corridors or more — a table
+// has four, a drawn flow of boxes three — while the ones it read worse have
+// exactly one, a single gap that recurs by chance. A page with one corridor
+// is left as lines, which costs the odd two-column list (read as one line, no
+// worse than it was) and buys back the diagram whose boxes were interleaved
+// and the heading that was cut in half.
+const MIN_COLUMNS = 2;
+
 // Maximal spans of ink along one axis, split wherever the gap exceeds `gap`.
 function lanes(spans, gap) {
   const sorted = [...spans].sort((a, b) => a.lo - b.lo);
@@ -163,7 +172,7 @@ function cells(words, rows, ink) {
     } else grid.push({ lo: c.lo, hi: c.hi, bands: new Set([c.b]) });
   }
   const columns = grid.filter((g) => g.bands.size >= MIN_BANDS);
-  if (!columns.length) return null;
+  if (columns.length < MIN_COLUMNS) return null;
 
   // A band splits only where its own gap has a column running through it, so
   // a heading that reaches across one is not cut by it, and a page that is
