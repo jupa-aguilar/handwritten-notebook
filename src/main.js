@@ -268,6 +268,26 @@ function useDevicePixels(flip) {
   ui.resizeCanvas(); // the constructor already ran the unpatched one
 }
 
+// StPageFlip's destroy() takes the book out of the DOM and unhooks its
+// listeners, but nothing stops the requestAnimationFrame loop Render.start()
+// began: it goes on redrawing the detached canvas every frame, for good, and
+// keeps every page image it was handed alive. renderBook() runs on each
+// import, notebook switch, reorder and sync that pulls changes, so a session
+// piled them up — harmless while the canvas was small, but at device pixels
+// six of them held the whole app to ~25 fps and the page turn to ~12.
+// The loop looks `render` up on the instance each frame, so shadowing it
+// leaves an empty callback behind; the rest lets the images and the backing
+// store go.
+function destroyBook(flip) {
+  const render = flip.getRender();
+  const canvas = flip.getUI().getCanvas();
+  flip.destroy();
+  render.render = () => {};
+  render.leftPage = render.rightPage = render.flippingPage = render.bottomPage = null;
+  flip.getPageCollection().destroy();
+  canvas.width = canvas.height = 0;
+}
+
 // Each renderBook() call gets a token; if another render starts while this one
 // is awaiting image decode, the stale one bails out instead of clobbering it.
 let renderToken = 0;
@@ -284,7 +304,7 @@ async function renderBook() {
   // otherwise the flipbook is built on a detached node and renders blank until a
   // full page refresh puts a fresh #book back.
   if (pageFlip) {
-    pageFlip.destroy();
+    destroyBook(pageFlip);
     pageFlip = null;
   }
   let el = document.getElementById('book');

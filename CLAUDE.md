@@ -221,6 +221,9 @@ state beyond the OAuth credentials.
 - Import the ESM build directly (`page-flip/dist/js/page-flip.module.js`); the package `main`
   is a UMD bundle that breaks under Vite.
 - `destroy()` removes the `#book` element from the DOM, so `renderBook()` recreates it.
+- `destroy()` also never stops the `requestAnimationFrame` loop `Render.start()` began, so
+  every rebuild left one redrawing a detached canvas forever. At device pixels, six of them
+  held the app to ~25 fps. Always tear down through `destroyBook()`, which empties that loop.
 - Images must be fully decoded before construction or the book renders blank.
 - It only refits on a window `resize` event: after anything that changes the book's available
   width (opening/closing `#panel` or `#chat`, fullscreen), dispatch a synthetic
