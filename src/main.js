@@ -249,10 +249,23 @@ function preloadImage(url) {
 //
 // Assigning canvas.width resets the whole 2D context state, so the transform
 // and the smoothing hint have to be set *after* it, on every resize.
+//
+// The smoothing hint depends on whether a page is moving. At rest it is 'high':
+// a page shrunk into its slot (a 2120px scan) needs more than the default
+// bilinear step, which samples too sparsely and thins out pen strokes. But
+// most stored pages are ~1050px wide and get *enlarged* into a Retina slot,
+// and Chrome enlarges at 'high' with a bicubic pass. That pass covers every
+// pixel of up to four pages, every frame, and it is what held a turn through
+// the real notebooks to 40-50 fps. 'medium' is bilinear with mipmaps.
+// Measured on those notebooks, it is pixel-identical to 'high' for a shrunk
+// page and within 3% on edge sharpness for an enlarged one, which no one can
+// see on a page in the middle of turning. It runs at 59 fps.
 function useDevicePixels(flip) {
   const ui = flip.getUI();
   const canvas = ui.getCanvas();
   const ctx = canvas.getContext('2d');
+  let moving = false;
+  const smooth = () => (ctx.imageSmoothingQuality = moving ? 'medium' : 'high');
   ui.resizeCanvas = () => {
     const dpr = window.devicePixelRatio || 1; // read each time: monitors differ
     const style = getComputedStyle(canvas);
@@ -261,10 +274,12 @@ function useDevicePixels(flip) {
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // A stored page is ~2300px wide and lands in a slot half that: the default
-    // bilinear step samples too sparsely and thins out pen strokes.
-    ctx.imageSmoothingQuality = 'high';
+    smooth();
   };
+  flip.on('changeState', (e) => {
+    moving = e.data !== 'read';
+    smooth();
+  });
   ui.resizeCanvas(); // the constructor already ran the unpatched one
 }
 

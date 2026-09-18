@@ -236,7 +236,10 @@ state beyond the OAuth credentials.
   `useDevicePixels()` replaces that method on the UI instance after `loadFromImages` and
   scales the context back to CSS units, so `getRect()` and everything positioned against it
   keep their meaning. It must re-apply the transform on every resize: assigning
-  `canvas.width` resets the context.
+  `canvas.width` resets the context. It also drops smoothing to `'medium'` while a page
+  moves and restores `'high'` at rest. Most stored pages are narrower than a Retina slot,
+  and Chrome enlarges at `'high'` with a bicubic pass on every frame, which cost a
+  turn 10-20 fps.
 
 ### Conventions
 
