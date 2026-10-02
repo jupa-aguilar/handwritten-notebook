@@ -19,8 +19,8 @@ answers questions about what you wrote.
 - **Page-turn animation** uses [StPageFlip](https://nodlik.github.io/StPageFlip/)
   for a real 3D page curl.
 - **Chat over your pages.** 💬 Chat answers questions using the transcriptions as
-  context. Two ways to run it: with an **OpenAI API key** it uses `gpt-5.6-luna`
-  ($1/$6 per million tokens in/out — well under a cent per message at the context
+  context. Two ways to run it: with an **OpenAI API key** it uses `gpt-6-luna`
+  ($0.10/$0.50 per million tokens in/out — well under a cent per message at the context
   size this app sends, but the transcribed pages do go to OpenAI); with no key it
   talks to a model you run yourself through
   [LM Studio](https://lmstudio.ai), which is free and private but only reachable

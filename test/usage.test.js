@@ -40,7 +40,7 @@ describe('this device on its own', () => {
   });
 
   it('prices input, cached input and output at their different rates', () => {
-    // 1M uncached input ($1) + 1M cached ($0.10) + 1M output ($6)
+    // 1M uncached input ($0.10) + 1M cached ($0.01) + 1M output ($0.50)
     recordSpend({
       prompt_tokens: 2_000_000,
       prompt_tokens_details: { cached_tokens: 1_000_000 },
@@ -49,7 +49,7 @@ describe('this device on its own', () => {
     const t = getTotals();
     expect(t.input).toBe(1_000_000);
     expect(t.cachedInput).toBe(1_000_000);
-    expect(t.dollars).toBeCloseTo(7.1, 6);
+    expect(t.dollars).toBeCloseTo(0.61, 6);
   });
 
   it('accumulates across messages', () => {

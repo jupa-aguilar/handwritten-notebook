@@ -34,9 +34,11 @@ const OTHERS_KEY = 'notebook.usageOthers'; // last known totals from other devic
 // by can't do that job now that a device's spend outlives its month.
 const DORMANT_MS = 180 * 24 * 60 * 60 * 1000;
 
-// Per million tokens, as published 2026-07. Cached input is what makes a
-// stable system prompt worth having — see buildSystemPrompt in chat.js.
-const PRICE_PER_MTOK = { input: 1.0, cachedInput: 0.1, output: 6.0 };
+// Per million tokens, as published 2026-10 for gpt-6-luna. Cached input is
+// what makes a stable system prompt worth having — see buildSystemPrompt in
+// chat.js. The tally keeps tokens, not dollars, so tokens counted before a
+// price change are repriced at these rates until the total is started over.
+const PRICE_PER_MTOK = { input: 0.1, cachedInput: 0.01, output: 0.5 };
 
 // The month the reader is having, not the one UTC is having. toISOString()
 // was rolling these counters over at 21:00 on the last day of the month for

@@ -89,7 +89,7 @@ async function cut(page, rect, mark, mode = 'cover') {
 
 // How wide the page goes out to the proofreader. This is the quality/price
 // dial of the whole feature, and it is the image and not the model: the check
-// runs on the same gpt-5.6-luna as the chat, where the page is priced as input
+// runs on the same gpt-6-luna as the chat, where the page is priced as input
 // tokens and those scale with its area. Full-size scans are two to three
 // thousand pixels across, which is far past what reading the words needs —
 // 1600 keeps an ordinary handwritten line around thirty pixels tall, still

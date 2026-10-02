@@ -2,7 +2,7 @@
 // speak OpenAI-style Chat Completions with SSE, so only the address, the auth
 // header and the model name differ:
 //
-//   - An API key in Settings → OpenAI's hosted gpt-5.6-luna. Costs money per
+//   - An API key in Settings → OpenAI's hosted gpt-6-luna. Costs money per
 //     message; the notebook pages are sent to OpenAI.
 //   - No key → whatever model LM Studio has loaded on this machine (Developer
 //     tab → Start Server, with CORS enabled). Free, private, works offline.
@@ -17,13 +17,14 @@ import { recordSpend } from './usage.js';
 const URL_KEY = 'notebook.lmstudio.url';
 const DEFAULT_URL = 'http://localhost:1234';
 
-// The hosted backend. Luna is the cheap tier of the GPT-5.6 family ($1/$6 per
-// million tokens as of 2026-07) — plenty for reading transcribed pages back.
-// Note the exact id: the bare `gpt-5.6` alias routes to Sol, six times the
-// output price, and nothing in the response would tell you.
+// The hosted backend. Luna is the cheap tier of the GPT-6 family ($0.10/$0.50
+// per million tokens as of 2026-10) — plenty for reading transcribed pages
+// back. Keep the id exact: on 5.6 the bare family alias routed to Sol, six
+// times the output price, and nothing in the response would tell you. The
+// prices live in usage.js and have to move with this id.
 const OPENAI_KEY_STORAGE = 'notebook.openaiKey';
 const OPENAI_URL = 'https://api.openai.com';
-const OPENAI_MODEL = 'gpt-5.6-luna';
+const OPENAI_MODEL = 'gpt-6-luna';
 const OPENAI_CONTEXT_TOKENS = 1_050_000;
 
 export function getOpenAiKey() {
@@ -54,7 +55,7 @@ function backend() {
 // hidden chain-of-thought before the first visible word, and hosted ones bill
 // for every one of those tokens. The 🧠 toggle turns it back on for hard
 // questions. Two mechanisms, belt and suspenders: reasoning_effort:"none" in
-// the request (native on gpt-5.6, honored by LM Studio for current
+// the request (native on gpt-6, honored by LM Studio for current
 // Qwen/gpt-oss-style models, ignored by the rest) plus Qwen's legacy
 // "/no_think" soft switch on the outgoing message copy (older local hybrids
 // only respect that; never shown in the bubble, never stored).
@@ -73,7 +74,7 @@ function isThinkingOn() {
 // lets the prompt cache work (see buildSystemPrompt). Whatever doesn't fit is
 // reported to the model rather than silently dropped.
 const CONTEXT_CHAR_BUDGET = 14000;
-const HOSTED_CONTEXT_CHAR_BUDGET = 120000; // ~34K tokens, ~3¢ uncached
+const HOSTED_CONTEXT_CHAR_BUDGET = 120000; // ~34K tokens, ~0.3¢ uncached
 const HISTORY_SENT = 12; // most recent messages included per request
 
 // Rough char↔token ratio for sizing the context. Deliberately low (mixed
